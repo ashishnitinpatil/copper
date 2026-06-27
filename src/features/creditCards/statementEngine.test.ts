@@ -19,11 +19,13 @@ function card(over: Partial<Account>): Account {
     statement_day: 15,
     due_day: 5,
     pay_from_account_id: null,
+    color: null,
+    icon: null,
     starts_on: '2020-01-01',
-    sort_order: 0,
     archived_at: null,
     created_at: '',
-  } as Account;
+    ...over,
+  };
 }
 
 function fakeDB(cards: Account[], balanceMinorById: Record<string, number> = {}): DB {
