@@ -1,0 +1,4 @@
+date,account,category,amount,currency,converted amount,currency,description
+15/01/2026,Cash,Groceries,-250,INR,-250,INR,Milk and bread
+16/01/2026,Cash,Salary,5000,INR,5000,INR,January pay
+17/01/2026,Cash,Transport,-80,INR,-80,INR,Bus fare
