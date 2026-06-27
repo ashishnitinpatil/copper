@@ -19,7 +19,9 @@ const CURRENCIES: Record<string, CurrencyMeta> = {
   AUD: { code: 'AUD', symbol: 'A$', decimals: 2 },
   CAD: { code: 'CAD', symbol: 'C$', decimals: 2 },
   SGD: { code: 'SGD', symbol: 'S$', decimals: 2 },
-  AED: { code: 'AED', symbol: 'د.إ', decimals: 2 },
+  // The new (2025) UAE dirham symbol has no font support yet (renders as tofu),
+  // so we use the plain "Dh" abbreviation, which is unambiguous and always renders.
+  AED: { code: 'AED', symbol: 'Dh ', decimals: 2 },
   CHF: { code: 'CHF', symbol: 'CHF', decimals: 2 },
 };
 
@@ -27,12 +29,12 @@ export function getCurrency(code: string): CurrencyMeta {
   return CURRENCIES[code] ?? { code, symbol: code, decimals: 2 };
 }
 
-// Some currency symbols (e.g. AED "د.إ") are strong right-to-left, which makes
-// the Unicode bidi algorithm reorder adjacent digits, signs and any following
-// text (a trailing "(76.6%)" rendered as "(%76.6)"). Wrap such symbols in a
-// first-strong isolate (FSI…PDI) so they stay a self-contained run that neither
-// reorders with nor bleeds into neighbours. LTR symbols ($, ₹, €…) are returned
-// untouched so plain-text output is unchanged for them.
+// A strong right-to-left currency symbol makes the Unicode bidi algorithm
+// reorder adjacent digits, signs and any following text (a trailing "(76.6%)"
+// rendered as "(%76.6)"). Wrap such symbols in a first-strong isolate (FSI…PDI)
+// so they stay a self-contained run that neither reorders with nor bleeds into
+// neighbours. LTR symbols ($, ₹, €, Dh…) are returned untouched so plain-text
+// output is unchanged for them. (Kept as a guard for any future RTL symbol.)
 const RTL_CHARS = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
 function isolateSymbol(symbol: string): string {
   return RTL_CHARS.test(symbol) ? `⁨${symbol}⁩` : symbol;
