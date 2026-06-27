@@ -1,0 +1,73 @@
+import { test, expect } from '@playwright/test';
+import { resetAndLoad, waitForDB } from './helpers';
+
+test.describe('Quick Entry', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetAndLoad(page, '/add');
+    await waitForDB(page);
+  });
+
+  test('shows keypad buttons', async ({ page }) => {
+    for (const d of ['0', '1', '5', '9']) {
+      await expect(page.getByRole('button', { name: d, exact: true })).toBeVisible();
+    }
+    await expect(page.getByRole('button', { name: '⌫' })).toBeVisible();
+  });
+
+  test('tap keypad to enter amount', async ({ page }) => {
+    await page.getByRole('button', { name: '2', exact: true }).click();
+    await page.getByRole('button', { name: '5', exact: true }).click();
+    await page.getByRole('button', { name: '0', exact: true }).click();
+
+    await expect(page.locator('main').getByText('₹250')).toBeVisible();
+  });
+
+  test('add an expense via category tap', async ({ page }) => {
+    await page.getByRole('button', { name: '1', exact: true }).click();
+    await page.getByRole('button', { name: '0', exact: true }).click();
+    await page.getByRole('button', { name: '0', exact: true }).click();
+
+    await page.getByRole('button', { name: /Food & Dining/ }).click();
+    await page.waitForTimeout(800);
+
+    await expect(page.locator('main').getByText('₹0')).toBeVisible();
+  });
+
+  test('add income entry', async ({ page }) => {
+    await page.locator('main button', { hasText: 'Income' }).click();
+
+    await page.getByRole('button', { name: '5', exact: true }).click();
+    await page.getByRole('button', { name: '0', exact: true }).click();
+    await page.getByRole('button', { name: '0', exact: true }).click();
+    await page.getByRole('button', { name: '0', exact: true }).click();
+    await page.getByRole('button', { name: '0', exact: true }).click();
+
+    await page.getByRole('button', { name: /Salary/ }).click();
+    await page.waitForTimeout(800);
+
+    await expect(page.locator('main').getByText('₹0')).toBeVisible();
+  });
+
+  test('backspace removes last digit', async ({ page }) => {
+    await page.getByRole('button', { name: '1', exact: true }).click();
+    await page.getByRole('button', { name: '2', exact: true }).click();
+    await page.getByRole('button', { name: '3', exact: true }).click();
+    await expect(page.locator('main').getByText('₹123')).toBeVisible();
+
+    await page.getByRole('button', { name: '⌫' }).click();
+    await expect(page.locator('main').getByText('₹12')).toBeVisible();
+  });
+
+  test('transaction appears in transactions list after adding', async ({ page }) => {
+    await page.getByRole('button', { name: '7', exact: true }).click();
+    await page.getByRole('button', { name: '5', exact: true }).click();
+    await page.getByRole('button', { name: '0', exact: true }).click();
+    await page.getByRole('button', { name: /Groceries/ }).click();
+    await page.waitForTimeout(800);
+
+    await page.getByRole('link', { name: 'Transactions', exact: true }).first().click();
+    await page.waitForTimeout(500);
+
+    await expect(page.locator('main li').getByText('Groceries').first()).toBeVisible();
+  });
+});

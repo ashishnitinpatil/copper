@@ -1,0 +1,306 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* App-wide keyboard focus indicator. Themed to the brand accent so it reads
+     on every theme; elements that opt out with `focus:outline-none` keep their
+     own ring (the utilities layer wins over this base rule). */
+  :focus-visible {
+    outline: 2px solid rgb(var(--b-400));
+    outline-offset: 2px;
+  }
+
+  /* Theme tokens as RGB channel triplets so Tailwind's /alpha modifiers work.
+     Default :root is "Warm Ledger"; [data-theme] blocks swap the canvas. */
+  :root {
+    /* warm espresso-ink neutral ramp */
+    --s-50: 248 243 235;
+    --s-100: 241 234 224;
+    --s-200: 228 218 205;
+    --s-300: 200 188 174;
+    --s-400: 168 154 140;
+    --s-500: 131 117 103;
+    --s-600: 87 77 67;
+    --s-700: 58 50 42;
+    --s-800: 42 35 29;
+    --s-900: 28 23 19;
+    --s-950: 20 16 13;
+
+    /* gold accent ramp (coins) */
+    --b-50: 253 246 233;
+    --b-100: 249 231 194;
+    --b-200: 242 207 134;
+    --b-300: 236 184 85;
+    --b-400: 230 165 50;
+    --b-500: 209 143 31;
+    --b-600: 173 113 23;
+    --b-700: 137 88 22;
+    --b-800: 110 70 23;
+    --b-900: 92 59 22;
+
+    /* money semantics */
+    --mint-300: 143 208 178;
+    --mint-400: 111 191 155;
+    --mint-500: 79 168 132;
+    --clay-300: 232 164 137;
+    --clay-400: 224 138 107;
+    --clay-500: 208 111 77;
+
+    /* status (semantic): light-tuned for dark canvases; the two light themes
+       below override with darker shades so banners stay legible on white/cream */
+    --ok: 110 231 183;
+    --warn: 252 211 77;
+    --danger: 252 165 165;
+    --info: 125 211 252;
+
+    color-scheme: dark;
+  }
+
+  [data-theme='slate'] {
+    /* cool blue-grey neutral ramp */
+    --s-50: 248 250 252;
+    --s-100: 241 245 249;
+    --s-200: 226 232 240;
+    --s-300: 203 213 225;
+    --s-400: 148 163 184;
+    --s-500: 100 116 139;
+    --s-600: 71 85 105;
+    --s-700: 51 65 85;
+    --s-800: 30 41 59;
+    --s-900: 15 23 42;
+    --s-950: 2 6 23;
+
+    /* teal accent */
+    --b-50: 238 249 243;
+    --b-100: 215 241 226;
+    --b-200: 177 227 199;
+    --b-300: 127 206 172;
+    --b-400: 78 179 143;
+    --b-500: 45 149 119;
+    --b-600: 31 120 96;
+    --b-700: 26 96 79;
+    --b-800: 23 77 65;
+    --b-900: 20 63 55;
+
+    /* classic emerald/red money semantics */
+    --mint-300: 110 231 183;
+    --mint-400: 52 211 153;
+    --mint-500: 16 185 129;
+    --clay-300: 252 165 165;
+    --clay-400: 248 113 113;
+    --clay-500: 239 68 68;
+  }
+
+  [data-theme='daylight'] {
+    /* warm paper light — ink-on-cream */
+    --s-50: 27 20 11;
+    --s-100: 39 31 21;
+    --s-200: 53 45 33;
+    --s-300: 74 65 51;
+    --s-400: 99 88 73;
+    --s-500: 122 111 94;
+    --s-600: 168 156 138;
+    --s-700: 219 209 192;
+    --s-800: 233 224 209;
+    --s-900: 252 249 243;
+    --s-950: 244 238 227;
+
+    /* deeper gold for contrast on light */
+    --b-50: 251 243 226;
+    --b-100: 245 228 188;
+    --b-200: 233 197 122;
+    --b-300: 217 162 63;
+    --b-400: 198 138 42;
+    --b-500: 173 118 25;
+    --b-600: 140 94 20;
+    --b-700: 110 74 20;
+    --b-800: 87 58 18;
+    --b-900: 70 48 15;
+
+    --mint-300: 95 176 136;
+    --mint-400: 47 133 90;
+    --mint-500: 33 105 70;
+    --clay-300: 200 116 90;
+    --clay-400: 176 74 46;
+    --clay-500: 146 58 35;
+
+    /* darker status shades for the cream canvas */
+    --ok: 21 105 70;
+    --warn: 146 64 14;
+    --danger: 159 35 26;
+    --info: 30 80 160;
+
+    color-scheme: light;
+  }
+
+  [data-theme='monokai'] {
+    /* the editor classic — flat charcoal with vivid accents */
+    --s-50: 248 248 242;
+    --s-100: 241 239 227;
+    --s-200: 227 223 205;
+    --s-300: 200 196 174;
+    --s-400: 171 167 145;
+    --s-500: 143 139 119;
+    --s-600: 117 113 94;
+    --s-700: 73 72 62;
+    --s-800: 58 59 49;
+    --s-900: 39 40 34;
+    --s-950: 30 31 28;
+
+    /* Monokai blue accent */
+    --b-50: 232 251 255;
+    --b-100: 199 244 251;
+    --b-200: 157 234 247;
+    --b-300: 127 225 242;
+    --b-400: 102 217 239;
+    --b-500: 63 200 228;
+    --b-600: 37 168 198;
+    --b-700: 33 137 162;
+    --b-800: 34 110 129;
+    --b-900: 32 91 106;
+
+    /* green income / pink expense */
+    --mint-300: 197 238 115;
+    --mint-400: 166 226 46;
+    --mint-500: 138 201 28;
+    --clay-300: 251 111 161;
+    --clay-400: 249 38 114;
+    --clay-500: 225 14 91;
+
+    color-scheme: dark;
+  }
+
+  [data-theme='classic'] {
+    /* the mainstream app look — white, neutral grey, trustworthy blue */
+    --s-50: 11 18 32;
+    --s-100: 17 24 39;
+    --s-200: 31 41 55;
+    --s-300: 55 65 81;
+    --s-400: 75 85 99;
+    --s-500: 107 114 128;
+    --s-600: 174 182 194;
+    --s-700: 213 218 225;
+    --s-800: 234 237 241;
+    --s-900: 255 255 255;
+    --s-950: 246 248 251;
+
+    /* blue accent */
+    --b-50: 239 245 255;
+    --b-100: 219 232 254;
+    --b-200: 191 214 254;
+    --b-300: 147 184 253;
+    --b-400: 92 144 248;
+    --b-500: 37 99 235;
+    --b-600: 29 79 208;
+    --b-700: 26 67 173;
+    --b-800: 27 60 140;
+    --b-900: 27 53 111;
+
+    /* classic green income / red expense */
+    --mint-300: 34 197 94;
+    --mint-400: 22 163 74;
+    --mint-500: 21 128 61;
+    --clay-300: 248 113 113;
+    --clay-400: 220 38 38;
+    --clay-500: 185 28 28;
+
+    /* darker status shades so banners stay legible on white */
+    --ok: 21 128 61;
+    --warn: 180 83 9;
+    --danger: 185 28 28;
+    --info: 29 78 216;
+
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Soften Fraunces so the money numerals feel crafted, not stiff. */
+  .font-display {
+    font-variation-settings: 'opsz' 36, 'SOFT' 40, 'WONK' 0;
+    font-feature-settings: 'tnum';
+    letter-spacing: -0.01em;
+  }
+
+  /* The "simple" themes drop the serif display face for a flat look: Monokai
+     goes monospace (editor feel), Classic goes clean sans (mainstream app). */
+  [data-theme='monokai'] .font-display {
+    font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+    font-variation-settings: normal;
+    letter-spacing: -0.02em;
+  }
+
+  [data-theme='classic'] .font-display {
+    font-family: 'Hanken Grotesk Variable', Inter, system-ui, sans-serif;
+    font-variation-settings: normal;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer components {
+  .nav-link {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-slate-50;
+  }
+
+  .nav-link-active {
+    @apply bg-slate-800 text-slate-50;
+  }
+
+  /* Category coin: hue comes in via --coin. Dark keeps the soft tint + bright
+     glyph; light themes darken the glyph and firm the tint so pastel hues stay
+     legible on a pale tile. */
+  .coin-disc {
+    background-color: color-mix(in srgb, var(--coin) 14%, transparent);
+    color: var(--coin);
+  }
+
+  [data-theme='daylight'] .coin-disc,
+  [data-theme='classic'] .coin-disc {
+    background-color: color-mix(in srgb, var(--coin) 20%, white);
+    color: color-mix(in srgb, var(--coin) 68%, black);
+  }
+}
+
+/* Gentle page-load assembly: top-level blocks fade and rise in a short stagger
+   so each screen settles into place rather than snapping in. Confined to
+   no-preference so reduced-motion users never see the hidden start state. */
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Exclude fixed overlays (toast, modals) — fade-rise's translateY would
+     clobber their own positioning transforms. */
+  .page-enter > *:not(.fixed) {
+    animation: fade-rise 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .page-enter > *:nth-child(2) {
+    animation-delay: 55ms;
+  }
+  .page-enter > *:nth-child(3) {
+    animation-delay: 110ms;
+  }
+  .page-enter > *:nth-child(4) {
+    animation-delay: 165ms;
+  }
+  .page-enter > *:nth-child(n + 5) {
+    animation-delay: 210ms;
+  }
+}
