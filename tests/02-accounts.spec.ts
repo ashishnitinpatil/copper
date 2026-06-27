@@ -14,7 +14,7 @@ test.describe('Accounts CRUD', () => {
     await page.getByLabel('Name').fill('HDFC Savings');
     await page.getByLabel('Type').selectOption('bank');
     await page.getByLabel('Currency').selectOption('INR');
-    await page.getByLabel('Opening balance').fill('50000');
+    await page.getByLabel('Starting balance').fill('50000');
     await page.getByRole('button', { name: 'Create' }).click();
 
     await expect(page.getByText('HDFC Savings')).toBeVisible();
@@ -26,13 +26,13 @@ test.describe('Accounts CRUD', () => {
     await page.getByLabel('Name').fill('ICICI Amazon Pay');
     await page.getByLabel('Type').selectOption('credit_card');
 
-    await expect(page.getByText('Card schedule')).toBeVisible();
+    await expect(page.getByText('Billing cycle')).toBeVisible();
     await page.getByLabel('Statement day').fill('15');
-    await page.getByLabel('Due day').fill('5');
+    await page.getByLabel('Payment due day').fill('5');
     await page.getByRole('button', { name: 'Create' }).click();
 
     await expect(page.getByText('ICICI Amazon Pay')).toBeVisible();
-    await expect(page.getByText(/Due day 5/)).toBeVisible();
+    await expect(page.getByText(/Payment due day 5/)).toBeVisible();
   });
 
   test('edit an existing account', async ({ page }) => {

@@ -51,7 +51,11 @@ export async function waitForDB(page: Page) {
 // presses Enter to choose the highlighted (first) match.
 export async function selectCombobox(scope: Page | Locator, label: string, optionLabel: string) {
   await scope.getByLabel(label, { exact: true }).click();
-  const search = scope.getByPlaceholder(/Search/);
+  // The dropdown is portalled to <body> (to escape the modal's clipping), so its
+  // search input lives outside `scope`. It auto-focuses on open, so grab it at the
+  // page level via :focus rather than scoping the placeholder query to the modal.
+  const root: Page = 'goto' in scope ? scope : scope.page();
+  const search = root.locator('input:focus');
   await search.fill(optionLabel);
   await search.press('Enter');
 }
