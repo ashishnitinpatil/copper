@@ -42,6 +42,8 @@ const SOURCE_LABEL: Record<string, string> = {
   'bulk-category': 'Recategorised in bulk',
   transfer: 'Transfer',
   tags: 'Tag change',
+  'category-merge': 'Merged categories',
+  'account-merge': 'Merged accounts',
 };
 
 function parseDiff(raw: string): ChangeDiff | null {

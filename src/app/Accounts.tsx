@@ -15,6 +15,8 @@ import {
   updateAccount,
   type AccountInput,
 } from '@/db/queries/accounts';
+import { mergeAccount, previewAccountMerge } from '@/db/queries/merge';
+import { MergeInto } from '@/components/MergeInto';
 import type { Account, AccountType } from '@/db/types';
 import { parseAmount, fromMinor, SUPPORTED_CURRENCIES } from '@/lib/money';
 import { Money } from '@/components/ui/Money';
@@ -165,12 +167,19 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
     emptyForm(defaultCurrency),
   );
   const [submitting, setSubmitting] = useState(false);
+  const [mergeImpact, setMergeImpact] = useState<number | null>(null);
 
   const title = existing ? 'Edit account' : 'New account';
 
   useEffect(() => {
     if (open) setForm(existing ? toForm(existing) : emptyForm(defaultCurrency));
   }, [open, existing, defaultCurrency]);
+
+  useEffect(() => {
+    if (!open || !existing) return;
+    setMergeImpact(null);
+    previewAccountMerge(db, existing.id).then(setMergeImpact);
+  }, [open, existing, db]);
 
   const update = useCallback(<K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -216,7 +225,19 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
     onClose();
   };
 
+  const handleMerge = async (targetId: string) => {
+    if (!existing) return;
+    await mergeAccount(db, existing.id, targetId);
+    onClose();
+  };
+
   const isArchived = !!existing?.archived_at;
+  // Merging mixes balances, so only same-currency accounts are valid targets.
+  const mergeOptions = existing
+    ? accounts
+        .filter((a) => a.id !== existing.id && a.currency === existing.currency)
+        .map((a) => ({ value: a.id, label: a.name }))
+    : [];
 
   return (
     <Modal open={open} onClose={onClose} title={title}>
@@ -344,6 +365,17 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
             </Button>
           </div>
         </div>
+        {existing && (
+          <MergeInto
+            key={existing.id}
+            noun="account"
+            extras="transfers, linked cards and recurring rules"
+            sourceName={existing.name}
+            impact={mergeImpact}
+            options={mergeOptions}
+            onMerge={handleMerge}
+          />
+        )}
       </div>
     </Modal>
   );

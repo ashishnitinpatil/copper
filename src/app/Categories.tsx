@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Combobox } from '@/components/ui/Combobox';
 import { Modal } from '@/components/ui/Modal';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
+import { MergeInto } from '@/components/MergeInto';
 import { useDB } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
 import {
@@ -19,6 +20,7 @@ import {
   updateCategory,
   type CategoryNode,
 } from '@/db/queries/categories';
+import { mergeCategory, previewCategoryMerge } from '@/db/queries/merge';
 import type { Category, CategoryKind } from '@/db/types';
 
 const PRESET_ICONS = ['🍽️', '🛒', '🚗', '💡', '🏠', '🏥', '🛍️', '🎬', '✈️', '📚', '🔁', '🎁', '🎯', '💼', '↩️', '➕'];
@@ -183,6 +185,7 @@ function CategoryFormModal({
   const [color, setColor] = useState('#94a3b8');
   const [parentId, setParentId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [mergeImpact, setMergeImpact] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -191,6 +194,12 @@ function CategoryFormModal({
     setColor(existing?.color ?? '#94a3b8');
     setParentId(existing?.parent_id ?? initialParentId);
   }, [open, existing, initialParentId]);
+
+  useEffect(() => {
+    if (!open || !existing) return;
+    setMergeImpact(null);
+    previewCategoryMerge(db, existing.id).then(setMergeImpact);
+  }, [open, existing, db]);
 
   const parentOptions = useMemo(() => {
     const excluded = new Set<string>();
@@ -236,6 +245,12 @@ function CategoryFormModal({
   const handleArchive = async () => {
     if (!existing) return;
     await archiveCategory(db, existing.id);
+    onClose();
+  };
+
+  const handleMerge = async (targetId: string) => {
+    if (!existing) return;
+    await mergeCategory(db, existing.id, targetId);
     onClose();
   };
 
@@ -321,6 +336,17 @@ function CategoryFormModal({
             </Button>
           </div>
         </div>
+        {existing && (
+          <MergeInto
+            key={existing.id}
+            noun="category"
+            extras="budgets, sub-categories and recurring rules"
+            sourceName={existing.name}
+            impact={mergeImpact}
+            options={parentOptions.map((o) => ({ value: o.id, label: o.label }))}
+            onMerge={handleMerge}
+          />
+        )}
       </div>
     </Modal>
   );
