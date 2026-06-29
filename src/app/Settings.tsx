@@ -36,6 +36,13 @@ import {
 } from '@/features/export/exportData';
 import { parseBackup, restoreBackup } from '@/features/export/restoreBackup';
 import { decryptBackup, encryptBackup, isEncryptedBackup, type EncryptedBackup } from '@/features/export/crypto';
+import {
+  listDevices,
+  getLocalDeviceName,
+  setLocalDeviceName,
+  defaultDeviceName,
+} from '@/db/changeLog';
+import type { Device } from '@/db/types';
 import { closeDB, openDB, requestLocalReset } from '@/db/client';
 import type { BackupFile } from '@/features/export/exportData';
 import { useTheme, THEMES } from '@/lib/theme';
@@ -65,15 +72,77 @@ export function Settings() {
 
       <RestoreSection />
 
-      <Card>
-        <h3 className="mb-2 text-sm font-semibold text-slate-300">This device</h3>
-        <div className="text-xs text-slate-500">
-          Device ID: <code className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">{siteId}</code>
-        </div>
-      </Card>
+      <ThisDeviceSection siteId={siteId} />
 
       <ResetDeviceSection />
     </PageShell>
+  );
+}
+
+function ThisDeviceSection({ siteId }: { siteId: string }) {
+  const db = useDB();
+  const [name, setName] = useState('');
+  const [saved, setSaved] = useState(false);
+  const devicesState = useQuery<Device[]>(
+    useCallback((d) => listDevices(d), []),
+    { deps: ['devices'] },
+  );
+
+  useEffect(() => {
+    getLocalDeviceName(db).then(setName);
+  }, [db]);
+
+  const others = (devicesState.data ?? []).filter((d) => d.site_id !== siteId);
+  const placeholder = defaultDeviceName(siteId);
+
+  const save = async () => {
+    await setLocalDeviceName(db, name);
+    setName(await getLocalDeviceName(db));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
+  return (
+    <Card>
+      <h3 className="mb-1 text-sm font-semibold text-slate-300">This device</h3>
+      <p className="mb-3 text-xs text-slate-500">
+        The name shown next to changes this device makes in the{' '}
+        <span className="text-slate-400">Activity</span> log. Pick something you'll recognise across
+        your phone and laptop.
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex-1 text-xs text-slate-400">
+          Device name
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={placeholder}
+            maxLength={40}
+            className="mt-1"
+          />
+        </label>
+        <Button variant="secondary" onClick={save} disabled={name.trim() === ''}>
+          {saved ? 'Saved' : 'Save'}
+        </Button>
+      </div>
+      <div className="mt-3 text-xs text-slate-500">
+        Device ID: <code className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">{siteId}</code>
+      </div>
+
+      {others.length > 0 && (
+        <div className="mt-4 border-t border-slate-800 pt-3">
+          <div className="mb-2 text-xs font-medium text-slate-400">Other devices in this book</div>
+          <ul className="space-y-1">
+            {others.map((d) => (
+              <li key={d.site_id} className="flex items-center justify-between text-xs text-slate-500">
+                <span className="text-slate-300">{d.name}</span>
+                <span>last seen {formatHumanDate(d.last_seen.slice(0, 10))}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
   );
 }
 

@@ -2,6 +2,7 @@ import type { DB } from '../wasm';
 import type { Transaction, TransactionKind } from '../types';
 import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
+import { logCreate, logUpdate, logDelete, newBatchId, snapshotEntity } from '../changeLog';
 
 export interface TransactionInput {
   account_id: string;
@@ -53,6 +54,7 @@ export async function createTransaction(db: DB, input: TransactionInput): Promis
       nowIso(),
     ],
   );
+  await logCreate(db, 'transaction', id);
   return id;
 }
 
@@ -61,6 +63,7 @@ export async function updateTransaction(
   id: string,
   input: TransactionInput,
 ): Promise<void> {
+  const before = await snapshotEntity(db, 'transaction', id);
   const signedAmount = input.kind === 'expense' ? -Math.abs(input.amount_minor) : Math.abs(input.amount_minor);
   await db.exec(
     `UPDATE transactions SET
@@ -77,16 +80,32 @@ export async function updateTransaction(
       id,
     ],
   );
+  await logUpdate(db, 'transaction', id, before);
 }
 
 export async function deleteTransaction(db: DB, id: string): Promise<void> {
   const rows = await db.execO<Transaction>('SELECT * FROM transactions WHERE id = ?', [id]);
   if (!rows[0]) return;
   const peer = rows[0].transfer_peer_id;
+  const peerRows = peer
+    ? await db.execO<Transaction>('SELECT * FROM transactions WHERE id = ?', [peer])
+    : [];
+  // One batch ties the two legs of a deleted transfer together.
+  const batchId = peer ? newBatchId() : null;
   await db.tx(async (tx) => {
     await tx.exec('DELETE FROM transactions WHERE id = ?', [id]);
+    await logDelete(db, 'transaction', rows[0] as unknown as Record<string, unknown>, {
+      exec: tx,
+      batchId,
+    });
     if (peer) {
       await tx.exec('DELETE FROM transactions WHERE id = ?', [peer]);
+      if (peerRows[0]) {
+        await logDelete(db, 'transaction', peerRows[0] as unknown as Record<string, unknown>, {
+          exec: tx,
+          batchId,
+        });
+      }
     }
   });
 }
@@ -99,11 +118,25 @@ export async function bulkSetCategory(
 ): Promise<void> {
   if (ids.length === 0) return;
   const placeholders = ids.map(() => '?').join(', ');
+  // Snapshot the rows that will actually change (transfers are excluded) so we
+  // can log a per-row update for each — keeping every transaction's history
+  // complete even when the category is set in bulk.
+  const before = await db.execO<Transaction>(
+    `SELECT * FROM transactions WHERE id IN (${placeholders}) AND kind != 'transfer'`,
+    ids,
+  );
   await db.exec(
     `UPDATE transactions SET category_id = ?
      WHERE id IN (${placeholders}) AND kind != 'transfer'`,
     [categoryId, ...ids],
   );
+  const batchId = before.length > 1 ? newBatchId() : null;
+  for (const row of before) {
+    await logUpdate(db, 'transaction', row.id, row as unknown as Record<string, unknown>, {
+      batchId,
+      source: 'bulk-category',
+    });
+  }
 }
 
 /** Delete many transactions, pulling in the matching peer leg of any transfer. */
@@ -118,7 +151,23 @@ export async function bulkDeleteTransactions(db: DB, ids: string[]): Promise<voi
   for (const p of peers) if (p.transfer_peer_id) all.add(p.transfer_peer_id);
   const allIds = [...all];
   const delPlaceholders = allIds.map(() => '?').join(', ');
-  await db.exec(`DELETE FROM transactions WHERE id IN (${delPlaceholders})`, allIds);
+  // Snapshot every row (including pulled-in transfer peers) before deleting, so
+  // each delete keeps its last-known state in the audit trail.
+  const before = await db.execO<Transaction>(
+    `SELECT * FROM transactions WHERE id IN (${delPlaceholders})`,
+    allIds,
+  );
+  const batchId = before.length > 1 ? newBatchId() : null;
+  await db.tx(async (tx) => {
+    await tx.exec(`DELETE FROM transactions WHERE id IN (${delPlaceholders})`, allIds);
+    for (const row of before) {
+      await logDelete(db, 'transaction', row as unknown as Record<string, unknown>, {
+        exec: tx,
+        batchId,
+        source: 'bulk-delete',
+      });
+    }
+  });
 }
 
 export async function listTransactions(
@@ -236,6 +285,11 @@ export async function createTransfer(db: DB, input: TransferInput): Promise<[str
       [toId, input.to_account_id, amount, fromId, occurred, input.note ?? null, now],
     );
   });
+
+  // Both legs share one batch so the UI can show them as a single transfer.
+  const batchId = newBatchId();
+  await logCreate(db, 'transaction', fromId, { batchId, source: 'transfer' });
+  await logCreate(db, 'transaction', toId, { batchId, source: 'transfer' });
 
   return [fromId, toId];
 }

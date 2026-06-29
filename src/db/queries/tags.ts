@@ -4,6 +4,7 @@ import type { TransactionWithMeta } from './transactions';
 import { uuid } from '../uuid';
 import { nowIso } from '@/lib/dates';
 import { convert, type FxRates } from '@/lib/fx';
+import { logCreate, logUpdate, newBatchId, recordChange, snapshotEntity } from '../changeLog';
 
 export interface TagInput {
   name: string;
@@ -54,10 +55,12 @@ export async function createTag(db: DB, input: TagInput): Promise<string> {
       nowIso(),
     ],
   );
+  await logCreate(db, 'tag', id);
   return id;
 }
 
 export async function updateTag(db: DB, id: string, input: TagInput): Promise<void> {
+  const before = await snapshotEntity(db, 'tag', id);
   await db.exec(
     `UPDATE tags SET name = ?, color = ?, icon = ?, starts_on = ?, ends_on = ?,
        budget_minor = ?, currency = ?
@@ -73,10 +76,13 @@ export async function updateTag(db: DB, id: string, input: TagInput): Promise<vo
       id,
     ],
   );
+  await logUpdate(db, 'tag', id, before);
 }
 
 export async function archiveTag(db: DB, id: string): Promise<void> {
+  const before = await snapshotEntity(db, 'tag', id);
   await db.exec('UPDATE tags SET archived_at = ? WHERE id = ?', [nowIso(), id]);
+  await logUpdate(db, 'tag', id, before);
 }
 
 // --- Links -----------------------------------------------------------------
@@ -120,6 +126,16 @@ export async function setTransactionTags(db: DB, txId: string, tagIds: string[])
         tagId,
       ]);
     }
+    // Tag links live on the transaction, so a tag change shows up in that
+    // transaction's history as an update to its `tags` set.
+    await recordChange(
+      db,
+      'transaction',
+      txId,
+      'update',
+      { changes: { tags: { old: [...current], new: tagIds } } },
+      { exec: tx, source: 'tags' },
+    );
   });
 }
 
@@ -127,11 +143,20 @@ export async function setTransactionTags(db: DB, txId: string, tagIds: string[])
 export async function bulkAddTag(db: DB, txIds: string[], tagId: string): Promise<void> {
   if (txIds.length === 0) return;
   const now = nowIso();
+  const batchId = txIds.length > 1 ? newBatchId() : null;
   await db.tx(async (tx) => {
     for (const txId of txIds) {
       await tx.exec(
         'INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id, created_at) VALUES (?, ?, ?)',
         [txId, tagId, now],
+      );
+      await recordChange(
+        db,
+        'transaction',
+        txId,
+        'update',
+        { changes: { tag_added: { old: null, new: tagId } } },
+        { exec: tx, batchId, source: 'tags' },
       );
     }
   });

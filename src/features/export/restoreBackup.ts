@@ -41,6 +41,7 @@ const COLUMN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 // Tables that own a remappable `id` primary key. `transaction_tags` is excluded:
 // it has a composite (transaction_id, tag_id) key and no id of its own.
+// `devices` is excluded too: it's keyed by a stable site id, not a mintable id.
 const ENTITY_TABLES = [
   'accounts',
   'categories',
@@ -49,7 +50,22 @@ const ENTITY_TABLES = [
   'budgets',
   'tags',
   'review_flags',
+  // change_log keys are append-only — minting fresh ones on restore avoids
+  // resurrecting tombstoned keys (the same reason every other entity is remapped).
+  'change_log',
 ] as const;
+
+// change_log.entity_id is a *polymorphic* foreign key: which table it points at
+// is named by the row's own `entity` column. Map that to the table whose id map
+// rewrites it, so a record's history stays attached after its id is remapped.
+const ENTITY_TO_TABLE: Record<string, string> = {
+  transaction: 'transactions',
+  account: 'accounts',
+  category: 'categories',
+  tag: 'tags',
+  budget: 'budgets',
+  recurring: 'recurring_rules',
+};
 
 // Foreign-key columns to rewrite to the freshly-minted ids, keyed by the table
 // whose id they point at. The schema declares no FK *constraints* (cr-sqlite
@@ -139,6 +155,17 @@ export function planRestore(backup: BackupFile, newId: () => string = uuid): Sta
       for (const c of cols) {
         if (isEntity && c === 'id') values[c] = newOwnId;
         else values[c] = remapFk(table, c, row[c] === undefined ? null : row[c]);
+      }
+
+      // change_log's foreign key is polymorphic — rewrite it through the id map
+      // for the table its `entity` column names. If the referenced record isn't
+      // in this backup (e.g. it was deleted), keep the original id: the entry is
+      // an orphan in per-record views but still readable in the global trail.
+      if (table === 'change_log') {
+        const target = ENTITY_TO_TABLE[String(row.entity)];
+        if (target && typeof row.entity_id === 'string' && row.entity_id !== '') {
+          values.entity_id = idMaps[target]?.get(row.entity_id) ?? row.entity_id;
+        }
       }
 
       // Drop orphans: a required parent that vanished in the remap.

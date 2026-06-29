@@ -4,6 +4,7 @@ import { uuid } from '../uuid';
 import { nowIso, startOfMonth, endOfMonth, toDateString } from '@/lib/dates';
 import { listCategories, getDescendantIds } from './categories';
 import { convert, type FxRates } from '@/lib/fx';
+import { logCreate, logUpdate, snapshotEntity } from '../changeLog';
 
 export interface BudgetInput {
   category_id: string;
@@ -96,16 +97,21 @@ export async function createBudget(db: DB, input: BudgetInput): Promise<string> 
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [id, input.category_id, input.period, input.amount_minor, input.currency, input.starts_on, nowIso()],
   );
+  await logCreate(db, 'budget', id);
   return id;
 }
 
 export async function updateBudget(db: DB, id: string, input: BudgetInput): Promise<void> {
+  const before = await snapshotEntity(db, 'budget', id);
   await db.exec(
     `UPDATE budgets SET category_id = ?, period = ?, amount_minor = ?, currency = ?, starts_on = ? WHERE id = ?`,
     [input.category_id, input.period, input.amount_minor, input.currency, input.starts_on, id],
   );
+  await logUpdate(db, 'budget', id, before);
 }
 
 export async function archiveBudget(db: DB, id: string): Promise<void> {
+  const before = await snapshotEntity(db, 'budget', id);
   await db.exec('UPDATE budgets SET archived_at = ? WHERE id = ?', [nowIso(), id]);
+  await logUpdate(db, 'budget', id, before);
 }

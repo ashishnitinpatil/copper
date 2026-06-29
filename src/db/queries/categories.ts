@@ -2,6 +2,7 @@ import type { DB } from '../wasm';
 import type { Category, CategoryKind } from '../types';
 import { uuid } from '../uuid';
 import { nowIso } from '@/lib/dates';
+import { logCreate, logUpdate, snapshotEntity } from '../changeLog';
 
 export interface CategoryInput {
   parent_id?: string | null;
@@ -91,10 +92,12 @@ export async function createCategory(db: DB, input: CategoryInput): Promise<stri
       now,
     ],
   );
+  await logCreate(db, 'category', id);
   return id;
 }
 
 export async function updateCategory(db: DB, id: string, input: CategoryInput): Promise<void> {
+  const before = await snapshotEntity(db, 'category', id);
   await db.exec(
     `UPDATE categories SET parent_id = ?, name = ?, kind = ?, icon = ?, color = ?, sort_order = ?
      WHERE id = ?`,
@@ -108,8 +111,11 @@ export async function updateCategory(db: DB, id: string, input: CategoryInput): 
       id,
     ],
   );
+  await logUpdate(db, 'category', id, before);
 }
 
 export async function archiveCategory(db: DB, id: string): Promise<void> {
+  const before = await snapshotEntity(db, 'category', id);
   await db.exec('UPDATE categories SET archived_at = ? WHERE id = ?', [nowIso(), id]);
+  await logUpdate(db, 'category', id, before);
 }

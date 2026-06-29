@@ -2,6 +2,7 @@ import type { DB } from '../wasm';
 import type { Account, AccountType } from '../types';
 import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
+import { logCreate, logUpdate, snapshotEntity } from '../changeLog';
 
 export interface AccountInput {
   name: string;
@@ -62,10 +63,12 @@ export async function createAccount(db: DB, input: AccountInput): Promise<string
   if (input.is_main) {
     await db.exec('UPDATE accounts SET is_main = 0 WHERE id != ?', [id]);
   }
+  await logCreate(db, 'account', id);
   return id;
 }
 
 export async function updateAccount(db: DB, id: string, input: AccountInput): Promise<void> {
+  const before = await snapshotEntity(db, 'account', id);
   const includeInTotal = input.include_in_total ?? defaultIncludeInTotal(input.type);
   await db.exec(
     `UPDATE accounts SET
@@ -93,14 +96,19 @@ export async function updateAccount(db: DB, id: string, input: AccountInput): Pr
   if (input.is_main) {
     await db.exec('UPDATE accounts SET is_main = 0 WHERE id != ?', [id]);
   }
+  await logUpdate(db, 'account', id, before);
 }
 
 export async function archiveAccount(db: DB, id: string): Promise<void> {
+  const before = await snapshotEntity(db, 'account', id);
   await db.exec('UPDATE accounts SET archived_at = ? WHERE id = ?', [nowIso(), id]);
+  await logUpdate(db, 'account', id, before);
 }
 
 export async function unarchiveAccount(db: DB, id: string): Promise<void> {
+  const before = await snapshotEntity(db, 'account', id);
   await db.exec('UPDATE accounts SET archived_at = NULL WHERE id = ?', [id]);
+  await logUpdate(db, 'account', id, before);
 }
 
 export interface AccountBalance {

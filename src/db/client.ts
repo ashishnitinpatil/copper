@@ -2,6 +2,7 @@ import { getSQLite, type DB } from './wasm';
 import { SCHEMA_NAME, SCHEMA_SQL } from './schema';
 import { seedIfEmpty } from './seed';
 import { materializeDueRecurrences } from './queries/recurring';
+import { ensureLocalDevice } from './changeLog';
 
 const DB_FILE = 'household.db';
 
@@ -59,6 +60,12 @@ export async function openDB(): Promise<DB> {
     const db = await sqlite.open(DB_FILE);
     await db.automigrateTo(SCHEMA_NAME, SCHEMA_SQL);
     await seedIfEmpty(db);
+    // Register this device (and refresh its last-seen) so the audit trail can
+    // show a friendly name for changes it makes. Best-effort: a failure here
+    // shouldn't keep the app from opening.
+    await ensureLocalDevice(db).catch((err) => {
+      console.error('Failed to register local device', err);
+    });
     // Don't block app startup if a rule has a malformed rrule, but do surface
     // the failure rather than swallowing it — otherwise pending recurrences go
     // missing with no trace.

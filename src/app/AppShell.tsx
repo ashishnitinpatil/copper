@@ -11,6 +11,7 @@ import {
   Tags,
   Bookmark,
   AlertCircle,
+  History,
   Terminal,
   Settings as SettingsIcon,
   MoreHorizontal,
@@ -36,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/accounts', label: 'Accounts', icon: Wallet },
   { to: '/categories', label: 'Categories', icon: Tags },
   { to: '/review', label: 'Review', icon: AlertCircle },
+  { to: '/activity', label: 'Activity', icon: History },
   { to: '/sql', label: 'SQL', icon: Terminal },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ];

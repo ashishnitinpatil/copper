@@ -28,6 +28,7 @@ import {
   setTransactionTags,
 } from '@/db/queries/tags';
 import { TagChip, TagPicker } from '@/components/ui/TagPicker';
+import { EntityHistory } from './Activity';
 import type { Account, Tag, Transaction, TransactionKind } from '@/db/types';
 import { formatMoney, parseAmount, fromMinor } from '@/lib/money';
 import { useDefaultCurrency } from './AppSettingsProvider';
@@ -592,6 +593,15 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
           </div>
         </div>
       )}
+
+      <details className="mt-4 border-t border-slate-800 pt-3">
+        <summary className="cursor-pointer list-none text-xs font-medium text-slate-400 hover:text-slate-200">
+          History
+        </summary>
+        <div className="mt-2">
+          <EntityHistory entity="transaction" entityId={existing.id} />
+        </div>
+      </details>
     </Modal>
   );
 }

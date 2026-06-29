@@ -11,6 +11,7 @@ import { Categories } from './Categories';
 import { Budgets } from './Budgets';
 import { Tags } from './Tags';
 import { Review } from './Review';
+import { Activity } from './Activity';
 import { Settings } from './Settings';
 import { Welcome } from './Welcome';
 import { WelcomeGate } from './WelcomeGate';
@@ -40,6 +41,7 @@ export const router = createBrowserRouter([
       { path: 'budgets', element: <Budgets /> },
       { path: 'tags', element: <Tags /> },
       { path: 'review', element: <Review /> },
+      { path: 'activity', element: <Activity /> },
       { path: 'settings', element: <Settings /> },
     ],
   },

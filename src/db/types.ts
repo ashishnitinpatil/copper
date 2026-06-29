@@ -101,3 +101,38 @@ export interface ReviewFlag {
   created_at: string;
   resolved_at: string | null;
 }
+
+/** The kinds of records the audit trail tracks. */
+export type ChangeEntity =
+  | 'transaction'
+  | 'account'
+  | 'category'
+  | 'tag'
+  | 'budget'
+  | 'recurring';
+export type ChangeOp = 'insert' | 'update' | 'delete';
+
+/** Parsed shape of `change_log.diff` (stored as JSON text). */
+export type ChangeDiff =
+  | { after: Record<string, unknown> }
+  | { before: Record<string, unknown> }
+  | { changes: Record<string, { old: unknown; new: unknown }> };
+
+export interface ChangeLogEntry {
+  id: string;
+  entity: ChangeEntity;
+  entity_id: string;
+  op: ChangeOp;
+  site_id: string;
+  at: string;
+  /** JSON-encoded `ChangeDiff`. */
+  diff: string;
+  batch_id: string | null;
+  source: string | null;
+}
+
+export interface Device {
+  site_id: string;
+  name: string;
+  last_seen: string;
+}

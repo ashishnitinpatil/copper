@@ -130,6 +130,38 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL DEFAULT ''
 );
 
+-- Append-only audit trail: one row per local add/edit/delete, synced so every
+-- device sees who changed what. \`entity\`/\`entity_id\` point (polymorphically,
+-- no FK) at the changed row; \`diff\` is a JSON snapshot — the full row on
+-- insert, {field:{old,new}} on update, the last-known row on delete — so a
+-- history can be read or a change reconstructed. \`site_id\` is the originating
+-- device (joins to \`devices\`); \`batch_id\`/\`source\` group bulk operations
+-- (an import, a multi-select delete) so the UI can collapse them.
+CREATE TABLE IF NOT EXISTS change_log (
+  id         TEXT NOT NULL PRIMARY KEY DEFAULT '',
+  entity     TEXT NOT NULL DEFAULT '',
+  entity_id  TEXT NOT NULL DEFAULT '',
+  op         TEXT NOT NULL DEFAULT '',
+  site_id    TEXT NOT NULL DEFAULT '',
+  at         TEXT NOT NULL DEFAULT '',
+  diff       TEXT NOT NULL DEFAULT '',
+  batch_id   TEXT,
+  source     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_changelog_entity ON change_log(entity, entity_id);
+CREATE INDEX IF NOT EXISTS idx_changelog_at ON change_log(at);
+CREATE INDEX IF NOT EXISTS idx_changelog_batch ON change_log(batch_id);
+
+-- Registry of every device that has touched the book, so the audit trail can
+-- show a friendly name instead of a raw site id. \`name\` is user-editable and
+-- syncs; \`last_seen\` is refreshed each boot.
+CREATE TABLE IF NOT EXISTS devices (
+  site_id   TEXT NOT NULL PRIMARY KEY DEFAULT '',
+  name      TEXT NOT NULL DEFAULT '',
+  last_seen TEXT NOT NULL DEFAULT ''
+);
+
 SELECT crsql_as_crr('accounts');
 SELECT crsql_as_crr('categories');
 SELECT crsql_as_crr('transactions');
@@ -138,4 +170,6 @@ SELECT crsql_as_crr('budgets');
 SELECT crsql_as_crr('tags');
 SELECT crsql_as_crr('transaction_tags');
 SELECT crsql_as_crr('review_flags');
+SELECT crsql_as_crr('change_log');
+SELECT crsql_as_crr('devices');
 `;

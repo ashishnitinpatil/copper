@@ -208,6 +208,36 @@ describe('planRestore', () => {
     const stmts = planRestore(makeBackup({ accounts: [{}] }), counter());
     expect(stmts.some((s) => s.sql.startsWith('INSERT INTO accounts '))).toBe(false);
   });
+
+  it('remaps change_log.entity_id polymorphically and preserves attribution', () => {
+    // ENTITY_TABLES order mints: accounts(a1=n0), transactions(t1=n1),
+    // then change_log rows last (l1=n2, l2=n3, l3=n4).
+    const stmts = planRestore(
+      makeBackup({
+        accounts: [{ id: 'a1', name: 'Cash' }],
+        transactions: [{ id: 't1', account_id: 'a1', amount_minor: -500 }],
+        change_log: [
+          { id: 'l1', entity: 'transaction', entity_id: 't1', op: 'insert', site_id: 'dev-A', at: '2026-06-01T00:00:00Z', diff: '{}' },
+          { id: 'l2', entity: 'account', entity_id: 'a1', op: 'insert', site_id: 'dev-A', at: '2026-06-01T00:00:00Z', diff: '{}' },
+          { id: 'l3', entity: 'transaction', entity_id: 'gone', op: 'delete', site_id: 'dev-B', at: '2026-06-01T00:00:00Z', diff: '{}' },
+        ],
+      }),
+      counter(),
+    );
+    const logs = decodeInserts(stmts, 'change_log');
+    const byEntity = (e: string, id?: string) =>
+      logs.find((r) => r.entity === e && (id === undefined || r.entity_id === id))!;
+
+    // entity_id is rewritten through the right table's id map…
+    expect(byEntity('transaction', 'n1').entity_id).toBe('n1');
+    expect(byEntity('account').entity_id).toBe('n0');
+    // …but an entry whose target row is gone keeps its original id (orphan, still readable).
+    expect(byEntity('transaction', 'gone').entity_id).toBe('gone');
+    // change_log's own id is freshly minted, and site_id is never remapped so
+    // attribution survives the round-trip.
+    for (const r of logs) expect(String(r.id)).toMatch(/^n\d+$/);
+    expect(logs.map((r) => r.site_id).sort()).toEqual(['dev-A', 'dev-A', 'dev-B']);
+  });
 });
 
 describe('restoreBackup', () => {

@@ -2,6 +2,7 @@ import type { DB } from '../wasm';
 import type { RecurringRule, TransactionKind } from '../types';
 import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
+import { logCreate, logUpdate, snapshotEntity } from '../changeLog';
 
 export interface RecurringTemplate {
   account_id: string;
@@ -31,6 +32,7 @@ export async function createRecurringRule(db: DB, input: RecurringRuleInput): Pr
      VALUES (?, ?, ?, ?, ?)`,
     [id, JSON.stringify(input.template), input.rrule, input.next_run_on, nowIso()],
   );
+  await logCreate(db, 'recurring', id);
   return id;
 }
 
@@ -39,14 +41,18 @@ export async function updateRecurringRule(
   id: string,
   input: RecurringRuleInput,
 ): Promise<void> {
+  const before = await snapshotEntity(db, 'recurring', id);
   await db.exec(
     `UPDATE recurring_rules SET template_json = ?, rrule = ?, next_run_on = ? WHERE id = ?`,
     [JSON.stringify(input.template), input.rrule, input.next_run_on, id],
   );
+  await logUpdate(db, 'recurring', id, before);
 }
 
 export async function archiveRecurringRule(db: DB, id: string): Promise<void> {
+  const before = await snapshotEntity(db, 'recurring', id);
   await db.exec('UPDATE recurring_rules SET archived_at = ? WHERE id = ?', [nowIso(), id]);
+  await logUpdate(db, 'recurring', id, before);
 }
 
 export async function materializeDueRecurrences(db: DB): Promise<number> {

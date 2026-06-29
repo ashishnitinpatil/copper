@@ -12,6 +12,10 @@ export const BACKUP_TABLES = [
   'review_flags',
   'tags',
   'transaction_tags',
+  // The audit trail and device registry travel with the data so history and
+  // attribution survive a backup/restore round-trip.
+  'change_log',
+  'devices',
 ] as const;
 
 function csvCell(value: unknown): string {

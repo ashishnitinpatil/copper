@@ -3,6 +3,7 @@ import type { AccountType, CategoryKind } from '@/db/types';
 import { uuid } from '@/db/uuid';
 import { nowIso } from '@/lib/dates';
 import { SETTINGS_KEYS } from '@/db/queries/settings';
+import { logCreateSnapshot, newBatchId } from '@/db/changeLog';
 import type { ImportPlan } from './parseMonefy';
 
 const ACCOUNT_TYPE_EMOJI: Record<AccountType, string> = {
@@ -88,6 +89,11 @@ export async function runMonefyImport(
   const now = nowIso();
   const accountIds = new Map<string, string>();
   const categoryIds = new Map<string, string>();
+  // Every row created by this import shares one batch + source, so the audit
+  // trail can show "imported 4,000 rows" as a collapsible group while still
+  // holding a per-row entry — each transaction keeps its own history.
+  const batchId = newBatchId();
+  const log = { batchId, source: 'monefy-import' as const };
 
   await db.tx(async (tx) => {
     if (overrides.wipeFirst) {
@@ -119,6 +125,30 @@ export async function runMonefyImport(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)`,
         [id, finalName, type, acct.currency, acct.openingBalanceMinor, isMain, includeInTotal, icon, '', now],
       );
+      await logCreateSnapshot(
+        db,
+        'account',
+        id,
+        {
+          id,
+          name: finalName,
+          type,
+          currency: acct.currency,
+          opening_balance_minor: acct.openingBalanceMinor,
+          is_main: isMain,
+          include_in_total: includeInTotal,
+          credit_limit_minor: null,
+          statement_day: null,
+          due_day: null,
+          pay_from_account_id: null,
+          color: null,
+          icon,
+          starts_on: '',
+          archived_at: null,
+          created_at: now,
+        },
+        { ...log, exec: tx },
+      );
       sortOrder++;
     }
 
@@ -130,8 +160,26 @@ export async function runMonefyImport(
       await tx.exec(
         `INSERT INTO categories (id, parent_id, name, kind, icon, color, sort_order, created_at)
          VALUES (?, NULL, ?, ?, ?, NULL, ?, ?)`,
-        [id, cat.name, cat.kind, icon, catSort++, now],
+        [id, cat.name, cat.kind, icon, catSort, now],
       );
+      await logCreateSnapshot(
+        db,
+        'category',
+        id,
+        {
+          id,
+          parent_id: null,
+          name: cat.name,
+          kind: cat.kind,
+          icon,
+          color: null,
+          sort_order: catSort,
+          archived_at: null,
+          created_at: now,
+        },
+        { ...log, exec: tx },
+      );
+      catSort++;
     }
 
     for (const t of plan.transactions) {
@@ -139,12 +187,31 @@ export async function runMonefyImport(
       const categoryId = categoryIds.get(t.category);
       if (!accountId || !categoryId) continue;
       const signed = t.kind === 'expense' ? -t.amountMinor : t.amountMinor;
+      const txId = uuid();
       await tx.exec(
         `INSERT INTO transactions (
           id, account_id, category_id, amount_minor, kind,
           transfer_peer_id, occurred_on, note, recurring_id, created_at
         ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?)`,
-        [uuid(), accountId, categoryId, signed, t.kind, t.date, t.note ?? null, now],
+        [txId, accountId, categoryId, signed, t.kind, t.date, t.note ?? null, now],
+      );
+      await logCreateSnapshot(
+        db,
+        'transaction',
+        txId,
+        {
+          id: txId,
+          account_id: accountId,
+          category_id: categoryId,
+          amount_minor: signed,
+          kind: t.kind,
+          transfer_peer_id: null,
+          occurred_on: t.date,
+          note: t.note ?? null,
+          recurring_id: null,
+          created_at: now,
+        },
+        { ...log, exec: tx },
       );
     }
 
@@ -163,6 +230,42 @@ export async function runMonefyImport(
         `INSERT INTO transactions (id, account_id, category_id, amount_minor, kind, transfer_peer_id, occurred_on, note, recurring_id, created_at)
          VALUES (?, ?, NULL, ?, 'transfer', ?, ?, ?, NULL, ?)`,
         [b, toId, tr.amountMinor, a, tr.date, tr.note ?? null, now],
+      );
+      await logCreateSnapshot(
+        db,
+        'transaction',
+        a,
+        {
+          id: a,
+          account_id: fromId,
+          category_id: null,
+          amount_minor: -tr.amountMinor,
+          kind: 'transfer',
+          transfer_peer_id: b,
+          occurred_on: tr.date,
+          note: tr.note ?? null,
+          recurring_id: null,
+          created_at: now,
+        },
+        { ...log, exec: tx },
+      );
+      await logCreateSnapshot(
+        db,
+        'transaction',
+        b,
+        {
+          id: b,
+          account_id: toId,
+          category_id: null,
+          amount_minor: tr.amountMinor,
+          kind: 'transfer',
+          transfer_peer_id: a,
+          occurred_on: tr.date,
+          note: tr.note ?? null,
+          recurring_id: null,
+          created_at: now,
+        },
+        { ...log, exec: tx },
       );
     }
 
