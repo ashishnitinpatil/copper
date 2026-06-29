@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { Card, EmptyState } from '@/components/ui/Card';
+import { Combobox } from '@/components/ui/Combobox';
 import { useDB } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
 import {
@@ -12,6 +13,14 @@ import {
   runAnomalyScanner,
   type ReviewFlagWithTx,
 } from '@/db/queries/reviewFlags';
+import {
+  findDuplicateAccounts,
+  findDuplicateCategories,
+  type DuplicateGroup,
+  type AccountDupMember,
+  type CategoryDupMember,
+} from '@/db/queries/duplicates';
+import { mergeAccount, mergeCategory } from '@/db/queries/merge';
 import { getSettingNumber, SETTINGS_KEYS } from '@/db/queries/settings';
 import { formatMoney } from '@/lib/money';
 import { useDefaultCurrency } from './AppSettingsProvider';
@@ -38,13 +47,31 @@ const REASON_COLOR: Record<string, string> = {
 export function Review() {
   const db = useDB();
   const [scanning, setScanning] = useState(false);
+  // Session-only "not a duplicate" hides — these suggestions are recomputed
+  // live, so there's no persisted dismissal; same-name pairs can be legitimate.
+  const [hiddenDups, setHiddenDups] = useState<Set<string>>(new Set());
 
   const flagsState = useQuery<ReviewFlagWithTx[]>(
     useCallback((d) => listOpenFlags(d), []),
     { deps: ['review_flags', 'transactions'] },
   );
 
+  const accountDupsState = useQuery<DuplicateGroup<AccountDupMember>[]>(
+    useCallback((d) => findDuplicateAccounts(d), []),
+    { deps: ['accounts', 'transactions'] },
+  );
+  const categoryDupsState = useQuery<DuplicateGroup<CategoryDupMember>[]>(
+    useCallback((d) => findDuplicateCategories(d), []),
+    { deps: ['categories', 'transactions'] },
+  );
+
   const flags = flagsState.data ?? [];
+  const accountDups = (accountDupsState.data ?? []).filter((g) => !hiddenDups.has(`acct:${g.label}`));
+  const categoryDups = (categoryDupsState.data ?? []).filter(
+    (g) => !hiddenDups.has(`cat:${g.label}`),
+  );
+
+  const hideDup = (key: string) => setHiddenDups((prev) => new Set(prev).add(key));
 
   const runScan = async () => {
     setScanning(true);
@@ -65,6 +92,16 @@ export function Review() {
     await resolveDuplicate(db, flag.id, keepId, deleteId);
   };
 
+  const mergeAccounts = async (keepId: string, sourceIds: string[]) => {
+    for (const id of sourceIds) await mergeAccount(db, id, keepId);
+  };
+  const mergeCategories = async (keepId: string, sourceIds: string[]) => {
+    for (const id of sourceIds) await mergeCategory(db, id, keepId);
+  };
+
+  const nothingToShow =
+    flags.length === 0 && accountDups.length === 0 && categoryDups.length === 0;
+
   return (
     <PageShell
       title="Review"
@@ -75,7 +112,7 @@ export function Review() {
         </Button>
       }
     >
-      {flags.length === 0 ? (
+      {nothingToShow ? (
         <EmptyState
           title="All clear"
           description="Nothing to review. Run a check to look for duplicates or unusual entries."
@@ -86,28 +123,191 @@ export function Review() {
           }
         />
       ) : (
-        <div className="space-y-3">
-          <div className="text-sm text-slate-400">{flags.length} item{flags.length !== 1 ? 's' : ''} to review</div>
-          {flags.map((flag) => (
-            <FlagCard
-              key={flag.id}
-              flag={flag}
-              onDismiss={() => handleDismiss(flag.id)}
-              onResolveDuplicate={
-                flag.reason === 'duplicate' && flag.related_transaction_id
-                  ? (keepFirst: boolean) =>
-                      handleResolveDuplicate(
-                        flag,
-                        keepFirst ? flag.transaction_id : flag.related_transaction_id!,
-                        keepFirst ? flag.related_transaction_id! : flag.transaction_id,
-                      )
-                  : undefined
-              }
-            />
-          ))}
+        <div className="space-y-6">
+          {flags.length > 0 && (
+            <div className="space-y-3">
+              <div className="text-sm text-slate-400">
+                {flags.length} transaction{flags.length !== 1 ? 's' : ''} to review
+              </div>
+              {flags.map((flag) => (
+                <FlagCard
+                  key={flag.id}
+                  flag={flag}
+                  onDismiss={() => handleDismiss(flag.id)}
+                  onResolveDuplicate={
+                    flag.reason === 'duplicate' && flag.related_transaction_id
+                      ? (keepFirst: boolean) =>
+                          handleResolveDuplicate(
+                            flag,
+                            keepFirst ? flag.transaction_id : flag.related_transaction_id!,
+                            keepFirst ? flag.related_transaction_id! : flag.transaction_id,
+                          )
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          )}
+
+          {accountDups.length > 0 && (
+            <DuplicateSection title="Possible duplicate accounts">
+              {accountDups.map((group) => (
+                <DuplicateGroupCard
+                  key={`acct:${group.label}`}
+                  noun="account"
+                  label={group.label}
+                  members={group.members.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    sub: `${formatMoney(m.balance_minor, m.currency)} · ${m.tx_count} tx${
+                      m.is_main ? ' · main' : ''
+                    }`,
+                    // Default to keeping the most-used row; the survivor inherits
+                    // the "main" flag anyway via mergeAccount.
+                    keepPriority: m.tx_count,
+                  }))}
+                  onMerge={mergeAccounts}
+                  onDismiss={() => hideDup(`acct:${group.label}`)}
+                />
+              ))}
+            </DuplicateSection>
+          )}
+
+          {categoryDups.length > 0 && (
+            <DuplicateSection title="Possible duplicate categories">
+              {categoryDups.map((group) => (
+                <DuplicateGroupCard
+                  key={`cat:${group.label}`}
+                  noun="category"
+                  label={group.label}
+                  members={group.members.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                    sub: `${m.tx_count} transaction${m.tx_count === 1 ? '' : 's'}`,
+                    keepPriority: m.tx_count,
+                  }))}
+                  onMerge={mergeCategories}
+                  onDismiss={() => hideDup(`cat:${group.label}`)}
+                />
+              ))}
+            </DuplicateSection>
+          )}
         </div>
       )}
     </PageShell>
+  );
+}
+
+function DuplicateSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold text-slate-300">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+interface DupDisplayMember {
+  id: string;
+  name: string;
+  sub: string;
+  keepPriority: number;
+}
+
+interface DuplicateGroupCardProps {
+  noun: string;
+  label: string;
+  members: DupDisplayMember[];
+  onMerge: (keepId: string, sourceIds: string[]) => Promise<void>;
+  onDismiss: () => void;
+}
+
+function DuplicateGroupCard({ noun, label, members, onMerge, onDismiss }: DuplicateGroupCardProps) {
+  const [keepId, setKeepId] = useState(
+    () => [...members].sort((a, b) => b.keepPriority - a.keepPriority)[0]?.id ?? '',
+  );
+  const [confirming, setConfirming] = useState(false);
+  const [merging, setMerging] = useState(false);
+
+  const keptName = members.find((m) => m.id === keepId)?.name ?? '';
+  const sourceIds = members.filter((m) => m.id !== keepId).map((m) => m.id);
+
+  const handleMerge = async () => {
+    if (!keepId) return;
+    setMerging(true);
+    try {
+      await onMerge(keepId, sourceIds);
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  return (
+    <Card>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="rounded-full bg-warning/20 px-2 py-0.5 text-xs font-medium text-warning">
+          {members.length} entries named “{label}”
+        </span>
+      </div>
+
+      <ul className="space-y-1.5">
+        {members.map((m) => (
+          <li
+            key={m.id}
+            className="flex items-center justify-between rounded-lg bg-slate-800/50 px-3 py-2 text-sm"
+          >
+            <span className="text-slate-200">
+              {m.id === keepId && <span className="mr-1 text-success">✓</span>}
+              {m.name}
+            </span>
+            <span className="text-xs text-slate-500">{m.sub}</span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-3 space-y-3">
+        <Combobox
+          label="Keep this one"
+          value={keepId}
+          onChange={(v) => {
+            setKeepId(v);
+            setConfirming(false);
+          }}
+          options={members.map((m) => ({ value: m.id, label: m.name }))}
+        />
+        {confirming ? (
+          <div className="space-y-2 rounded-md border border-danger/40 bg-danger/10 p-3">
+            <p className="text-xs text-danger">
+              Merge the other {sourceIds.length} {noun}
+              {sourceIds.length === 1 ? '' : 's'} into “{keptName}” and permanently delete{' '}
+              {sourceIds.length === 1 ? 'it' : 'them'}? There is no undo.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" disabled={merging} onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
+              <Button variant="danger" size="sm" disabled={merging} onClick={handleMerge}>
+                {merging ? 'Merging…' : 'Yes, merge'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={onDismiss}>
+              Not duplicates
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={!keepId || sourceIds.length === 0}
+              onClick={() => setConfirming(true)}
+            >
+              Merge into “{keptName}”
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 
