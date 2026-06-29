@@ -3,6 +3,8 @@ import type { Transaction, TransactionKind } from '../types';
 import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
 import { logCreate, logUpdate, logDelete, newBatchId, snapshotEntity } from '../changeLog';
+import { fuzzyScore } from '@/lib/fuzzy';
+import { parseAmount } from '@/lib/money';
 
 export interface TransactionInput {
   account_id: string;
@@ -224,6 +226,83 @@ export async function listTransactions(
   `;
   params.push(limit, offset);
   return db.execO<TransactionWithMeta>(sql, params);
+}
+
+/**
+ * Search transactions by free text (typo-tolerant, fuzzy-ranked) and/or amount.
+ * A numeric query matches transactions whose absolute amount equals it; text is
+ * matched fuzzily across note, category and account name. The structured filters
+ * still apply and narrow the candidate set first; ranking happens in JS since
+ * SQLite here has no full-text or edit-distance support. Returns the best
+ * matches, highest relevance first.
+ */
+export async function searchTransactions(
+  db: DB,
+  query: string,
+  filter: TransactionFilter = {},
+  currency = 'USD',
+): Promise<TransactionWithMeta[]> {
+  const q = query.trim();
+  if (!q) return listTransactions(db, filter);
+
+  const where: string[] = [];
+  const params: (string | number)[] = [];
+  if (filter.accountId) {
+    where.push('t.account_id = ?');
+    params.push(filter.accountId);
+  }
+  if (filter.categoryId) {
+    where.push('t.category_id = ?');
+    params.push(filter.categoryId);
+  }
+  if (filter.tagId) {
+    where.push(
+      'EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = ?)',
+    );
+    params.push(filter.tagId);
+  }
+  if (filter.kind) {
+    where.push('t.kind = ?');
+    params.push(filter.kind);
+  }
+  if (filter.dateFrom) {
+    where.push('t.occurred_on >= ?');
+    params.push(filter.dateFrom);
+  }
+  if (filter.dateTo) {
+    where.push('t.occurred_on <= ?');
+    params.push(filter.dateTo);
+  }
+
+  // Pull the filtered candidates (capped for safety) and rank them in JS.
+  const candidates = await db.execO<TransactionWithMeta>(
+    `SELECT t.*, a.name AS account_name, a.currency AS account_currency,
+            c.name AS category_name, c.icon AS category_icon, c.color AS category_color
+     FROM transactions t
+     JOIN accounts a ON a.id = t.account_id
+     LEFT JOIN categories c ON c.id = t.category_id
+     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+     ORDER BY t.occurred_on DESC, t.created_at DESC
+     LIMIT 20000`,
+    params,
+  );
+
+  const amountMinor = parseAmount(q, currency);
+  const absAmount = amountMinor != null ? Math.abs(amountMinor) : null;
+
+  const scored: { row: TransactionWithMeta; score: number }[] = [];
+  for (const row of candidates) {
+    let score = 0;
+    if (absAmount != null && Math.abs(row.amount_minor) === absAmount) score = 1;
+    const text = `${row.note ?? ''} ${row.category_name ?? ''} ${row.account_name}`;
+    const textScore = fuzzyScore(q, text);
+    if (textScore > score) score = textScore;
+    if (score > 0) scored.push({ row, score });
+  }
+  scored.sort(
+    (x, y) => y.score - x.score || y.row.occurred_on.localeCompare(x.row.occurred_on),
+  );
+  return scored.slice(0, filter.limit ?? 500).map((s) => s.row);
 }
 
 export async function countTransactions(db: DB, filter: TransactionFilter = {}): Promise<number> {

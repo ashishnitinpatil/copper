@@ -17,6 +17,7 @@ import {
   createTransfer,
   deleteTransaction,
   listTransactions,
+  searchTransactions,
   updateTransaction,
   type TransactionWithMeta,
 } from '@/db/queries/transactions';
@@ -33,6 +34,15 @@ import type { Account, Tag, Transaction, TransactionKind } from '@/db/types';
 import { formatMoney, parseAmount, fromMinor } from '@/lib/money';
 import { useDefaultCurrency } from './AppSettingsProvider';
 import { formatRelativeDate, toDateString } from '@/lib/dates';
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 export function Transactions() {
   const [filters, setFilters] = useState<{
@@ -109,19 +119,36 @@ export function Transactions() {
     setSelected(new Set());
   };
 
+  const defaultCurrency = useDefaultCurrency();
+  // Debounce only the text query so each keystroke doesn't re-scan the table.
+  const debouncedSearch = useDebouncedValue(filters.search, 250);
+
   const loader = useCallback(
-    (db: import('@/db/wasm').DB) =>
-      listTransactions(db, {
+    (db: import('@/db/wasm').DB) => {
+      const base = {
         accountId: filters.accountId || undefined,
         categoryId: filters.categoryId || undefined,
         tagId: filters.tagId || undefined,
         kind: filters.kind || undefined,
         dateFrom: filters.dateFrom || undefined,
         dateTo: filters.dateTo || undefined,
-        search: filters.search || undefined,
         limit: 500,
-      }),
-    [filters],
+      };
+      const q = debouncedSearch.trim();
+      return q
+        ? searchTransactions(db, q, base, defaultCurrency)
+        : listTransactions(db, base);
+    },
+    [
+      filters.accountId,
+      filters.categoryId,
+      filters.tagId,
+      filters.kind,
+      filters.dateFrom,
+      filters.dateTo,
+      debouncedSearch,
+      defaultCurrency,
+    ],
   );
   const txQuery = useQuery(loader, {
     deps: ['transactions', 'accounts', 'categories', 'transaction_tags'],
@@ -202,7 +229,7 @@ export function Transactions() {
             label="Search"
             value={filters.search}
             onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-            placeholder="Notes, category…"
+            placeholder="Note, category, or amount…"
           />
         </div>
       </Card>
