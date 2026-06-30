@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageShell } from './PageShell';
 import { Card, EmptyState } from '@/components/ui/Card';
+import { InfoHint } from '@/components/ui/InfoHint';
 import { useQuery } from '@/db/useQuery';
 import { listAccounts, getAccountBalances, type AccountBalance } from '@/db/queries/accounts';
 import { listRecurringRules } from '@/db/queries/recurring';
@@ -251,19 +252,31 @@ export function Cashflow() {
           : 'Your balance over time, with a trend projection from recent months'
       }
     >
-      <div className="flex gap-1 rounded-lg bg-slate-900 p-1 sm:w-fit">
-        {(['forecast', 'trend'] as Mode[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={`rounded-md px-4 py-1.5 text-sm font-medium capitalize transition ${
-              mode === m ? 'bg-brand-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            {m === 'forecast' ? 'Forecast' : 'Trend'}
-          </button>
-        ))}
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 rounded-lg bg-slate-900 p-1 sm:w-fit">
+          {(['forecast', 'trend'] as Mode[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium capitalize transition ${
+                mode === m ? 'bg-brand-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {m === 'forecast' ? 'Forecast' : 'Trend'}
+            </button>
+          ))}
+        </div>
+        <InfoHint label="Forecast vs Trend" title="Two ways to project">
+          <span className="mb-1.5 block">
+            <span className="font-medium text-slate-300">Forecast</span> — projects from your
+            explicit recurring rules only.
+          </span>
+          <span className="block">
+            <span className="font-medium text-slate-300">Trend</span> — a flat average of recent full
+            months, excluding transfers and the current partial month.
+          </span>
+        </InfoHint>
       </div>
 
       {mode === 'forecast' && (

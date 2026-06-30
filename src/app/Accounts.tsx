@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
+import { InfoHint } from '@/components/ui/InfoHint';
 import { Card, EmptyState } from '@/components/ui/Card';
 import { Input, Select } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -268,6 +269,13 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Starting balance"
+            labelHint={
+              <InfoHint label="About the starting balance" title="Starting balance">
+                The balance on the <span className="font-medium text-slate-300">Balance on</span>{' '}
+                date. Transactions dated before it aren’t counted — move that date earlier to fold in
+                older history.
+              </InfoHint>
+            }
             value={form.opening_input}
             inputMode="decimal"
             onChange={(e) => update('opening_input', e.target.value)}

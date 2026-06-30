@@ -4,6 +4,7 @@ import { Wallet, TrendingUp, TrendingDown, Minus, AlertTriangle, ArrowRight, X }
 import { useAuth } from '@/auth/AuthProvider';
 import { PageShell } from './PageShell';
 import { Card, EmptyState } from '@/components/ui/Card';
+import { InfoHint } from '@/components/ui/InfoHint';
 import { useQuery } from '@/db/useQuery';
 import {
   listAccounts,
@@ -282,6 +283,10 @@ function TotalBalanceCard({ totals }: { totals: CurrencyTotal[] }) {
       <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
         <Wallet className="h-3.5 w-3.5" />
         Total balance
+        <InfoHint label="How the balance is calculated" title="As of today">
+          Balances count transactions up to today only. Future-dated entries —
+          scheduled EMIs and the like — aren’t included until their date arrives.
+        </InfoHint>
       </div>
       <div className={`mt-3 grid gap-4 ${totals.length > 1 ? 'sm:grid-cols-2 lg:grid-cols-3' : ''}`}>
         {totals.map((t) => {

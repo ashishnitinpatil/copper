@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, EmptyState } from '@/components/ui/Card';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { Combobox } from '@/components/ui/Combobox';
+import { InfoHint } from '@/components/ui/InfoHint';
 import { Modal } from '@/components/ui/Modal';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useDB } from '@/db/DBProvider';
@@ -44,39 +45,6 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-/** A "?" that reveals search syntax tips on hover or keyboard focus. */
-function SearchHelp() {
-  return (
-    <span className="group relative inline-flex">
-      <button
-        type="button"
-        aria-label="How search works"
-        className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-600 text-[10px] font-semibold leading-none text-slate-400 transition-colors hover:border-brand-400 hover:text-brand-300 focus:border-brand-400 focus:text-brand-300 focus:outline-none"
-      >
-        ?
-      </button>
-      <span
-        role="tooltip"
-        className="invisible absolute right-0 top-6 z-20 w-64 translate-y-1 rounded-lg border border-slate-700 bg-slate-900 p-3 text-left opacity-0 shadow-xl transition-all duration-150 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100"
-      >
-        <span className="mb-2 block text-xs font-semibold normal-case tracking-normal text-slate-200">
-          Search tips
-        </span>
-        <span className="block text-xs leading-relaxed text-slate-400">
-          <span className="mb-1.5 block">
-            <span className="font-medium text-slate-300">Text</span> — notes, category &amp;
-            account, and it shrugs off typos.{' '}
-            <span className="text-slate-500">“strbcks” finds “Starbucks”.</span>
-          </span>
-          <span className="block">
-            <span className="font-medium text-slate-300">Amount</span> — matches the precision you
-            type. <span className="text-slate-500">“48” → 48.00–48.99, “48.99” exact.</span>
-          </span>
-        </span>
-      </span>
-    </span>
-  );
-}
 
 export function Transactions() {
   const [filters, setFilters] = useState<{
@@ -259,23 +227,25 @@ export function Transactions() {
             value={filters.dateTo}
             onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
           />
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5">
-              <label
-                htmlFor="txn-search"
-                className="block text-xs font-medium uppercase tracking-wide text-slate-400"
-              >
-                Search
-              </label>
-              <SearchHelp />
-            </div>
-            <Input
-              id="txn-search"
-              value={filters.search}
-              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-              placeholder="Note, category, or amount…"
-            />
-          </div>
+          <Input
+            label="Search"
+            labelHint={
+              <InfoHint label="How search works" title="Search tips" align="right">
+                <span className="mb-1.5 block">
+                  <span className="font-medium text-slate-300">Text</span> — notes, category &amp;
+                  account, and it shrugs off typos.{' '}
+                  <span className="text-slate-500">“strbcks” finds “Starbucks”.</span>
+                </span>
+                <span className="block">
+                  <span className="font-medium text-slate-300">Amount</span> — matches the precision
+                  you type. <span className="text-slate-500">“48” → 48.00–48.99, “48.99” exact.</span>
+                </span>
+              </InfoHint>
+            }
+            value={filters.search}
+            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+            placeholder="Note, category, or amount…"
+          />
         </div>
       </Card>
 
