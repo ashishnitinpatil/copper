@@ -55,7 +55,7 @@ test.describe('Consolidation — merge', () => {
     await navigateTo(page, 'Accounts');
     await page.getByRole('button', { name: '+ New account' }).first().click();
     await page.getByLabel('Name', { exact: true }).fill('Savings');
-    await page.getByLabel('Starting balance').fill('1000');
+    await page.getByLabel('Starting balance', { exact: true }).fill('1000');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(500);
 

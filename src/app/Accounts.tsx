@@ -290,7 +290,15 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
         </div>
         {form.type === 'credit_card' && (
           <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-            <div className="text-xs font-semibold uppercase text-slate-500">Billing cycle</div>
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-500">
+              Billing cycle
+              <InfoHint label="How billing affects Cashflow" title="Drives the bill forecast">
+                Set a <span className="font-medium text-slate-300">Statement day</span> for
+                this card to appear under Upcoming card bills. Its payment is only projected
+                into Cashflow once you pick a <span className="font-medium text-slate-300">Pay
+                bill from</span> account below.
+              </InfoHint>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Input
                 label="Statement day"

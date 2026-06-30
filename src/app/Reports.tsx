@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { PageShell } from './PageShell';
 import { Card, EmptyState } from '@/components/ui/Card';
+import { InfoHint } from '@/components/ui/InfoHint';
 import { useQuery } from '@/db/useQuery';
 import type { DB } from '@/db/wasm';
 import { formatMoney } from '@/lib/money';
@@ -142,8 +143,12 @@ export function Reports() {
               className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-50 focus:border-brand-500 focus:outline-none"
             />
             {grandTotal > 0 && (
-              <div className="text-sm text-slate-400">
+              <div className="flex items-center gap-1.5 text-sm text-slate-400">
                 Total: {formatMoney(grandTotal, currency)}
+                <InfoHint label="What the total counts" title="Expenses only" align="right">
+                  This adds up spending by category — income and transfers between
+                  your accounts aren’t included.
+                </InfoHint>
               </div>
             )}
           </div>

@@ -1,6 +1,7 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
+import { InfoHint } from '@/components/ui/InfoHint';
 import { Card, EmptyState } from '@/components/ui/Card';
 import { Combobox } from '@/components/ui/Combobox';
 import { useDB } from '@/db/DBProvider';
@@ -248,6 +249,11 @@ function DuplicateGroupCard({ noun, label, members, onMerge, onDismiss }: Duplic
         <span className="rounded-full bg-warning/20 px-2 py-0.5 text-xs font-medium text-warning">
           {members.length} entries named “{label}”
         </span>
+        <InfoHint label="About these suggestions" title="Same-name matches" align="right">
+          We flag entries that share a name — they’re often duplicates, but can be
+          legitimately separate. “Not duplicates” hides this until the next check;
+          it isn’t remembered permanently.
+        </InfoHint>
       </div>
 
       <ul className="space-y-1.5">
@@ -329,8 +335,13 @@ function FlagCard({ flag, onDismiss, onResolveDuplicate }: FlagCardProps) {
         >
           {REASON_LABEL[flag.reason] ?? flag.reason}
         </span>
-        <span className="text-xs text-slate-500">
+        <span className="flex items-center gap-1.5 text-xs text-slate-500">
           Confidence: {(flag.score * 100).toFixed(0)}%
+          <InfoHint label="What confidence means" title="Just a hint" align="right">
+            A rough score for how strongly the entry matched this check — higher
+            means more signals lined up. It’s only a prompt to look; the call is
+            always yours.
+          </InfoHint>
         </span>
       </div>
 

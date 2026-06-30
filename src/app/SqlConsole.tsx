@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
+import { InfoHint } from '@/components/ui/InfoHint';
 import { Card } from '@/components/ui/Card';
 import { useDB } from '@/db/DBProvider';
 
@@ -82,7 +83,7 @@ export function SqlConsole() {
 
   return (
     <PageShell title="SQL console" subtitle="Read-only playground over your local database">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {EXAMPLE_QUERIES.map((q) => (
           <button
             key={q.label}
@@ -93,6 +94,11 @@ export function SqlConsole() {
             {q.label}
           </button>
         ))}
+        <InfoHint label="A note on amounts">
+          Amounts live in <span className="font-medium text-slate-300">amount_minor</span> as
+          whole minor units (e.g. fils or cents), so divide by 100 to get the value you’d read
+          on screen.
+        </InfoHint>
       </div>
 
       <div className="space-y-2">

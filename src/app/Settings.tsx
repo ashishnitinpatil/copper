@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
+import { InfoHint } from '@/components/ui/InfoHint';
 import { Card, EmptyState } from '@/components/ui/Card';
 import { Input, Select } from '@/components/ui/Input';
 import { Combobox } from '@/components/ui/Combobox';
@@ -1231,6 +1232,11 @@ function ImportSection() {
                   className="h-4 w-4 accent-brand-500"
                 />
                 Delete all current data first
+                <InfoHint label="What this does" title="Replace or add">
+                  On (recommended for a re-import) wipes everything first. Off adds the
+                  imported accounts and categories as new — it won’t merge into ones you
+                  already have, so same-named entries become duplicates.
+                </InfoHint>
               </label>
             </div>
 
@@ -1563,6 +1569,12 @@ function RecurringFormModal({ open, onClose, accounts, categories }: RecurringFo
         </Select>
         <Input
           label="Start date"
+          labelHint={
+            <InfoHint label="About the start date" title="Past dates backfill">
+              The first date this rule runs. Pick a date in the past and we’ll fill in
+              every occurrence from then up to today in one go.
+            </InfoHint>
+          }
           type="date"
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}

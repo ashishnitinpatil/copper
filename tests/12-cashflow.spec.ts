@@ -7,7 +7,7 @@ test.describe('Cashflow', () => {
     await waitForDB(page);
 
     // Forecast is the default mode.
-    await expect(page.getByRole('button', { name: 'Forecast' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Forecast', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '30 days' })).toBeVisible();
 
     // Horizon buttons switch the forecast window.

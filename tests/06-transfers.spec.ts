@@ -9,7 +9,7 @@ test.describe('Transfers', () => {
     await page.getByRole('button', { name: '+ New account' }).click();
     await page.getByLabel('Name', { exact: true }).fill('Bank');
     await page.getByLabel('Type', { exact: true }).selectOption('bank');
-    await page.getByLabel('Starting balance').fill('10000');
+    await page.getByLabel('Starting balance', { exact: true }).fill('10000');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(500);
 

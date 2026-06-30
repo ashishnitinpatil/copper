@@ -14,7 +14,7 @@ test.describe('Accounts CRUD', () => {
     await page.getByLabel('Name').fill('HDFC Savings');
     await page.getByLabel('Type').selectOption('bank');
     await page.getByLabel('Currency').selectOption('INR');
-    await page.getByLabel('Starting balance').fill('50000');
+    await page.getByLabel('Starting balance', { exact: true }).fill('50000');
     await page.getByRole('button', { name: 'Create' }).click();
 
     await expect(page.getByText('HDFC Savings')).toBeVisible();

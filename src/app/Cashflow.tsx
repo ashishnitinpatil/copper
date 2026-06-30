@@ -413,6 +413,17 @@ export function Cashflow() {
                 </option>
               ))}
             </select>
+            <InfoHint label="About these controls" title="How the trend reads">
+              <span className="mb-1.5 block">
+                <span className="font-medium text-slate-300">Window</span> — averages
+                that many recent full months, then projects the same number forward.
+              </span>
+              <span className="block">
+                <span className="font-medium text-slate-300">All accounts</span> includes
+                credit cards and accounts left out of your total, so it won’t match the
+                Dashboard balance.
+              </span>
+            </InfoHint>
           </div>
 
           {!trend ? (
