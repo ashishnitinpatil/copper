@@ -47,7 +47,7 @@ test.describe('Transactions', () => {
   });
 
   test('searches by amount', async ({ page }) => {
-    await page.getByLabel('Search').fill('500');
+    await page.getByLabel('Search', { exact: true }).fill('500');
     await page.waitForTimeout(500);
 
     await expect(page.locator('main li').getByText('Food & Dining').first()).toBeVisible();
@@ -56,7 +56,7 @@ test.describe('Transactions', () => {
 
   test('searches text with typo tolerance', async ({ page }) => {
     // "transprot" is a transposed misspelling of the "Transport" category.
-    await page.getByLabel('Search').fill('transprot');
+    await page.getByLabel('Search', { exact: true }).fill('transprot');
     await page.waitForTimeout(500);
 
     await expect(page.locator('main li').getByText('Transport').first()).toBeVisible();

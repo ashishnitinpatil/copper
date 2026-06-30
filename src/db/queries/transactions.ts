@@ -4,7 +4,7 @@ import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
 import { logCreate, logUpdate, logDelete, newBatchId, snapshotEntity } from '../changeLog';
 import { fuzzyScore } from '@/lib/fuzzy';
-import { parseAmount } from '@/lib/money';
+import { parseAmount, getCurrency } from '@/lib/money';
 
 export interface TransactionInput {
   account_id: string;
@@ -229,6 +229,19 @@ export async function listTransactions(
 }
 
 /**
+ * How many minor units to collapse so an amount query matches at the precision
+ * the user typed. `48` (0 decimals) → divisor 100 (match the whole unit); `48.9`
+ * (1 decimal) → divisor 10; `48.99` (2 decimals) → divisor 1 (exact). Never
+ * finer than the currency's own precision.
+ */
+function amountDivisorFor(query: string, currency: string): number {
+  const { decimals } = getCurrency(currency);
+  const frac = query.replace(/[, _]/g, '').split('.')[1] ?? '';
+  const typed = Math.min(frac.length, decimals);
+  return 10 ** (decimals - typed);
+}
+
+/**
  * Search transactions by free text (typo-tolerant, fuzzy-ranked) and/or amount.
  * A numeric query matches transactions whose absolute amount equals it; text is
  * matched fuzzily across note, category and account name. The structured filters
@@ -289,11 +302,20 @@ export async function searchTransactions(
 
   const amountMinor = parseAmount(q, currency);
   const absAmount = amountMinor != null ? Math.abs(amountMinor) : null;
+  // Match amounts at the precision the user typed: "1467" finds 1467.00–1467.99,
+  // "48.9" finds 48.90–48.99, "48.99" matches exactly. We compare both values
+  // truncated to the typed number of decimals (`amountDivisor` drops the rest).
+  const amountDivisor = amountDivisorFor(q, currency);
 
   const scored: { row: TransactionWithMeta; score: number }[] = [];
   for (const row of candidates) {
     let score = 0;
-    if (absAmount != null && Math.abs(row.amount_minor) === absAmount) score = 1;
+    if (absAmount != null) {
+      const rowAbs = Math.abs(row.amount_minor);
+      if (Math.floor(rowAbs / amountDivisor) === Math.floor(absAmount / amountDivisor)) {
+        score = 1;
+      }
+    }
     const text = `${row.note ?? ''} ${row.category_name ?? ''} ${row.account_name}`;
     const textScore = fuzzyScore(q, text);
     if (textScore > score) score = textScore;
