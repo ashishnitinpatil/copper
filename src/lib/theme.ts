@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 // Runtime theme switching. Tokens live in src/index.css under :root / [data-theme].
 // The no-flash bootstrap in index.html reads the same localStorage key on load.
-export type ThemeId = 'warm' | 'slate' | 'monokai' | 'daylight' | 'classic';
+export type ThemeId = 'copper' | 'warm' | 'slate' | 'monokai' | 'daylight' | 'classic';
 
 export const THEMES: {
   id: ThemeId;
@@ -11,6 +11,13 @@ export const THEMES: {
   mode: 'Dark' | 'Light';
   swatch: string[];
 }[] = [
+  {
+    id: 'copper',
+    label: 'Copper',
+    desc: 'Warm paper & copper ink — on brand',
+    mode: 'Light',
+    swatch: ['#FBF7F2', '#B4682F', '#2F855A', '#B04A2E'],
+  },
   {
     id: 'warm',
     label: 'Warm Ledger',
@@ -49,7 +56,7 @@ export const THEMES: {
 ];
 
 const KEY = 'et-theme';
-const VALID = new Set<string>(['warm', 'slate', 'monokai', 'daylight', 'classic']);
+const VALID = new Set<string>(['copper', 'warm', 'slate', 'monokai', 'daylight', 'classic']);
 
 export function getTheme(): ThemeId {
   try {
@@ -58,7 +65,7 @@ export function getTheme(): ThemeId {
   } catch {
     /* ignore */
   }
-  return 'classic';
+  return 'copper';
 }
 
 export function applyTheme(id: ThemeId) {

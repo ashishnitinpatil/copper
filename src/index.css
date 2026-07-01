@@ -214,6 +214,49 @@
     color-scheme: light;
   }
 
+  [data-theme='copper'] {
+    /* the on-brand default — warm paper, copper ink; matches the Copper mark */
+    --s-50: 51 36 26;
+    --s-100: 61 45 33;
+    --s-200: 79 60 45;
+    --s-300: 104 84 66;
+    --s-400: 133 112 92;
+    --s-500: 156 133 111;
+    --s-600: 192 175 158;
+    --s-700: 226 216 205;
+    --s-800: 240 233 224;
+    --s-900: 255 255 255;
+    --s-950: 251 247 242;
+
+    /* copper accent ramp — drawn from the logo palette */
+    --b-50: 250 240 230;
+    --b-100: 245 224 203;
+    --b-200: 236 197 158;
+    --b-300: 224 165 116;
+    --b-400: 207 133 80;
+    --b-500: 180 104 47;
+    --b-600: 154 86 38;
+    --b-700: 125 69 31;
+    --b-800: 100 56 27;
+    --b-900: 80 46 24;
+
+    /* warm-tuned money semantics, darkened for the pale canvas */
+    --mint-300: 95 176 136;
+    --mint-400: 47 133 90;
+    --mint-500: 33 105 70;
+    --clay-300: 200 116 90;
+    --clay-400: 176 74 46;
+    --clay-500: 146 58 35;
+
+    /* darker status shades so banners stay legible on warm paper */
+    --ok: 21 105 70;
+    --warn: 146 64 14;
+    --danger: 159 35 26;
+    --info: 30 80 160;
+
+    color-scheme: light;
+  }
+
   html,
   body,
   #root {
@@ -265,6 +308,7 @@
   }
 
   [data-theme='daylight'] .coin-disc,
+  [data-theme='copper'] .coin-disc,
   [data-theme='classic'] .coin-disc {
     background-color: color-mix(in srgb, var(--coin) 20%, white);
     color: color-mix(in srgb, var(--coin) 68%, black);
