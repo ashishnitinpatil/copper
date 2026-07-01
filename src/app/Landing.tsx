@@ -122,7 +122,7 @@ export function Landing() {
             </CopperButton>
           </div>
           <p className="mt-6 font-mono text-xs tracking-wide text-[#9A8674]">
-            Free · Installable · Works offline · No account
+            Free · Installable · Works offline
           </p>
         </div>
       </section>
@@ -183,8 +183,7 @@ export function Landing() {
           </p>
           <p className="mt-4 text-base leading-relaxed text-[#5C4B3B]">
             That partnership is in how Copper was <em>built</em> — not in who sees
-            your money. The app runs entirely on your device. No AI, and no one else,
-            ever reads your ledger.
+            your money. No AI, and no one else, ever reads your ledger.
           </p>
         </div>
       </section>

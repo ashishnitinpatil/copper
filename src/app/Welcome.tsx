@@ -332,9 +332,8 @@ export function Welcome() {
         )}
 
         <p className="text-center text-xs text-slate-600">
-          {mode === 'restore'
-            ? 'Your data stays on this device unless you turn on syncing later.'
-            : `Step ${step} of 2 · Your data stays on this device unless you turn on syncing later.`}
+          {mode === 'start' && `Step ${step} of 2 · `}
+          Your data stays on this device unless you turn on syncing later.
         </p>
       </div>
     </div>
