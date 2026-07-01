@@ -1,5 +1,6 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter } from 'react-router-dom';
 import { AppShell } from './AppShell';
+import { Landing } from './Landing';
 import { Dashboard } from './Dashboard';
 import { QuickEntry } from './QuickEntry';
 import { Transactions } from './Transactions';
@@ -25,24 +26,25 @@ export const router = createBrowserRouter([
       </WelcomeGate>
     ),
   },
+  // Public intro at the root. Landing redirects returning (onboarded) users
+  // straight to their dashboard, so only first-time visitors see it.
+  { path: '/', element: <Landing /> },
   {
-    path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/dashboard" replace /> },
-      { path: 'dashboard', element: <Dashboard /> },
-      { path: 'add', element: <QuickEntry /> },
-      { path: 'transactions', element: <Transactions /> },
-      { path: 'reports', element: <Reports /> },
-      { path: 'cashflow', element: <Cashflow /> },
-      { path: 'sql', element: <SqlConsole /> },
-      { path: 'accounts', element: <Accounts /> },
-      { path: 'categories', element: <Categories /> },
-      { path: 'budgets', element: <Budgets /> },
-      { path: 'tags', element: <Tags /> },
-      { path: 'review', element: <Review /> },
-      { path: 'activity', element: <Activity /> },
-      { path: 'settings', element: <Settings /> },
+      { path: '/dashboard', element: <Dashboard /> },
+      { path: '/add', element: <QuickEntry /> },
+      { path: '/transactions', element: <Transactions /> },
+      { path: '/reports', element: <Reports /> },
+      { path: '/cashflow', element: <Cashflow /> },
+      { path: '/sql', element: <SqlConsole /> },
+      { path: '/accounts', element: <Accounts /> },
+      { path: '/categories', element: <Categories /> },
+      { path: '/budgets', element: <Budgets /> },
+      { path: '/tags', element: <Tags /> },
+      { path: '/review', element: <Review /> },
+      { path: '/activity', element: <Activity /> },
+      { path: '/settings', element: <Settings /> },
     ],
   },
 ]);

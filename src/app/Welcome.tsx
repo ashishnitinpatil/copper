@@ -25,7 +25,9 @@ export function Welcome() {
   const navigate = useNavigate();
   const settings = useAppSettings();
 
-  const [mode, setMode] = useState<'start' | 'restore'>('start');
+  const [mode, setMode] = useState<'start' | 'restore'>(() =>
+    new URLSearchParams(window.location.search).has('restore') ? 'restore' : 'start',
+  );
   const [step, setStep] = useState<1 | 2>(1);
   const [currency, setCurrency] = useState<string>(settings.defaultCurrency);
   const [name, setName] = useState('Cash');

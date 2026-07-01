@@ -18,10 +18,10 @@ export async function resetAndLoad(page: Page, path = '/dashboard') {
       ),
     );
   });
-  // A fresh database has no accounts, so the app shows the onboarding Welcome
-  // flow instead of the main shell. Complete it (creating the default "Cash"
-  // account) so <nav> renders, mirroring the pre-onboarding seeded state.
-  await page.goto('/');
+  // A fresh database has no accounts. The root now shows the public Landing
+  // page, so go straight to the onboarding Welcome flow and complete it
+  // (creating the default "Cash" account) so <nav> renders.
+  await page.goto('/welcome');
   await completeOnboarding(page);
   await page.goto(path);
   await page.waitForSelector('nav', { timeout: 10000 });
