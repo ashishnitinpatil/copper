@@ -10,7 +10,7 @@ interface DefaultCategory {
 }
 
 const DEFAULT_CATEGORIES: DefaultCategory[] = [
-  { name: 'Food & Dining', icon: '🍽️', color: '#f59e0b', kind: 'expense' },
+  { name: 'Food & Dining', icon: '🍔', color: '#f59e0b', kind: 'expense' },
   { name: 'Groceries', icon: '🛒', color: '#84cc16', kind: 'expense' },
   { name: 'Transport', icon: '🚗', color: '#0ea5e9', kind: 'expense' },
   { name: 'Bills & Utilities', icon: '💡', color: '#a855f7', kind: 'expense' },
