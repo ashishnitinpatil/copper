@@ -15,11 +15,11 @@ export default defineConfig({
       registerType: 'prompt',
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Expense Tracker',
-        short_name: 'Expenses',
-        description: 'Local-first expense tracker with multi-device sync via Google Drive.',
-        theme_color: '#0f172a',
-        background_color: '#0f172a',
+        name: 'Copper',
+        short_name: 'Copper',
+        description: 'Copper is a local-first personal finance tracker you and your AI keep together, synced privately through your own Google Drive.',
+        theme_color: '#1c1410',
+        background_color: '#1c1410',
         display: 'standalone',
         orientation: 'portrait',
         scope: '/',
@@ -37,6 +37,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,wasm}'],
+        // Landing/social imagery isn't needed offline — keep it out of the precache bundle.
+        globIgnores: ['**/brand/**', '**/og-image.png'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,

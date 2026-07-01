@@ -58,8 +58,9 @@ export function AppShell() {
     <div className="flex min-h-full flex-col lg:flex-row">
       <aside className="border-b border-slate-800 lg:w-60 lg:border-b-0 lg:border-r">
         <div className="flex items-center justify-between p-4 lg:flex-col lg:items-start lg:gap-6">
-          <div className="font-display text-lg font-semibold tracking-tight text-slate-100">
-            <span className="text-brand-400">¤</span> Expense Tracker
+          <div className="flex items-center gap-2 font-display text-lg font-semibold tracking-tight text-slate-100">
+            <img src="/icon.svg" alt="" aria-hidden="true" className="h-6 w-6" />
+            Copper
           </div>
           <nav className="hidden lg:block lg:w-full">
             <ul className="space-y-1">

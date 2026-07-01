@@ -204,7 +204,7 @@ export function Welcome() {
               ) : (
                 <>
                   <p className="text-sm text-slate-300">
-                    Choose a backup file you exported from Expense Tracker. Its accounts,
+                    Choose a backup file you exported from Copper. Its accounts,
                     categories and transactions will be loaded onto this device.
                   </p>
                   <Button variant="secondary" onClick={() => restoreInputRef.current?.click()}>

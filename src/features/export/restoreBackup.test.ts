@@ -90,7 +90,7 @@ describe('parseBackup', () => {
 
   it('rejects a foreign format', () => {
     expect(() => parseBackup(JSON.stringify({ format: 'something-else', version: 1, tables: {} }))).toThrow(
-      /Expense Tracker backup/i,
+      /Copper backup/i,
     );
   });
 

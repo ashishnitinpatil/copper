@@ -21,7 +21,7 @@ export function parseBackup(text: string): BackupFile {
   }
   const b = json as Record<string, unknown>;
   if (b.format !== 'expense-tracker-backup') {
-    throw new Error("This doesn't look like an Expense Tracker backup file.");
+    throw new Error("This doesn't look like a Copper backup file.");
   }
   if (b.version !== 1) {
     throw new Error(`Unsupported backup version (${String(b.version)}). This app reads version 1.`);

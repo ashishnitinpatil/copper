@@ -1,5 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="14" fill="#0f172a"/>
-  <path d="M32 14c-9.94 0-18 8.06-18 18s8.06 18 18 18 18-8.06 18-18S41.94 14 32 14Zm0 30c-6.63 0-12-5.37-12-12s5.37-12 12-12 12 5.37 12 12-5.37 12-12 12Z" fill="#4eb38f"/>
-  <path d="M32 22v20M24 32h16" stroke="#eef9f3" stroke-width="3" stroke-linecap="round"/>
+  <defs>
+    <radialGradient id="disc" cx="34%" cy="30%" r="80%">
+      <stop offset="0%" stop-color="#F4B784"/>
+      <stop offset="55%" stop-color="#D58A4F"/>
+      <stop offset="100%" stop-color="#A85F2C"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F2B677"/>
+      <stop offset="100%" stop-color="#9E5429"/>
+    </linearGradient>
+    <clipPath id="you"><circle cx="24.5" cy="32" r="16.5"/></clipPath>
+  </defs>
+
+  <!-- you: a solid copper coin -->
+  <circle cx="24.5" cy="32" r="16.5" fill="url(#disc)"/>
+  <!-- what you hold together: the bright shared middle -->
+  <g clip-path="url(#you)"><circle cx="39.5" cy="32" r="16.5" fill="#F9D6AB"/></g>
+  <!-- your AI: an open ring, overlapping -->
+  <circle cx="39.5" cy="32" r="16.5" fill="none" stroke="url(#ring)" stroke-width="3.3"/>
 </svg>
