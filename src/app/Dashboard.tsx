@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Wallet, TrendingUp, TrendingDown, Minus, AlertTriangle, ArrowRight, X } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Minus, AlertTriangle, ArrowRight, X, Check } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
 import { PageShell } from './PageShell';
 import { Card, EmptyState } from '@/components/ui/Card';
@@ -63,6 +63,68 @@ function LocalOnlyWarning() {
   );
 }
 
+interface GettingStartedStep {
+  done: boolean;
+  label: string;
+  desc: string;
+  to: string;
+  cta: string;
+}
+
+// A friendly first-run checklist. Each step's tick is derived from real data —
+// so it stays honest: adding a transaction, setting a budget or turning on sync
+// checks the box for you. Auto-hides once every step is done or once dismissed.
+function GettingStarted({ steps, onDismiss }: { steps: GettingStartedStep[]; onDismiss: () => void }) {
+  const doneCount = steps.filter((s) => s.done).length;
+  return (
+    <Card className="relative border-brand-500/30 bg-brand-500/[0.05]">
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss getting started"
+        className="absolute right-3 top-3 rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+      >
+        <X size={16} />
+      </button>
+      <div className="font-display text-lg font-semibold text-slate-100">Welcome to Copper</div>
+      <p className="mb-4 mt-0.5 text-sm text-slate-400">
+        A few steps to make it yours — {doneCount} of {steps.length} done.
+      </p>
+      <ol className="space-y-3">
+        {steps.map((s, i) => (
+          <li key={s.to} className="flex items-center gap-3">
+            <span
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                s.done ? 'bg-brand-500 text-white' : 'border border-slate-500 text-slate-400'
+              }`}
+            >
+              {s.done ? <Check size={14} /> : i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div
+                className={`text-sm font-medium ${
+                  s.done ? 'text-slate-500 line-through' : 'text-slate-100'
+                }`}
+              >
+                {s.label}
+              </div>
+              {!s.done && <div className="text-xs text-slate-500">{s.desc}</div>}
+            </div>
+            {!s.done && (
+              <Link
+                to={s.to}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md bg-brand-500/15 px-2.5 py-1 text-xs font-medium text-brand-400 transition hover:bg-brand-500/25"
+              >
+                {s.cta} <ArrowRight size={12} />
+              </Link>
+            )}
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
+
 export function Dashboard() {
   const now = useMemo(() => new Date(), []);
   const monthFrom = toDateString(startOfMonth(now));
@@ -104,9 +166,49 @@ export function Dashboard() {
   const budgets = budgetsState.data ?? [];
   const overBudgets = budgets.filter((b) => b.spent_minor > b.amount_minor);
 
+  const { google } = useAuth();
+  const [gsDismissed, setGsDismissed] = useState(
+    () => localStorage.getItem('et-getting-started-dismissed') === '1',
+  );
+  const gettingStartedSteps: GettingStartedStep[] = [
+    {
+      done: recent.length > 0,
+      label: 'Record your first transaction',
+      desc: 'Tap Add to log an expense or income.',
+      to: '/add',
+      cta: 'Add',
+    },
+    {
+      done: budgets.length > 0,
+      label: 'Set a monthly budget',
+      desc: 'Pick a category and a limit to track spending.',
+      to: '/budgets',
+      cta: 'Create',
+    },
+    {
+      done: !!google,
+      label: 'Keep your data safe',
+      desc: 'Turn on Drive sync, or export a backup file.',
+      to: '/settings',
+      cta: 'Set up',
+    },
+  ];
+  const showGettingStarted =
+    !gsDismissed && !gettingStartedSteps.every((s) => s.done);
+
   return (
     <PageShell title="Dashboard" subtitle="Overview of accounts, budgets and recent activity">
-      <LocalOnlyWarning />
+      {showGettingStarted ? (
+        <GettingStarted
+          steps={gettingStartedSteps}
+          onDismiss={() => {
+            localStorage.setItem('et-getting-started-dismissed', '1');
+            setGsDismissed(true);
+          }}
+        />
+      ) : (
+        <LocalOnlyWarning />
+      )}
       <TotalBalanceCard totals={totalsState.data ?? []} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
