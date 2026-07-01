@@ -179,18 +179,18 @@ export function Dashboard() {
       cta: 'Add',
     },
     {
-      done: budgets.length > 0,
-      label: 'Set a monthly budget',
-      desc: 'Pick a category and a limit to track spending.',
-      to: '/budgets',
-      cta: 'Create',
-    },
-    {
       done: !!google,
       label: 'Keep your data safe',
       desc: 'Turn on Drive sync, or export a backup file.',
       to: '/settings',
       cta: 'Set up',
+    },
+    {
+      done: budgets.length > 0,
+      label: 'Set a monthly budget',
+      desc: 'Optional — pick a category and a limit to track spending.',
+      to: '/budgets',
+      cta: 'Create',
     },
   ];
   const showGettingStarted =
