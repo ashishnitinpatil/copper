@@ -299,12 +299,15 @@
     @apply bg-slate-800 text-slate-50;
   }
 
-  /* Category coin: hue comes in via --coin. Dark keeps the soft tint + bright
-     glyph; light themes darken the glyph and firm the tint so pastel hues stay
-     legible on a pale tile. */
+  /* Category coin: hue comes in via --coin, rendered as a soft light "coin" in
+     every theme so full-colour emoji (and dark-heavy ones like a clapperboard)
+     stay legible. Dark themes get a touch more saturation + a hairline ring so
+     the coin holds its shape against the void; light themes stay softer to sit
+     quietly on a pale page. */
   .coin-disc {
-    background-color: color-mix(in srgb, var(--coin) 14%, transparent);
-    color: var(--coin);
+    background-color: color-mix(in srgb, var(--coin) 32%, white);
+    color: color-mix(in srgb, var(--coin) 58%, black);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coin) 30%, transparent);
   }
 
   [data-theme='daylight'] .coin-disc,
@@ -312,6 +315,7 @@
   [data-theme='classic'] .coin-disc {
     background-color: color-mix(in srgb, var(--coin) 20%, white);
     color: color-mix(in srgb, var(--coin) 68%, black);
+    box-shadow: none;
   }
 }
 
