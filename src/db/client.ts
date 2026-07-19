@@ -29,15 +29,27 @@ export function requestLocalReset(): void {
   window.location.reload();
 }
 
+// How long to wait for the wipe before assuming another tab is holding the
+// database open. Chrome does not reliably fire 'blocked' when the holder is a
+// different tab, so the request can just sit there forever — without this the
+// app hangs on its loading screen with nothing to act on.
+const DELETE_TIMEOUT_MS = 5_000;
+
+const DB_HELD_MESSAGE = 'Local data is open in another tab — close it and try again.';
+
 async function deleteLocalDatabase(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const req = indexedDB.deleteDatabase(VFS_IDB_NAME);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error ?? new Error('Could not erase local data.'));
     // Nothing should hold the DB this early in boot; if another tab does, say so
     // rather than hang. The flag survives, so a retry after closing tabs works.
-    req.onblocked = () =>
-      reject(new Error('Local data is open in another tab — close it and try again.'));
+    const timer = setTimeout(() => reject(new Error(DB_HELD_MESSAGE)), DELETE_TIMEOUT_MS);
+    const settle = (fn: () => void) => {
+      clearTimeout(timer);
+      fn();
+    };
+    req.onsuccess = () => settle(resolve);
+    req.onerror = () => settle(() => reject(req.error ?? new Error('Could not erase local data.')));
+    req.onblocked = () => settle(() => reject(new Error(DB_HELD_MESSAGE)));
   });
 }
 
