@@ -335,7 +335,9 @@
 
 @media (prefers-reduced-motion: no-preference) {
   /* Exclude fixed overlays (toast, modals) — fade-rise's translateY would
-     clobber their own positioning transforms. */
+     clobber their own positioning transforms. Note this only covers direct
+     children; fade-rise leaves a lasting transform on each block, so any
+     nested position:fixed overlay must portal out (see components/ui/Modal). */
   .page-enter > *:not(.fixed) {
     animation: fade-rise 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }

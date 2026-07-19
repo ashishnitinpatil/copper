@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ModalProps {
   open: boolean;
@@ -63,7 +64,13 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
 
   if (!open) return null;
 
-  return (
+  // Portal to <body>. Rendered in place, the overlay sits under whatever page
+  // block contains it — and the page-enter animation leaves a transform on
+  // those blocks, which makes them the containing block for position:fixed
+  // descendants. That traps the overlay in the block's box instead of covering
+  // the viewport, letting later siblings paint over the dialog and swallow
+  // clicks on its buttons.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-4 backdrop-blur-sm sm:items-center"
       onClick={onClose}
@@ -84,6 +91,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
         )}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
