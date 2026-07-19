@@ -110,9 +110,11 @@ export async function pickSharedFolder(token: string): Promise<PickedFolder | nu
           .setMode(picker.DocsViewMode.LIST);
 
       // Two tabs: folders shared with the user (the partner case) and their own
-      // folders, so either party can connect the household folder.
-      const sharedView = folderView().setOwnedByMe(false);
-      const myView = folderView().setOwnedByMe(true);
+      // folders, so either party can connect the household folder. Both are
+      // FOLDERS views, so they'd both inherit the default "Folders" tab label —
+      // name them explicitly or the partner can't tell which tab is which.
+      const sharedView = folderView().setOwnedByMe(false).setLabel('Shared with me');
+      const myView = folderView().setOwnedByMe(true).setLabel('My folders');
 
       const builder = new picker.PickerBuilder()
         .setOAuthToken(token)
