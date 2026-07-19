@@ -3,6 +3,7 @@ import { SCHEMA_NAME, SCHEMA_SQL } from './schema';
 import { seedIfEmpty } from './seed';
 import { materializeDueRecurrences } from './queries/recurring';
 import { ensureLocalDevice } from './changeLog';
+import { applyPendingJoin } from '@/sync/joinFresh';
 
 const DB_FILE = 'household.db';
 
@@ -60,6 +61,10 @@ export async function openDB(): Promise<DB> {
     const db = await sqlite.open(DB_FILE);
     await db.automigrateTo(SCHEMA_NAME, SCHEMA_SQL);
     await seedIfEmpty(db);
+    // If a "start fresh" folder join was queued before the wipe, adopt the
+    // partner's folder now — before the first sync — so this device pulls their
+    // ledger instead of pushing its seed defaults into their folder.
+    await applyPendingJoin(db);
     // Register this device (and refresh its last-seen) so the audit trail can
     // show a friendly name for changes it makes. Best-effort: a failure here
     // shouldn't keep the app from opening.

@@ -58,6 +58,22 @@ Browser (PWA)
 - NOT NULL columns have DEFAULT values (cr-sqlite migration safety)
 - No SQL foreign keys (cr-sqlite can't replicate FKs across diverging peers)
 - Per-account native currency, no cross-currency conversion
+- **`meta` is intentionally _not_ a CRR — it is device-local.** It holds the
+  onboarding flag, the connected Drive folder id, and per-device sync watermarks;
+  replicating it would leak one device's sync cursor onto another. Corollary:
+  anything that must travel between devices has to live in a CRR table, not in
+  `meta`. This is why a "start fresh" folder join must set `onboarded` on the
+  joining device locally — the flag cannot arrive over sync.
+
+**Gotcha — no COOP/COEP cross-origin-isolation headers.** The Google Drive
+Picker ("Connect a shared folder") embeds `docs.google.com` in an iframe that
+needs the user's Google cookies to authenticate. Setting
+`Cross-Origin-Embedder-Policy` (even `credentialless`) makes Chrome load that
+iframe _without_ cookies, so it fails with **"docs.google.com refused to
+connect"** (the picker document shows `(blocked)` in the Network panel). Nothing
+here uses `SharedArrayBuffer`/`Atomics` (the DB is IndexedDB-backed, not OPFS),
+so cross-origin isolation buys us nothing — **do not add COOP/COEP** to the dev
+server or the hosting layer, or the Picker breaks.
 
 ## Data Model
 

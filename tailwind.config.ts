@@ -49,11 +49,19 @@ export default {
           '0%': { opacity: '0', transform: 'translate(-50%, 14px)' },
           '100%': { opacity: '1', transform: 'translate(-50%, 0)' },
         },
+        // Indeterminate progress: a segment sweeps across the track. Used for the
+        // restore, whose completion time can't be measured — it signals activity,
+        // not a percentage.
+        'progress-slide': {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(400%)' },
+        },
       },
       animation: {
         'amount-pop': 'amount-pop 180ms ease-out',
         'coin-pop': 'coin-pop 320ms ease-out',
         'snack-in': 'snack-in 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+        'progress-slide': 'progress-slide 1.1s ease-in-out infinite',
       },
     },
   },

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DB } from '@/db/wasm';
 import { BACKUP_TABLES, type BackupFile } from './exportData';
 import { parseBackup, planRestore, restoreBackup } from './restoreBackup';
+import { encryptBackup, decryptBackup, isEncryptedBackup } from './crypto';
 
 function makeBackup(tables: Record<string, Record<string, unknown>[]>): BackupFile {
   const full: Record<string, Record<string, unknown>[]> = {};
@@ -259,6 +260,21 @@ describe('restoreBackup', () => {
     // 1 tag + 1 review_flag + 1 link = 11 rows across 8 tables.
     expect(stats).toEqual({ rows: 11, tables: 8 });
     expect(calls.some((c) => c.sql.includes("INSERT INTO meta"))).toBe(true);
+  });
+
+  it('restores through the encrypted-backup flow (decrypt → parse → plan)', async () => {
+    // Mirrors the Welcome/Settings "unlock" path: an encrypted export is
+    // detected, decrypted with the password, then parsed and restored.
+    const text = JSON.stringify(makeBackup(GRAPH));
+    const envelope = JSON.parse(await encryptBackup(text, 'shared secret'));
+    expect(isEncryptedBackup(envelope)).toBe(true);
+
+    const plaintext = await decryptBackup(envelope, 'shared secret');
+    const backup = parseBackup(plaintext);
+    // The decrypted, parsed backup is a faithful copy the planner accepts.
+    expect(backup.tables.accounts).toHaveLength(2);
+    const stmts = planRestore(backup, counter());
+    expect(stmts.filter((s) => s.sql.startsWith('INSERT INTO accounts ')).length).toBe(2);
   });
 
   it('preserves data and relationships under remapped ids (round-trip)', async () => {

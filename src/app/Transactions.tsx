@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Check, Plus } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { Card, EmptyState } from '@/components/ui/Card';
@@ -64,6 +65,7 @@ export function Transactions() {
   const [showRecat, setShowRecat] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const navigate = useNavigate();
   const db = useDB();
   const accountsQuery = useQuery(useCallback((db) => listAccounts(db, false), []), { deps: ['accounts'] });
   const categoriesQuery = useQuery(useCallback((db) => listCategories(db, false), []), {
@@ -164,6 +166,9 @@ export function Transactions() {
       subtitle="All entries with filters and search"
       actions={
         <div className="flex items-center gap-2">
+          <Button onClick={() => navigate('/add')}>
+            <Plus className="h-4 w-4" /> Add
+          </Button>
           <Button
             variant={selectMode ? 'primary' : 'secondary'}
             onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}

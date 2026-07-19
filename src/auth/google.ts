@@ -13,6 +13,10 @@ declare global {
           initTokenClient(config: {
             client_id: string;
             scope: string;
+            // Pins the token request to a specific account (by email). Without it,
+            // GIS is free to mint a token for whichever account it likes when
+            // several are signed in — which then mismatches the Drive Picker.
+            hint?: string;
             callback: (resp: TokenResponse) => void;
             error_callback?: (err: unknown) => void;
           }): TokenClient;
@@ -62,7 +66,10 @@ export function isGoogleConfigured(): boolean {
   return !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
 }
 
-export async function signInWithGoogle(): Promise<GoogleSession> {
+// `hint` (an email) pre-selects the account for the consent prompt and ties the
+// resulting token to it — pass the previously signed-in email on a reconnect so
+// a multi-account browser doesn't re-mint against the wrong account.
+export async function signInWithGoogle(hint?: string): Promise<GoogleSession> {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   if (!clientId) throw new Error('VITE_GOOGLE_CLIENT_ID is not set');
 
@@ -73,6 +80,7 @@ export async function signInWithGoogle(): Promise<GoogleSession> {
     const client = oauth2.initTokenClient({
       client_id: clientId,
       scope: GOOGLE_SCOPES,
+      ...(hint ? { hint } : {}),
       callback: (resp) => {
         if (resp.error) reject(new Error(resp.error));
         else resolve(resp);
@@ -81,6 +89,18 @@ export async function signInWithGoogle(): Promise<GoogleSession> {
     });
     client.requestAccessToken({ prompt: 'consent' });
   });
+
+  // The Drive permission is an unticked-by-default checkbox on Google's consent
+  // screen. If the user leaves it off, GIS still returns a token — just without
+  // the scope — and every sync then fails with an opaque 403. Reject here so we
+  // never store a useless session and the user gets an actionable message and a
+  // clean retry instead.
+  if (!(token.scope ?? '').split(' ').includes(DRIVE_SCOPE)) {
+    throw new Error(
+      "Drive access wasn't granted, so sync can't work. Sign in again and keep the Google Drive " +
+        'permission checkbox ticked.',
+    );
+  }
 
   const profile = await fetchUserInfo(token.access_token);
 
@@ -98,7 +118,7 @@ export async function signInWithGoogle(): Promise<GoogleSession> {
   };
 }
 
-export async function refreshGoogleToken(): Promise<GoogleSession | null> {
+export async function refreshGoogleToken(hint?: string): Promise<GoogleSession | null> {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   if (!clientId) return null;
 
@@ -126,6 +146,7 @@ export async function refreshGoogleToken(): Promise<GoogleSession | null> {
       const client = oauth2.initTokenClient({
         client_id: clientId,
         scope: GOOGLE_SCOPES,
+        ...(hint ? { hint } : {}),
         callback: (resp) =>
           finish(() => (resp.error ? reject(new Error(resp.error)) : resolve(resp))),
         error_callback: (err) => finish(() => reject(err)),

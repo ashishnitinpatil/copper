@@ -52,7 +52,13 @@ vi.mock('@/db/queries/settings', () => ({
   },
 }));
 
-import { syncNow, listKnownPeers, resetSyncState, SYNC_KEYS } from './household';
+import {
+  syncNow,
+  listKnownPeers,
+  resetSyncState,
+  setHouseholdFolder,
+  SYNC_KEYS,
+} from './household';
 
 interface FakeDb {
   meta: Map<string, string>;
@@ -262,5 +268,23 @@ describe('peer state helpers', () => {
     await resetSyncState(db as never);
 
     expect([...db.meta.keys()].some((k) => k.startsWith('sync.'))).toBe(false);
+  });
+
+  it('setHouseholdFolder re-baselines onto the picked folder', async () => {
+    const db = makeDb();
+    // Device has already synced against its own folder and a peer.
+    h.changes.exportQueue = [{ rows: [{ r: 1 }], maxVersion: 3 }];
+    seedPeerFile('bb', 1, [{ tag: 'bb' }]);
+    await syncNow(db as never, token);
+    expect(db.meta.get(SYNC_KEYS.LOCAL_VERSION)).toBe('3');
+    expect(db.meta.get(SYNC_KEYS.PEER_PREFIX + 'bb')).toBe('1');
+
+    await setHouseholdFolder(db as never, 'partner-folder');
+
+    // Only the new folder id survives; watermarks + local version are cleared so
+    // the device re-pushes everything into and re-pulls everything from the folder.
+    expect(db.meta.get(SYNC_KEYS.FOLDER_ID)).toBe('partner-folder');
+    expect(db.meta.has(SYNC_KEYS.LOCAL_VERSION)).toBe(false);
+    expect(db.meta.has(SYNC_KEYS.PEER_PREFIX + 'bb')).toBe(false);
   });
 });

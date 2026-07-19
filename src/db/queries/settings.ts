@@ -5,6 +5,8 @@ export const SETTINGS_KEYS = {
   ONBOARDED: 'onboarded',
   DEFAULT_CURRENCY: 'default_currency',
   FX_RATES: 'fx_rates',
+  // How many daily Drive backup snapshots to retain before pruning the oldest.
+  BACKUP_RETENTION: 'backup.retention',
 } as const;
 
 export const SETTINGS_DEFAULTS = {

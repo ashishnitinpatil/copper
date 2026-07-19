@@ -22,6 +22,12 @@ export const SYNC_KEYS = {
   LOCAL_VERSION: 'sync.local_version',
   LAST_SYNC_AT: 'sync.last_sync_at',
   PEER_PREFIX: 'sync.peer.',
+  // Drive backup snapshots: when the last one was written, and its calendar day
+  // (used to throttle to one automatic snapshot per day). These live under
+  // `sync.*` so switching folders re-baselines them and a fresh snapshot is
+  // written into the new folder.
+  LAST_BACKUP_AT: 'sync.last_backup_at',
+  LAST_BACKUP_DATE: 'sync.last_backup_date',
 } as const;
 
 const CHANGES_PREFIX = 'changes-';
@@ -49,7 +55,7 @@ function parseChangesetFileName(name: string): { siteIdHex: string; seq: number 
   return { siteIdHex, seq };
 }
 
-async function ensureFolderId(db: DB, token: string): Promise<string> {
+export async function ensureFolderId(db: DB, token: string): Promise<string> {
   const cached = await getSetting(db, SYNC_KEYS.FOLDER_ID);
   if (cached) return cached;
   const folder = await findOrCreateFolder(token, HOUSEHOLD_FOLDER_NAME);
@@ -191,6 +197,15 @@ export async function listKnownPeers(db: DB): Promise<KnownPeer[]> {
 
 export async function resetSyncState(db: DB): Promise<void> {
   await db.exec(`DELETE FROM meta WHERE key LIKE 'sync.%'`);
+}
+
+// Point sync at a specific folder — e.g. one a partner shared and this device
+// picked via the Google Picker. Clearing the rest of the sync state re-baselines
+// the device against the new folder: it re-pushes all local changes into it and
+// re-pulls every peer changeset already there, so both sides converge.
+export async function setHouseholdFolder(db: DB, folderId: string): Promise<void> {
+  await resetSyncState(db);
+  await setSetting(db, SYNC_KEYS.FOLDER_ID, folderId);
 }
 
 export async function getLocalDbVersionSafe(db: DB): Promise<number> {

@@ -3,7 +3,8 @@ import { ArrowLeft, Plus } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { Card, EmptyState } from '@/components/ui/Card';
-import { Input, Select } from '@/components/ui/Input';
+import { Input } from '@/components/ui/Input';
+import { Combobox } from '@/components/ui/Combobox';
 import { Modal } from '@/components/ui/Modal';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useDB } from '@/db/DBProvider';
@@ -22,7 +23,7 @@ import {
   type TagInput,
 } from '@/db/queries/tags';
 import type { TransactionWithMeta } from '@/db/queries/transactions';
-import { formatMoney, parseAmount, fromMinor, SUPPORTED_CURRENCIES } from '@/lib/money';
+import { formatMoney, parseAmount, fromMinor, CURRENCY_OPTIONS } from '@/lib/money';
 import { formatHumanDate, formatRelativeDate } from '@/lib/dates';
 import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
 
@@ -453,11 +454,12 @@ function TagFormModal({ open, existing, onClose }: TagFormModalProps) {
               onChange={(e) => setBudgetInput(e.target.value)}
               placeholder="Optional"
             />
-            <Select label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-              {SUPPORTED_CURRENCIES.map((c) => (
-                <option key={c.code} value={c.code}>{c.code} {c.symbol}</option>
-              ))}
-            </Select>
+            <Combobox
+              label="Currency"
+              value={currency}
+              onChange={setCurrency}
+              options={CURRENCY_OPTIONS}
+            />
           </div>
         </div>
 

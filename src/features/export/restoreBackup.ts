@@ -182,11 +182,38 @@ export function planRestore(backup: BackupFile, newId: () => string = uuid): Sta
   return stmts;
 }
 
-/** Replace all current data with the contents of a parsed backup, in place. */
-export async function restoreBackup(db: DB, backup: BackupFile): Promise<RestoreStats> {
+// How many statements to run between progress reports. The report also yields
+// to the event loop (see below), so this trades UI smoothness against the cost
+// of the yields — ~200 keeps a 23k-row restore's bar moving without adding
+// meaningful wall-clock time.
+const PROGRESS_CHUNK = 200;
+
+/**
+ * Replace all current data with the contents of a parsed backup, in place.
+ *
+ * `onProgress(done, total)` is called as statements execute. When it's provided,
+ * the loop also yields to the event loop at each report — the restore is one big
+ * synchronous burst of single-row inserts that otherwise saturates the main
+ * thread and freezes the page, so without the yield the UI can't repaint a
+ * progress bar. Everything stays inside the single `db.tx()`, so the restore
+ * remains all-or-nothing even across those yields.
+ */
+export async function restoreBackup(
+  db: DB,
+  backup: BackupFile,
+  onProgress?: (done: number, total: number) => void,
+): Promise<RestoreStats> {
   const stmts = planRestore(backup);
+  const total = stmts.length;
   await db.tx(async (tx) => {
-    for (const s of stmts) await tx.exec(s.sql, s.params);
+    for (let i = 0; i < stmts.length; i++) {
+      const s = stmts[i];
+      await tx.exec(s.sql, s.params);
+      if (onProgress && (i % PROGRESS_CHUNK === 0 || i === stmts.length - 1)) {
+        onProgress(i + 1, total);
+        await new Promise((resolve) => setTimeout(resolve));
+      }
+    }
     // The restored book is real data, so make sure setup is marked complete.
     await tx.exec(
       `INSERT INTO meta (key, value) VALUES (?, 'true')

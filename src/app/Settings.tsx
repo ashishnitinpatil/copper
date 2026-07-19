@@ -1,4 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  LogIn,
+  RefreshCw,
+  Repeat,
+  ListChecks,
+  Palette,
+  Coins,
+  ArrowLeftRight,
+  Download,
+  Upload,
+  RotateCcw,
+  Smartphone,
+  Trash2,
+  type LucideIcon,
+} from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { InfoHint } from '@/components/ui/InfoHint';
@@ -22,8 +37,16 @@ import { getSettingNumber, setSetting, SETTINGS_KEYS } from '@/db/queries/settin
 import { useAuth } from '@/auth/AuthProvider';
 import { HOUSEHOLD_FOLDER_NAME } from '@/sync/household';
 import { useSync } from '@/sync/SyncProvider';
+import {
+  isPickerConfigured,
+  pickSharedFolder,
+  PickerBlockedError,
+  type PickedFolder,
+} from '@/sync/googlePicker';
+import { stashJoinTarget } from '@/sync/joinFresh';
+import type { DriveSnapshot } from '@/sync/driveBackup';
 import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
-import { SUPPORTED_CURRENCIES } from '@/lib/money';
+import { CURRENCY_OPTIONS } from '@/lib/money';
 import type { Account, AccountType, Category, RecurringRule } from '@/db/types';
 import { formatMoney, parseAmount } from '@/lib/money';
 import { formatHumanDate, toDateString } from '@/lib/dates';
@@ -48,35 +71,148 @@ import { closeDB, openDB, requestLocalReset } from '@/db/client';
 import type { BackupFile } from '@/features/export/exportData';
 import { useTheme, THEMES } from '@/lib/theme';
 
+// Order matches the on-page section order. The nav shows a pill per section that
+// is actually rendered (FxRatesSection hides itself when there's nothing to
+// convert), so the list is derived from the DOM, not assumed.
+const NAV_ITEMS: { id: string; label: string; Icon: LucideIcon }[] = [
+  { id: 'signin', label: 'Sign in', Icon: LogIn },
+  { id: 'sync', label: 'Sync', Icon: RefreshCw },
+  { id: 'recurring', label: 'Recurring', Icon: Repeat },
+  { id: 'review', label: 'Review', Icon: ListChecks },
+  { id: 'appearance', label: 'Appearance', Icon: Palette },
+  { id: 'currency', label: 'Currency', Icon: Coins },
+  { id: 'rates', label: 'Rates', Icon: ArrowLeftRight },
+  { id: 'export', label: 'Export', Icon: Download },
+  { id: 'import', label: 'Import', Icon: Upload },
+  { id: 'restore', label: 'Restore', Icon: RotateCcw },
+  { id: 'device', label: 'This device', Icon: Smartphone },
+  { id: 'reset', label: 'Reset', Icon: Trash2 },
+];
+
 export function Settings() {
   const siteId = useSiteId();
 
   return (
     <PageShell title="Settings" subtitle="Sync, recurring rules and backup">
-      <AuthSection />
+      <SettingsNav />
 
-      <SyncSection />
-
-      <RecurringRulesSection />
-
-      <ReviewSettingsSection />
-
-      <AppearanceSection />
-
-      <DefaultCurrencySection />
-
+      <Section id="signin"><AuthSection /></Section>
+      <Section id="sync"><SyncSection /></Section>
+      <Section id="recurring"><RecurringRulesSection /></Section>
+      <Section id="review"><ReviewSettingsSection /></Section>
+      <Section id="appearance"><AppearanceSection /></Section>
+      <Section id="currency"><DefaultCurrencySection /></Section>
+      {/* Renders its own #rates anchor, or nothing when all accounts share a currency. */}
       <FxRatesSection />
-
-      <ExportSection />
-
-      <ImportSection />
-
-      <RestoreSection />
-
-      <ThisDeviceSection siteId={siteId} />
-
-      <ResetDeviceSection />
+      <Section id="export"><ExportSection /></Section>
+      <Section id="import"><ImportSection /></Section>
+      <Section id="restore"><RestoreSection /></Section>
+      <Section id="device"><ThisDeviceSection siteId={siteId} /></Section>
+      <Section id="reset"><ResetDeviceSection /></Section>
+      {/* Trailing room so jumping to a late section can bring its heading up
+          near the sticky nav instead of stopping short at the page bottom. */}
+      <div aria-hidden className="h-[40vh]" />
     </PageShell>
+  );
+}
+
+// Anchor wrapper for a settings section. scroll-mt clears the sticky nav so a
+// jumped-to heading isn't hidden behind it.
+function Section({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <section id={id} data-settings-section className="scroll-mt-24">
+      {children}
+    </section>
+  );
+}
+
+// px below the viewport top where a section's heading counts as "current" —
+// just under the sticky nav so the active pill matches what's at the top.
+const ACTIVE_LINE = 120;
+
+function SettingsNav() {
+  const [present, setPresent] = useState<Set<string>>(() => new Set());
+  const [active, setActive] = useState<string>('');
+
+  useEffect(() => {
+    const first = document.querySelector<HTMLElement>('[data-settings-section]');
+    const root = first?.parentElement;
+    if (!root) return;
+
+    let raf = 0;
+    const compute = () => {
+      raf = 0;
+      const els = Array.from(root.querySelectorAll<HTMLElement>('[data-settings-section]'));
+      setPresent(new Set(els.map((el) => el.id)));
+      if (els.length === 0) return;
+      // Active = the last section whose top has scrolled above the active line.
+      // At the very bottom the last section can't reach the line, so pin it.
+      const atBottom =
+        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      let current = els[0].id;
+      if (atBottom) {
+        current = els[els.length - 1].id;
+      } else {
+        for (const el of els) {
+          if (el.getBoundingClientRect().top <= ACTIVE_LINE) current = el.id;
+          else break;
+        }
+      }
+      setActive(current);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(compute);
+    };
+
+    compute();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    // FxRatesSection can appear/disappear after its accounts query resolves.
+    const mo = new MutationObserver(compute);
+    mo.observe(root, { childList: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      mo.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  const items = NAV_ITEMS.filter((i) => present.has(i.id));
+  if (items.length === 0) return null;
+
+  const jump = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    setActive(id);
+  };
+
+  return (
+    <div className="sticky top-0 z-20 -mx-1 bg-slate-950/85 px-1 py-2 backdrop-blur">
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {items.map(({ id, label, Icon }) => {
+          const on = active === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => jump(id)}
+              aria-current={on ? 'true' : undefined}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${
+                on
+                  ? 'bg-brand-500/15 text-brand-300 ring-1 ring-inset ring-brand-500/40'
+                  : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -251,8 +387,13 @@ function SyncSection() {
   const sync = useSync();
   const [copied, setCopied] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [pendingFolder, setPendingFolder] = useState<PickedFolder | null>(null);
+  const [joinMode, setJoinMode] = useState<'fresh' | 'merge'>('fresh');
 
   const signedIn = !!auth.google;
+  const pickerReady = isPickerConfigured();
   const folderUrl = sync.folderId
     ? `https://drive.google.com/drive/folders/${sync.folderId}`
     : null;
@@ -296,6 +437,63 @@ function SyncSection() {
       await auth.signInGoogle();
     } finally {
       setReconnecting(false);
+    }
+  };
+
+  // Partner-across-accounts sharing: because Copper uses the narrow `drive.file`
+  // scope, a folder shared with you is invisible until you pick it in the Google
+  // Picker — the pick is what grants access. See googlePicker.ts.
+  const handleConnectFolder = async () => {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const token = await auth.getGoogleAccessToken();
+      if (!token) {
+        setConnectError('Reconnect to Google first, then try again.');
+        return;
+      }
+      const folder = await pickSharedFolder(token);
+      // Don't connect straight away — let the person choose whether to start
+      // fresh (adopt the shared ledger) or merge this device's data in, since
+      // the two have very different, hard-to-undo outcomes.
+      if (folder) {
+        setJoinMode('fresh');
+        setPendingFolder(folder);
+      }
+    } catch (e) {
+      if (e instanceof PickerBlockedError) {
+        setConnectError(
+          "The Google folder picker couldn't load. This usually means more than one Google " +
+            'account is signed in to this browser. Open Copper in a browser or profile signed in ' +
+            'to only this Google account, then try again.',
+        );
+      } else {
+        setConnectError(e instanceof Error ? e.message : 'Could not connect the folder.');
+      }
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  // "Start fresh": erase this device, then adopt the partner's folder at the next
+  // boot (see joinFresh + db/client). "Merge": keep everything and union both
+  // ledgers via the shared folder (the original behaviour).
+  const handleConfirmConnect = async () => {
+    if (!pendingFolder) return;
+    if (joinMode === 'fresh') {
+      stashJoinTarget(pendingFolder.id);
+      requestLocalReset();
+      return;
+    }
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      await sync.connectSharedFolder(pendingFolder.id);
+      setPendingFolder(null);
+    } catch (e) {
+      setConnectError(e instanceof Error ? e.message : 'Could not connect the folder.');
+    } finally {
+      setConnecting(false);
     }
   };
 
@@ -383,15 +581,27 @@ function SyncSection() {
           )}
 
           {sync.error && (
-            <div className="flex items-start justify-between gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
-              <span className="min-w-0 break-words">{sync.error}</span>
-              <button
-                type="button"
-                className="shrink-0 underline hover:text-danger"
-                onClick={sync.dismissError}
-              >
-                dismiss
-              </button>
+            <div className="flex flex-col gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+              <div className="flex items-start justify-between gap-2">
+                <span className="min-w-0 break-words">{sync.error}</span>
+                <button
+                  type="button"
+                  className="shrink-0 underline hover:text-danger"
+                  onClick={sync.dismissError}
+                >
+                  dismiss
+                </button>
+              </div>
+              {sync.needsReauth && (
+                <button
+                  type="button"
+                  className="self-start rounded border border-danger/50 px-2 py-1 font-medium text-danger hover:bg-danger/20 disabled:opacity-50"
+                  onClick={handleReconnect}
+                  disabled={reconnecting}
+                >
+                  {reconnecting ? 'Reconnecting…' : 'Reconnect to Google'}
+                </button>
+              )}
             </div>
           )}
 
@@ -422,52 +632,161 @@ function SyncSection() {
             )}
           </div>
 
-          {folderUrl && (
+          {pickerReady && (
             <div className="rounded-md border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
-              <div className="mb-1 font-medium text-slate-300">Invite your partner</div>
+              <div className="mb-1 font-medium text-slate-300">Share with your partner</div>
               <p>
-                Open the folder in Drive and use <span className="text-slate-300">Share</span> to
-                add your partner's Google account as an Editor. They sign in on their device, open
-                this app, and their changes merge automatically.
+                To keep one shared ledger across two Google accounts: one of you keeps this
+                household folder and shares it in Drive (as an Editor). The other taps{' '}
+                <span className="text-slate-300">Connect a shared folder</span> below and picks it.
+                From then on, both devices sync into the same folder and your changes merge
+                automatically.
               </p>
-              <div className="mt-2 flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={handleCopyUrl}>
-                  {copied ? 'Copied!' : 'Copy folder URL'}
-                </Button>
-                <a
-                  href={folderUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-slate-500 underline decoration-dotted hover:text-slate-300"
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleConnectFolder}
+                  disabled={connecting || busy}
                 >
-                  Open in Drive
-                </a>
+                  {connecting ? 'Opening…' : 'Connect a shared folder'}
+                </Button>
+                {folderUrl && (
+                  <>
+                    <Button variant="ghost" size="sm" onClick={handleCopyUrl}>
+                      {copied ? 'Copied!' : 'Copy folder URL'}
+                    </Button>
+                    <a
+                      href={folderUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-slate-500 underline decoration-dotted hover:text-slate-300"
+                    >
+                      Open in Drive
+                    </a>
+                  </>
+                )}
               </div>
+              {connectError && (
+                <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-danger">
+                  {connectError}
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
+
+      <Modal
+        open={!!pendingFolder}
+        onClose={() => !connecting && setPendingFolder(null)}
+        title="Connect a shared folder"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-300">
+            Connecting to{' '}
+            <span className="font-medium text-slate-100">"{pendingFolder?.name}"</span>. Choose what
+            happens to the data already on this device.
+          </p>
+
+          <div className="space-y-2">
+            <JoinModeOption
+              active={joinMode === 'fresh'}
+              onSelect={() => setJoinMode('fresh')}
+              title="Start fresh"
+              badge="Recommended"
+              desc="Erase this device and load the shared ledger. Nothing here is copied into your partner's folder. Best when you're joining their book."
+            />
+            <JoinModeOption
+              active={joinMode === 'merge'}
+              onSelect={() => setJoinMode('merge')}
+              title="Merge my data in"
+              desc="Combine this device's data with the shared ledger. Everything here is copied into the folder for both of you. Best when you each have data to keep."
+            />
+          </div>
+
+          {joinMode === 'fresh' && (
+            <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              This erases everything on this device and can't be undone. Export a backup first if you
+              have data you might want.
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setPendingFolder(null)} disabled={connecting}>
+              Cancel
+            </Button>
+            <Button
+              variant={joinMode === 'fresh' ? 'danger' : 'primary'}
+              onClick={handleConfirmConnect}
+              disabled={connecting}
+            >
+              {joinMode === 'fresh'
+                ? 'Erase & join'
+                : connecting
+                  ? 'Merging…'
+                  : 'Merge & connect'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </Card>
+  );
+}
+
+function JoinModeOption({
+  active,
+  onSelect,
+  title,
+  desc,
+  badge,
+}: {
+  active: boolean;
+  onSelect: () => void;
+  title: string;
+  desc: string;
+  badge?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left transition ${
+        active
+          ? 'border-brand-400 bg-slate-800/60'
+          : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+      }`}
+    >
+      <span
+        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+          active ? 'border-brand-400' : 'border-slate-600'
+        }`}
+      >
+        {active && <span className="h-2 w-2 rounded-full bg-brand-500" />}
+      </span>
+      <span className="min-w-0">
+        <span className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-100">{title}</span>
+          {badge && (
+            <span className="rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-brand-400">
+              {badge}
+            </span>
+          )}
+        </span>
+        <span className="mt-1 block text-xs text-slate-400">{desc}</span>
+      </span>
+    </button>
   );
 }
 
 function AuthSection() {
   const auth = useAuth();
-  const [busy, setBusy] = useState<'google' | 'apple' | null>(null);
+  const [busy, setBusy] = useState<'google' | null>(null);
 
   const doGoogle = async () => {
     setBusy('google');
     try {
       await auth.signInGoogle();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const doApple = async () => {
-    setBusy('apple');
-    try {
-      await auth.signInApple();
     } finally {
       setBusy(null);
     }
@@ -525,32 +844,9 @@ function AuthSection() {
           </label>
         )}
 
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="font-medium text-slate-200">Apple</div>
-            <div className="text-xs text-slate-500">
-              {auth.apple
-                ? auth.apple.email ?? auth.apple.name ?? 'Signed in'
-                : 'Sign-in only — no sync'}
-            </div>
-          </div>
-          {auth.apple ? (
-            <Button variant="ghost" size="sm" onClick={auth.signOutApple}>
-              Sign out
-            </Button>
-          ) : auth.appleConfigured ? (
-            <Button size="sm" onClick={doApple} disabled={busy !== null}>
-              {busy === 'apple' ? 'Connecting…' : 'Connect'}
-            </Button>
-          ) : (
-            <span className="text-xs text-slate-500">Not configured</span>
-          )}
-        </div>
-
-        {!auth.googleConfigured && !auth.appleConfigured && (
+        {!auth.googleConfigured && (
           <div className="rounded-md border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-500">
-            Set <code className="text-slate-400">VITE_GOOGLE_CLIENT_ID</code> and/or{' '}
-            <code className="text-slate-400">VITE_APPLE_CLIENT_ID</code> in{' '}
+            Set <code className="text-slate-400">VITE_GOOGLE_CLIENT_ID</code> in{' '}
             <code className="text-slate-400">.env.local</code> to enable sign-in. See{' '}
             <code className="text-slate-400">.env.example</code>.
           </div>
@@ -608,16 +904,11 @@ function DefaultCurrencySection() {
   return (
     <Card>
       <h3 className="mb-2 text-sm font-semibold text-slate-300">Default currency</h3>
-      <Select
+      <Combobox
         value={settings.defaultCurrency}
-        onChange={(e) => settings.setDefaultCurrency(e.target.value)}
-      >
-        {SUPPORTED_CURRENCIES.map((c) => (
-          <option key={c.code} value={c.code}>
-            {c.symbol} {c.code}
-          </option>
-        ))}
-      </Select>
+        onChange={settings.setDefaultCurrency}
+        options={CURRENCY_OPTIONS}
+      />
       <div className="mt-1 text-xs text-slate-500">
         Used for new accounts and budgets. Each account can still use a different currency.
       </div>
@@ -644,6 +935,7 @@ function FxRatesSection() {
   if (foreignCurrencies.length === 0) return null;
 
   return (
+    <Section id="rates">
     <Card>
       <h3 className="mb-1 text-sm font-semibold text-slate-300">Exchange rates</h3>
       <p className="mb-3 text-xs text-slate-500">
@@ -662,6 +954,7 @@ function FxRatesSection() {
         ))}
       </div>
     </Card>
+    </Section>
   );
 }
 
@@ -710,14 +1003,45 @@ const ACCOUNT_TYPES: AccountType[] = ['cash', 'bank', 'credit_card', 'wallet', '
 
 function ExportSection() {
   const db = useDB();
+  const auth = useAuth();
+  const sync = useSync();
   const [busy, setBusy] = useState<null | 'csv' | 'backup' | 'encrypted'>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  // Google Drive backup controls.
+  const [driveBusy, setDriveBusy] = useState(false);
+  const [driveNote, setDriveNote] = useState<string | null>(null);
+  const [retention, setRetention] = useState(String(sync.backupRetention));
+  useEffect(() => {
+    setRetention(String(sync.backupRetention));
+  }, [sync.backupRetention]);
 
   // Encrypted-backup modal state.
   const [encryptOpen, setEncryptOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
   const [encryptError, setEncryptError] = useState<string | null>(null);
+
+  const backupToDrive = async () => {
+    setDriveBusy(true);
+    setDriveNote(null);
+    try {
+      await sync.backupNow();
+      setDriveNote('Snapshot saved to your Drive folder.');
+    } catch (e) {
+      setDriveNote((e as Error).message);
+    } finally {
+      setDriveBusy(false);
+    }
+  };
+
+  // Commit the retention field on blur/Enter, snapping back if it's not a
+  // sensible count (the store clamps to ≥1, but don't persist junk on the way).
+  const commitRetention = () => {
+    const n = Number(retention);
+    if (Number.isFinite(n) && n >= 1) sync.setBackupRetention(n);
+    else setRetention(String(sync.backupRetention));
+  };
 
   const run = async (kind: 'csv' | 'backup') => {
     setBusy(kind);
@@ -800,6 +1124,53 @@ function ExportSection() {
       </div>
       {note && <div className="mt-3 text-xs text-slate-400">{note}</div>}
 
+      {auth.google && (
+        <div className="mt-5 border-t border-slate-800 pt-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h4 className="mb-1 text-sm font-semibold text-slate-300">Google Drive backups</h4>
+              <div className="text-xs text-slate-500">
+                A full snapshot is saved to your shared folder once a day, and whenever you back up
+                by hand. Bring one back under Restore below.
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              className="shrink-0"
+              disabled={driveBusy}
+              onClick={backupToDrive}
+            >
+              {driveBusy ? 'Backing up…' : 'Back up now'}
+            </Button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
+            <div>
+              Last snapshot:{' '}
+              <span className="text-slate-400">
+                {sync.lastBackupAt ? new Date(sync.lastBackupAt).toLocaleString() : 'never'}
+              </span>
+            </div>
+            <label className="flex items-center gap-2">
+              Keep
+              <input
+                type="number"
+                min={1}
+                max={30}
+                value={retention}
+                onChange={(e) => setRetention(e.target.value)}
+                onBlur={commitRetention}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
+                className="w-14 rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1 text-center text-sm text-slate-50 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
+              />
+              daily snapshots
+            </label>
+          </div>
+          {driveNote && <div className="mt-3 text-xs text-slate-400">{driveNote}</div>}
+        </div>
+      )}
+
       <Modal open={encryptOpen} onClose={() => busy !== 'encrypted' && closeEncrypt()} title="Encrypted backup">
         <div className="space-y-4">
           <p className="text-sm text-slate-300">
@@ -842,16 +1213,34 @@ function ExportSection() {
   );
 }
 
+// Above this many rows a restore is slow enough to warn about up front and show
+// a progress bar for — small books restore near-instantly and need neither.
+const LARGE_RESTORE_ROWS = 2000;
+
 function RestoreSection() {
   const db = useDB();
+  const auth = useAuth();
+  const sync = useSync();
   const inputRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<{ backup: BackupFile; rows: number; tables: number; name: string } | null>(null);
   const [encrypted, setEncrypted] = useState<{ env: EncryptedBackup; name: string } | null>(null);
   const [password, setPassword] = useState('');
   const [unlocking, setUnlocking] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Restore progress. 'inserting' streams a live row count; 'finishing' covers
+  // the commit + durability flush, which can't be measured. `rowsDone` is a true
+  // count of rows written — the bar itself is indeterminate (see the modal).
+  const [phase, setPhase] = useState<'inserting' | 'finishing' | null>(null);
+  const [rowsDone, setRowsDone] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Drive snapshot picker state.
+  const [driveOpen, setDriveOpen] = useState(false);
+  const [driveSnaps, setDriveSnaps] = useState<DriveSnapshot[] | null>(null);
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [fetchingId, setFetchingId] = useState<string | null>(null);
 
   const preview = (backup: BackupFile, name: string) => {
     const rows = Object.values(backup.tables).reduce(
@@ -860,6 +1249,35 @@ function RestoreSection() {
     );
     const tables = Object.values(backup.tables).filter((r) => Array.isArray(r) && r.length > 0).length;
     setPending({ backup, rows, tables, name });
+  };
+
+  const openDrive = async () => {
+    setDriveOpen(true);
+    setDriveSnaps(null);
+    setDriveError(null);
+    setDriveLoading(true);
+    try {
+      setDriveSnaps(await sync.listBackups());
+    } catch (e) {
+      setDriveError((e as Error).message);
+    } finally {
+      setDriveLoading(false);
+    }
+  };
+
+  // Download a snapshot and hand it to the same confirm/replace flow as a file.
+  const pickDriveSnapshot = async (snap: DriveSnapshot) => {
+    setFetchingId(snap.id);
+    setDriveError(null);
+    try {
+      const backup = await sync.fetchBackup(snap.id);
+      setDriveOpen(false);
+      preview(backup, snap.name);
+    } catch (e) {
+      setDriveError((e as Error).message);
+    } finally {
+      setFetchingId(null);
+    }
   };
 
   const onFile = async (file: File) => {
@@ -905,14 +1323,18 @@ function RestoreSection() {
     if (!pending) return;
     setBusy(true);
     setError(null);
+    setPhase('inserting');
+    setRowsDone(0);
     try {
-      await restoreBackup(db, pending.backup);
+      await restoreBackup(db, pending.backup, (done) => setRowsDone(done));
       // The VFS persists with "relaxed" durability, so the write isn't
       // guaranteed flushed to IndexedDB when restoreBackup resolves — reloading
       // here can tear the page down mid-flush and leave a malformed file.
       // close() then a fresh open() is a durability barrier: IndexedDB orders
       // the reopen's reads after all pending writes, so once open() resolves
-      // the file is fully written. Only then is it safe to reload.
+      // the file is fully written. Only then is it safe to reload. This flush
+      // can't be measured, so the UI shows an unquantified "Finishing up…".
+      setPhase('finishing');
       setNote('Restored — reloading…');
       await closeDB();
       await openDB();
@@ -921,6 +1343,7 @@ function RestoreSection() {
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
+      setPhase(null);
     }
   };
 
@@ -944,9 +1367,16 @@ function RestoreSection() {
             e.target.value = '';
           }}
         />
-        <Button variant="secondary" className="shrink-0" onClick={() => inputRef.current?.click()}>
-          Choose backup file…
-        </Button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {auth.google && (
+            <Button variant="secondary" onClick={openDrive}>
+              Restore from Drive…
+            </Button>
+          )}
+          <Button variant="secondary" onClick={() => inputRef.current?.click()}>
+            Choose backup file…
+          </Button>
+        </div>
       </div>
       {error && (
         <div className="mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
@@ -962,13 +1392,36 @@ function RestoreSection() {
               Restore <span className="font-medium text-slate-100">{pending.name}</span>? This deletes
               all current data and replaces it with{' '}
               <span className="font-medium text-slate-100">
-                {pending.rows} items across {pending.tables} tables
+                {pending.rows.toLocaleString()} items across {pending.tables} tables
               </span>{' '}
               from the backup. This can't be undone.
             </p>
-            {busy && (
+            {!busy && pending.rows > LARGE_RESTORE_ROWS && (
               <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-                Restoring your data — a large backup can take up to a minute. Keep this tab open.
+                This is a large backup — restoring can take a few minutes. Once you start, keep this
+                tab open until the app reloads on its own.
+              </div>
+            )}
+            {busy && phase && (
+              <div className="space-y-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5">
+                <div className="text-xs font-medium text-warning">
+                  {phase === 'finishing'
+                    ? 'Finishing up — saving your data…'
+                    : `Restoring your data — ${rowsDone.toLocaleString()} of ${pending.rows.toLocaleString()} items…`}
+                </div>
+                {/* Indeterminate: completion time can't be measured, so the bar
+                    animates to show activity rather than a false percentage. */}
+                <div
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-warning/20 motion-reduce:animate-pulse"
+                  role="progressbar"
+                  aria-label="Restoring your data"
+                >
+                  <div className="h-full w-1/4 rounded-full bg-warning motion-safe:animate-progress-slide" />
+                </div>
+                <div className="text-[11px] text-warning/80">
+                  The bar shows activity, not exact progress. A large backup can take a few minutes —
+                  keep this tab open until the app reloads on its own.
+                </div>
               </div>
             )}
             <div className="flex justify-end gap-2">
@@ -981,6 +1434,57 @@ function RestoreSection() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={driveOpen}
+        onClose={() => {
+          if (!fetchingId) setDriveOpen(false);
+        }}
+        title="Restore from Google Drive"
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-slate-300">
+            Pick a snapshot to bring back. Each is a full copy saved to your shared folder — the
+            newest is at the top.
+          </p>
+          {driveError && (
+            <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+              {driveError}
+            </div>
+          )}
+          {driveLoading && <div className="text-xs text-slate-400">Loading snapshots…</div>}
+          {!driveLoading && driveSnaps && driveSnaps.length === 0 && (
+            <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950/40 px-3 py-6 text-center text-xs text-slate-400">
+              No snapshots yet. Use “Back up now” under Export, or sync once and one is saved
+              automatically.
+            </div>
+          )}
+          {driveSnaps && driveSnaps.length > 0 && (
+            <ul className="divide-y divide-slate-800 overflow-hidden rounded-lg border border-slate-800">
+              {driveSnaps.map((snap) => (
+                <li key={snap.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <div>
+                    <div className="text-sm text-slate-200">{formatHumanDate(snap.date)}</div>
+                    {snap.modifiedTime && (
+                      <div className="text-xs text-slate-500">
+                        Saved {new Date(snap.modifiedTime).toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!!fetchingId}
+                    onClick={() => pickDriveSnapshot(snap)}
+                  >
+                    {fetchingId === snap.id ? 'Loading…' : 'Restore'}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </Modal>
 
       <Modal

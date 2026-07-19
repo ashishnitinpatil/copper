@@ -33,7 +33,9 @@ export async function resetAndLoad(page: Page, path = '/dashboard') {
 async function completeOnboarding(page: Page) {
   const continueBtn = page.getByRole('button', { name: 'Continue' });
   await continueBtn.waitFor({ timeout: 10000 });
-  await page.getByLabel('Default currency').selectOption('INR');
+  // "Default currency" is a searchable Combobox (not a native <select>); pick INR
+  // by its code so amount assertions stay locale-independent across machines/CI.
+  await selectCombobox(page, 'Default currency', 'INR');
   await continueBtn.click();
   await page.getByRole('button', { name: 'Get started' }).click();
   await page.waitForSelector('nav', { timeout: 10000 });

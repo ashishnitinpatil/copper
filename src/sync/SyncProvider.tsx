@@ -13,9 +13,23 @@ import {
   syncNow,
   getSyncStatus,
   listKnownPeers,
+  setHouseholdFolder,
+  ensureFolderId,
+  SYNC_KEYS,
   type SyncResult,
   type KnownPeer,
 } from './household';
+import { describeSyncError, isReauthError } from './googleDrive';
+import {
+  writeDriveSnapshot,
+  maybeDailyDriveSnapshot,
+  listDriveSnapshots,
+  readDriveBackup,
+  DEFAULT_BACKUP_RETENTION,
+  type DriveSnapshot,
+} from './driveBackup';
+import type { BackupFile } from '@/features/export/exportData';
+import { getSetting, getSettingNumber, setSetting, SETTINGS_KEYS } from '@/db/queries/settings';
 
 export type SyncStatus = 'idle' | 'syncing' | 'error' | 'offline' | 'signed-out';
 
@@ -24,10 +38,21 @@ interface SyncContextValue {
   lastSyncAt: string | null;
   lastResult: SyncResult | null;
   error: string | null;
+  // True when the last sync failed because Google Drive access needs
+  // re-granting (missing scope) — the UI offers a Reconnect button, not a retry.
+  needsReauth: boolean;
   folderId: string | null;
   peers: KnownPeer[];
   triggerSync: (reason?: string) => Promise<void>;
+  connectSharedFolder: (folderId: string) => Promise<void>;
   dismissError: () => void;
+  // Drive backup snapshots (full-book restore points in the shared folder).
+  lastBackupAt: string | null;
+  backupRetention: number;
+  setBackupRetention: (n: number) => Promise<void>;
+  backupNow: () => Promise<void>;
+  listBackups: () => Promise<DriveSnapshot[]>;
+  fetchBackup: (fileId: string) => Promise<BackupFile>;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
@@ -42,16 +67,26 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [needsReauth, setNeedsReauth] = useState(false);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [peers, setPeers] = useState<KnownPeer[]>([]);
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
+  const [backupRetention, setBackupRetentionState] = useState<number>(DEFAULT_BACKUP_RETENTION);
   const inFlight = useRef(false);
   const lastErrorAt = useRef<number>(0);
 
   const refreshStatus = useCallback(async () => {
-    const [s, p] = await Promise.all([getSyncStatus(db), listKnownPeers(db)]);
+    const [s, p, backupAt, retention] = await Promise.all([
+      getSyncStatus(db),
+      listKnownPeers(db),
+      getSetting(db, SYNC_KEYS.LAST_BACKUP_AT),
+      getSettingNumber(db, SETTINGS_KEYS.BACKUP_RETENTION, DEFAULT_BACKUP_RETENTION),
+    ]);
     setLastSyncAt(s.lastSyncAt);
     setFolderId(s.folderId);
     setPeers(p);
+    setLastBackupAt(backupAt);
+    setBackupRetentionState(retention);
   }, [db]);
 
   useEffect(() => {
@@ -83,6 +118,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       inFlight.current = true;
       setStatus('syncing');
       setError(null);
+      setNeedsReauth(false);
       try {
         // Acquire the token up front. A failed/timed-out silent refresh returns
         // null — that's a "needs reconnect" situation, not a sync error, so show
@@ -95,9 +131,25 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         const result = await syncNow(db, async () => token);
         setLastResult(result);
         setStatus('idle');
+        // Piggyback a once-a-day full-book snapshot into the folder. Best-effort:
+        // a backup failure must never turn a successful sync red.
+        try {
+          const { folderId: fid } = await getSyncStatus(db);
+          if (fid) {
+            const retention = await getSettingNumber(
+              db,
+              SETTINGS_KEYS.BACKUP_RETENTION,
+              DEFAULT_BACKUP_RETENTION,
+            );
+            await maybeDailyDriveSnapshot(db, token, fid, retention);
+          }
+        } catch (e) {
+          console.warn('Daily Drive backup skipped:', e);
+        }
         await refreshStatus();
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Sync failed');
+        setError(describeSyncError(e));
+        setNeedsReauth(isReauthError(e));
         setStatus('error');
         lastErrorAt.current = Date.now();
       } finally {
@@ -148,10 +200,63 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     };
   }, [auth.google]);
 
+  // Switch this device to a partner-shared folder (chosen via the Picker) and
+  // sync immediately so both sides start merging.
+  const connectSharedFolder = useCallback(
+    async (id: string) => {
+      await setHouseholdFolder(db, id);
+      await refreshStatus();
+      await triggerSync('manual');
+    },
+    [db, refreshStatus, triggerSync],
+  );
+
   const dismissError = useCallback(() => {
     setError(null);
+    setNeedsReauth(false);
     if (status === 'error') setStatus('idle');
   }, [status]);
+
+  const setBackupRetention = useCallback(
+    async (n: number) => {
+      const clamped = Math.max(1, Math.round(n));
+      await setSetting(db, SETTINGS_KEYS.BACKUP_RETENTION, String(clamped));
+      setBackupRetentionState(clamped);
+    },
+    [db],
+  );
+
+  // Manual "Back up to Drive now": writes today's snapshot immediately,
+  // regardless of whether the daily one already ran.
+  const backupNow = useCallback(async () => {
+    const token = await auth.getGoogleAccessToken();
+    if (!token) throw new Error('Reconnect to Google first, then try again.');
+    const fid = await ensureFolderId(db, token);
+    const retention = await getSettingNumber(
+      db,
+      SETTINGS_KEYS.BACKUP_RETENTION,
+      DEFAULT_BACKUP_RETENTION,
+    );
+    await writeDriveSnapshot(db, token, fid, retention);
+    await refreshStatus();
+  }, [db, auth, refreshStatus]);
+
+  const listBackups = useCallback(async () => {
+    const token = await auth.getGoogleAccessToken();
+    if (!token) throw new Error('Reconnect to Google first, then try again.');
+    const { folderId: fid } = await getSyncStatus(db);
+    if (!fid) return [];
+    return listDriveSnapshots(token, fid);
+  }, [db, auth]);
+
+  const fetchBackup = useCallback(
+    async (fileId: string) => {
+      const token = await auth.getGoogleAccessToken();
+      if (!token) throw new Error('Reconnect to Google first, then try again.');
+      return readDriveBackup(token, fileId);
+    },
+    [auth],
+  );
 
   return (
     <SyncContext.Provider
@@ -160,10 +265,18 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         lastSyncAt,
         lastResult,
         error,
+        needsReauth,
         folderId,
         peers,
         triggerSync,
+        connectSharedFolder,
         dismissError,
+        lastBackupAt,
+        backupRetention,
+        setBackupRetention,
+        backupNow,
+        listBackups,
+        fetchBackup,
       }}
     >
       {children}

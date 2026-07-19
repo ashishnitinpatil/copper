@@ -19,7 +19,7 @@ import {
 import { mergeAccount, previewAccountMerge } from '@/db/queries/merge';
 import { MergeInto } from '@/components/MergeInto';
 import type { Account, AccountType } from '@/db/types';
-import { parseAmount, fromMinor, SUPPORTED_CURRENCIES } from '@/lib/money';
+import { parseAmount, fromMinor, CURRENCY_OPTIONS } from '@/lib/money';
 import { Money } from '@/components/ui/Money';
 import { Combobox } from '@/components/ui/Combobox';
 import { toDateString } from '@/lib/dates';
@@ -258,13 +258,12 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
               </option>
             ))}
           </Select>
-          <Select label="Currency" value={form.currency} onChange={(e) => update('currency', e.target.value)}>
-            {SUPPORTED_CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code} {c.symbol}
-              </option>
-            ))}
-          </Select>
+          <Combobox
+            label="Currency"
+            value={form.currency}
+            onChange={(v) => update('currency', v)}
+            options={CURRENCY_OPTIONS}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Input

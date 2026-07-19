@@ -51,10 +51,4 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['@vlcn.io/crsqlite-wasm'],
   },
-  server: {
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
-    },
-  },
 });

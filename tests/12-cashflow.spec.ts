@@ -30,6 +30,10 @@ test.describe('Cashflow', () => {
     await selectCombobox(modal, 'Account', 'Cash');
     await selectCombobox(modal, 'Category', 'Groceries');
     await modal.getByLabel('Amount').fill('1200');
+    // Weekly (not the default Monthly) so an occurrence always lands inside the
+    // 30-day forecast window — a monthly rule's first future occurrence can be 31
+    // days out (date-dependent), which would leave the forecast empty.
+    await modal.getByLabel('Frequency').selectOption({ label: 'Weekly' });
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'New recurring rule' })).not.toBeVisible();
 

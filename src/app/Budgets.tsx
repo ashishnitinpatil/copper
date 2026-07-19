@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/Card';
-import { Input, Select } from '@/components/ui/Input';
+import { Input } from '@/components/ui/Input';
 import { Combobox } from '@/components/ui/Combobox';
 import { Modal } from '@/components/ui/Modal';
 import { useDB } from '@/db/DBProvider';
@@ -17,7 +17,7 @@ import {
 } from '@/db/queries/budgets';
 import { listCategories } from '@/db/queries/categories';
 import type { Category } from '@/db/types';
-import { formatMoney, parseAmount, fromMinor, SUPPORTED_CURRENCIES } from '@/lib/money';
+import { formatMoney, parseAmount, fromMinor, CURRENCY_OPTIONS } from '@/lib/money';
 import { convert } from '@/lib/fx';
 import { toDateString, startOfMonth } from '@/lib/dates';
 import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
@@ -221,13 +221,12 @@ function BudgetFormModal({ open, onClose, categories, existing }: BudgetFormModa
             placeholder="5000"
             autoFocus
           />
-          <Select label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-            {SUPPORTED_CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code} {c.symbol}
-              </option>
-            ))}
-          </Select>
+          <Combobox
+            label="Currency"
+            value={currency}
+            onChange={setCurrency}
+            options={CURRENCY_OPTIONS}
+          />
         </div>
         <div className="flex items-center justify-between gap-2 pt-2">
           {existing ? (

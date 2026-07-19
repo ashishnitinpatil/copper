@@ -1,16 +1,25 @@
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input, Select } from '@/components/ui/Input';
+import { Combobox } from '@/components/ui/Combobox';
 import { useDB } from '@/db/DBProvider';
 import { createAccount } from '@/db/queries/accounts';
 import type { AccountType } from '@/db/types';
-import { SUPPORTED_CURRENCIES, parseAmount } from '@/lib/money';
+import { CURRENCY_OPTIONS, parseAmount } from '@/lib/money';
 import { parseBackup, restoreBackup } from '@/features/export/restoreBackup';
 import { decryptBackup, isEncryptedBackup, type EncryptedBackup } from '@/features/export/crypto';
 import type { BackupFile } from '@/features/export/exportData';
-import { closeDB, openDB } from '@/db/client';
+import { closeDB, openDB, requestLocalReset } from '@/db/client';
+import { useAuth } from '@/auth/AuthProvider';
+import {
+  isPickerConfigured,
+  pickSharedFolder,
+  PickerBlockedError,
+  type PickedFolder,
+} from '@/sync/googlePicker';
+import { stashJoinTarget } from '@/sync/joinFresh';
 import { useAppSettings } from './AppSettingsProvider';
 
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
@@ -24,8 +33,9 @@ export function Welcome() {
   const db = useDB();
   const navigate = useNavigate();
   const settings = useAppSettings();
+  const auth = useAuth();
 
-  const [mode, setMode] = useState<'start' | 'restore'>(() =>
+  const [mode, setMode] = useState<'start' | 'restore' | 'join'>(() =>
     new URLSearchParams(window.location.search).has('restore') ? 'restore' : 'start',
   );
   const [step, setStep] = useState<1 | 2>(1);
@@ -45,7 +55,49 @@ export function Welcome() {
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
-  const currencies = useMemo(() => SUPPORTED_CURRENCIES, []);
+  // Join-a-partner branch: adopt a shared Drive folder and start fresh from their
+  // ledger (the onboarding equivalent of Settings → "Connect a shared folder",
+  // Start-fresh mode). Requires a Google sign-in to open the Picker.
+  const joinConfigured = auth.googleConfigured && isPickerConfigured();
+  const [joinFolder, setJoinFolder] = useState<PickedFolder | null>(null);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+
+  const chooseSharedFolder = async () => {
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      const token = await auth.getGoogleAccessToken();
+      if (!token) {
+        setJoinError('Reconnect to Google first, then try again.');
+        return;
+      }
+      const folder = await pickSharedFolder(token);
+      if (folder) setJoinFolder(folder);
+    } catch (e) {
+      if (e instanceof PickerBlockedError) {
+        setJoinError(
+          "The Google folder picker couldn't load. This usually means more than one Google " +
+            'account is signed in to this browser. Open Copper in a browser or profile signed in ' +
+            'to only this Google account, then try again.',
+        );
+      } else {
+        setJoinError(e instanceof Error ? e.message : 'Could not open the folder picker.');
+      }
+    } finally {
+      setJoinBusy(false);
+    }
+  };
+
+  // Erase this device's seed defaults and adopt the partner's folder on the next
+  // boot. applyPendingJoin (db/client) then points sync at the folder, baselines
+  // the version so nothing is pushed back, and marks onboarding done — so this
+  // device lands on the dashboard with the partner's data, not back here.
+  const startFreshFromFolder = () => {
+    if (!joinFolder) return;
+    stashJoinTarget(joinFolder.id);
+    requestLocalReset();
+  };
 
   const previewRestore = (backup: BackupFile, name: string) => {
     const rows = Object.values(backup.tables).reduce(
@@ -151,9 +203,11 @@ export function Welcome() {
           <p className="mt-1 text-sm text-slate-400">
             {mode === 'restore'
               ? 'Bring your data over from a backup file.'
-              : step === 1
-                ? 'Pick the currency you use day to day.'
-                : 'Add your first account to start tracking.'}
+              : mode === 'join'
+                ? 'Load the shared ledger a partner already set up.'
+                : step === 1
+                  ? 'Pick the currency you use day to day.'
+                  : 'Add your first account to start tracking.'}
           </p>
         </div>
 
@@ -249,21 +303,80 @@ export function Welcome() {
           </Card>
         )}
 
+        {mode === 'join' && (
+          <Card>
+            <div className="space-y-4">
+              {!auth.google ? (
+                <>
+                  <p className="text-sm text-slate-300">
+                    Sign in with the Google account your partner shared the folder with. Copper only
+                    ever touches the folder you pick — nothing else in your Drive.
+                  </p>
+                  {auth.error && (
+                    <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+                      {auth.error}
+                    </div>
+                  )}
+                  <Button variant="secondary" onClick={() => auth.signInGoogle()}>
+                    Sign in with Google
+                  </Button>
+                </>
+              ) : joinFolder ? (
+                <>
+                  <p className="text-sm text-slate-300">
+                    Start fresh from{' '}
+                    <span className="font-medium text-slate-100">{joinFolder.name}</span>? This
+                    device will load the shared ledger and sync with it from now on.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-300">
+                    Signed in as{' '}
+                    <span className="font-medium text-slate-100">{auth.google.identity.email}</span>.
+                    Choose the folder your partner shared to load their ledger onto this device.
+                  </p>
+                  <Button variant="secondary" onClick={chooseSharedFolder} disabled={joinBusy}>
+                    {joinBusy ? 'Opening picker…' : 'Choose shared folder…'}
+                  </Button>
+                </>
+              )}
+
+              {joinError && (
+                <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+                  {joinError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setMode('start');
+                    setJoinFolder(null);
+                    setJoinError(null);
+                  }}
+                >
+                  Back
+                </Button>
+                {joinFolder && (
+                  <Button onClick={startFreshFromFolder}>Start fresh</Button>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+
         {mode === 'start' && (
         <Card>
           {step === 1 && (
             <div className="space-y-4">
-              <Select
+              <Combobox
                 label="Default currency"
                 value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-              >
-                {currencies.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.symbol} {c.code}
-                  </option>
-                ))}
-              </Select>
+                onChange={setCurrency}
+                options={CURRENCY_OPTIONS}
+              />
               <p className="text-xs text-slate-500">
                 We guessed this from your device. You can change it later in Settings, and each
                 account can still use a different currency.
@@ -271,15 +384,29 @@ export function Welcome() {
               <div className="flex justify-end">
                 <Button onClick={goStep2}>Continue</Button>
               </div>
-              <div className="border-t border-slate-800 pt-3 text-center text-xs text-slate-500">
-                Moving from another device?{' '}
-                <button
-                  type="button"
-                  onClick={() => setMode('restore')}
-                  className="font-medium text-success hover:text-success"
-                >
-                  Restore from a backup
-                </button>
+              <div className="space-y-1 border-t border-slate-800 pt-3 text-center text-xs text-slate-500">
+                <div>
+                  Moving from another device?{' '}
+                  <button
+                    type="button"
+                    onClick={() => setMode('restore')}
+                    className="font-medium text-success hover:text-success"
+                  >
+                    Restore from a backup
+                  </button>
+                </div>
+                {joinConfigured && (
+                  <div>
+                    Partner already sharing their folder?{' '}
+                    <button
+                      type="button"
+                      onClick={() => setMode('join')}
+                      className="font-medium text-success hover:text-success"
+                    >
+                      Join their shared ledger
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}

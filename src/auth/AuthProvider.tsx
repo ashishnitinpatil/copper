@@ -6,7 +6,6 @@ import {
   refreshGoogleToken,
   revokeGoogleToken,
 } from './google';
-import { isAppleConfigured, signInWithApple } from './apple';
 
 const STORAGE_KEY = 'expense-tracker.auth.identities';
 // The "trust this device" preference always lives in localStorage so the device
@@ -17,7 +16,6 @@ const TRUST_KEY = 'expense-tracker.auth.trust-device';
 
 interface StoredState {
   google: GoogleSession | null;
-  apple: AuthIdentity | null;
 }
 
 function readTrustDevice(): boolean {
@@ -53,12 +51,12 @@ function loadStored(): StoredState {
       const raw = store.getItem(STORAGE_KEY);
       if (!raw) continue;
       const parsed = JSON.parse(raw);
-      return { google: normalizeGoogle(parsed.google), apple: parsed.apple ?? null };
+      return { google: normalizeGoogle(parsed.google) };
     } catch {
       /* try the next store */
     }
   }
-  return { google: null, apple: null };
+  return { google: null };
 }
 
 // Write the session to the store the trust setting selects and clear it from the
@@ -80,13 +78,10 @@ function persistSession(state: StoredState, trust: boolean): void {
 
 interface AuthContextValue extends AuthState {
   googleConfigured: boolean;
-  appleConfigured: boolean;
   trustDevice: boolean;
   setTrustDevice: (value: boolean) => void;
   signInGoogle: () => Promise<void>;
   signOutGoogle: () => void;
-  signInApple: () => Promise<void>;
-  signOutApple: () => void;
   getGoogleAccessToken: () => Promise<string | null>;
   error: string | null;
   clearError: () => void;
@@ -98,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [trustDevice, setTrustDeviceState] = useState<boolean>(readTrustDevice);
   const [state, setState] = useState<AuthState>(() => {
     const stored = loadStored();
-    return { google: stored.google, apple: stored.apple };
+    return { google: stored.google };
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -106,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // hour-long life reuses it instead of round-tripping to Google. Re-runs when
   // the trust setting flips, which moves the blob to the right store.
   useEffect(() => {
-    persistSession({ google: state.google, apple: state.apple }, trustDevice);
+    persistSession({ google: state.google }, trustDevice);
   }, [state, trustDevice]);
 
   const setTrustDevice = useCallback((value: boolean) => {
@@ -121,12 +116,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInGoogle = useCallback(async () => {
     setError(null);
     try {
-      const session = await signInWithGoogle();
+      // On a reconnect we know which account this is — pin to it so a
+      // multi-account browser re-mints against the right one.
+      const session = await signInWithGoogle(state.google?.identity.email);
       setState((s) => ({ ...s, google: session }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Google sign-in failed');
     }
-  }, []);
+  }, [state.google?.identity.email]);
 
   const signOutGoogle = useCallback(() => {
     setState((s) => {
@@ -135,27 +132,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const signInApple = useCallback(async () => {
-    setError(null);
-    try {
-      const identity = await signInWithApple();
-      setState((s) => ({ ...s, apple: identity }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Apple sign-in failed');
-    }
-  }, []);
-
-  const signOutApple = useCallback(() => {
-    setState((s) => ({ ...s, apple: null }));
-  }, []);
-
   const getGoogleAccessToken = useCallback(async () => {
     const current = state.google;
     if (!current) return null;
     if (current.accessToken && current.expiresAt - 60_000 > Date.now()) {
       return current.accessToken;
     }
-    const refreshed = await refreshGoogleToken();
+    const refreshed = await refreshGoogleToken(current.identity.email);
     if (refreshed) {
       setState((s) => ({ ...s, google: refreshed }));
       return refreshed.accessToken;
@@ -166,15 +149,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       google: state.google,
-      apple: state.apple,
       googleConfigured: isGoogleConfigured(),
-      appleConfigured: isAppleConfigured(),
       trustDevice,
       setTrustDevice,
       signInGoogle,
       signOutGoogle,
-      signInApple,
-      signOutApple,
       getGoogleAccessToken,
       error,
       clearError: () => setError(null),
@@ -186,8 +165,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTrustDevice,
       signInGoogle,
       signOutGoogle,
-      signInApple,
-      signOutApple,
       getGoogleAccessToken,
     ],
   );

@@ -126,4 +126,45 @@ export async function deleteFile(token: string, fileId: string): Promise<void> {
   await driveFetch(token, `/files/${fileId}`, { method: 'DELETE' });
 }
 
+// Turn a raw sync failure into something a person can act on. Google's Drive
+// 401 "Active session is invalid. Error code: 4" is a session/credential
+// rejection with no single documented cause — it shows up with expired tokens,
+// several Google accounts signed into one browser, managed Workspace accounts,
+// and Guest/Incognito or blocked third-party cookies. So point at reconnecting
+// first (fixes the common token case) and then list the usual culprits, rather
+// than asserting one. Other errors pass through unchanged.
+export function describeSyncError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : e ? String(e) : '';
+  if (e instanceof DriveError && e.status === 401 && /active session is invalid/i.test(raw)) {
+    return (
+      'Google rejected the sync session. Disconnect and sign in again to refresh it. ' +
+      'If it keeps failing, sign in with a single personal Google account in a normal ' +
+      'window — this error is common when several accounts are signed in at once, with ' +
+      'managed Workspace accounts, or when third-party cookies are blocked.'
+    );
+  }
+  if (isInsufficientScopeError(e)) {
+    return (
+      "Copper can't reach Google Drive because the Drive permission wasn't granted. " +
+      'Reconnect to Google and keep the Google Drive permission checkbox ticked on the ' +
+      'consent screen.'
+    );
+  }
+  return raw || 'Sync failed';
+}
+
+// A 403 "insufficient authentication scopes" means the stored token is valid but
+// was never granted `drive.file` — the user unticked the Drive permission on the
+// consent screen. Reconnecting (re-consenting) is the fix, not a plain retry.
+function isInsufficientScopeError(e: unknown): boolean {
+  if (!(e instanceof DriveError) || e.status !== 403) return false;
+  return /insufficient authentication scopes|insufficient permission/i.test(e.message);
+}
+
+// True when a sync failure is fixed by re-consenting to Google (missing Drive
+// scope), so the UI can offer a "Reconnect" button instead of a bare retry.
+export function isReauthError(e: unknown): boolean {
+  return isInsufficientScopeError(e);
+}
+
 export { DriveError };

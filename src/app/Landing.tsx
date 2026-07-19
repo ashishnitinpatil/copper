@@ -62,6 +62,22 @@ const FEATURES: Feature[] = [
   },
 ];
 
+// The setup, in the order you'd actually do it — numbering earns its place here.
+const SHARE_STEPS: { title: string; desc: string }[] = [
+  {
+    title: 'Sign in as yourself',
+    desc: 'Each person uses their own Google account — no shared login to hand around.',
+  },
+  {
+    title: 'Share the folder',
+    desc: 'One of you shares the ledger’s Drive folder with the other, straight from Drive.',
+  },
+  {
+    title: 'Connect, and go',
+    desc: 'The other taps “Connect a shared folder” once. From then on, changes merge both ways.',
+  },
+];
+
 function CopperButton({
   to,
   variant,
@@ -161,6 +177,46 @@ export function Landing() {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* ── Shared ledger ── the other half of the premise: two people, one book ── */}
+      <section className="relative overflow-hidden bg-[radial-gradient(120%_130%_at_80%_15%,#2c1d13_0%,#1c1410_55%,#140d09_100%)] px-6 py-20 sm:py-28">
+        <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+          {/* Two discs meeting in a bright overlap — the same idea as the mark,
+              here standing for two people keeping one ledger. */}
+          <div className="relative flex items-center justify-center" aria-hidden>
+            <span className="block h-16 w-16 rounded-full bg-[radial-gradient(circle_at_35%_30%,#E7A05C,#9E5429)] shadow-[0_10px_30px_rgba(0,0,0,0.5)]" />
+            <span className="-ml-6 block h-16 w-16 rounded-full bg-[radial-gradient(circle_at_65%_30%,#F3D8B8,#B4682F)] mix-blend-screen" />
+          </div>
+          <p className="mt-8 font-mono text-xs uppercase tracking-[0.32em] text-[#D58A4F]">
+            Made for two
+          </p>
+          <h2 className="mt-4 font-display text-4xl font-semibold leading-[1.08] text-[#F6EDE3] sm:text-5xl">
+            One ledger, kept by two.
+          </h2>
+          <p className="mt-6 max-w-xl text-lg leading-relaxed text-[#C9B19A]">
+            Copper began as a way to track money together. You and your partner each sign
+            in with your own Google account and connect the same Drive folder — then every
+            entry, from either phone, shows up for both. No shared password, no server in
+            between, and it still works offline.
+          </p>
+          <ol className="mt-11 grid gap-4 text-left sm:grid-cols-3">
+            {SHARE_STEPS.map((s, i) => (
+              <li
+                key={s.title}
+                className="rounded-2xl border border-[#E7C9A8]/15 bg-white/[0.03] p-5"
+              >
+                <span className="font-mono text-xs tracking-widest text-[#D58A4F]">
+                  0{i + 1}
+                </span>
+                <h3 className="mt-2 font-display text-base font-semibold text-[#F6EDE3]">
+                  {s.title}
+                </h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-[#B49A82]">{s.desc}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
       </section>
 
       {/* ── Origin story ── the honest meaning of the mark (built with AI) ── */}

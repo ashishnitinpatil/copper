@@ -1,7 +1,5 @@
-export type AuthProviderName = 'google' | 'apple';
-
 export interface AuthIdentity {
-  provider: AuthProviderName;
+  provider: 'google';
   sub: string;
   email?: string;
   name?: string;
@@ -17,5 +15,4 @@ export interface GoogleSession {
 
 export interface AuthState {
   google: GoogleSession | null;
-  apple: AuthIdentity | null;
 }

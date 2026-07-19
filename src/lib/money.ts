@@ -8,25 +8,26 @@ export interface CurrencyMeta {
   code: string;
   symbol: string;
   decimals: number;
+  name: string;
 }
 
 const CURRENCIES: Record<string, CurrencyMeta> = {
-  INR: { code: 'INR', symbol: '₹', decimals: 2 },
-  USD: { code: 'USD', symbol: '$', decimals: 2 },
-  EUR: { code: 'EUR', symbol: '€', decimals: 2 },
-  GBP: { code: 'GBP', symbol: '£', decimals: 2 },
-  JPY: { code: 'JPY', symbol: '¥', decimals: 0 },
-  AUD: { code: 'AUD', symbol: 'A$', decimals: 2 },
-  CAD: { code: 'CAD', symbol: 'C$', decimals: 2 },
-  SGD: { code: 'SGD', symbol: 'S$', decimals: 2 },
+  INR: { code: 'INR', symbol: '₹', decimals: 2, name: 'Indian Rupee' },
+  USD: { code: 'USD', symbol: '$', decimals: 2, name: 'US Dollar' },
+  EUR: { code: 'EUR', symbol: '€', decimals: 2, name: 'Euro' },
+  GBP: { code: 'GBP', symbol: '£', decimals: 2, name: 'British Pound' },
+  JPY: { code: 'JPY', symbol: '¥', decimals: 0, name: 'Japanese Yen' },
+  AUD: { code: 'AUD', symbol: 'A$', decimals: 2, name: 'Australian Dollar' },
+  CAD: { code: 'CAD', symbol: 'C$', decimals: 2, name: 'Canadian Dollar' },
+  SGD: { code: 'SGD', symbol: 'S$', decimals: 2, name: 'Singapore Dollar' },
   // The new (2025) UAE dirham symbol has no font support yet (renders as tofu),
   // so we use the plain "Dh" abbreviation, which is unambiguous and always renders.
-  AED: { code: 'AED', symbol: 'Dh ', decimals: 2 },
-  CHF: { code: 'CHF', symbol: 'CHF', decimals: 2 },
+  AED: { code: 'AED', symbol: 'Dh ', decimals: 2, name: 'UAE Dirham' },
+  CHF: { code: 'CHF', symbol: 'CHF', decimals: 2, name: 'Swiss Franc' },
 };
 
 export function getCurrency(code: string): CurrencyMeta {
-  return CURRENCIES[code] ?? { code, symbol: code, decimals: 2 };
+  return CURRENCIES[code] ?? { code, symbol: code, decimals: 2, name: code };
 }
 
 // A strong right-to-left currency symbol makes the Unicode bidi algorithm
@@ -41,6 +42,16 @@ function isolateSymbol(symbol: string): string {
 }
 
 export const SUPPORTED_CURRENCIES = Object.values(CURRENCIES);
+
+/**
+ * Options for a searchable currency picker. The label carries both the code and
+ * the full name so a Combobox (which filters on the label) matches queries like
+ * "Rupee", "INR" or "Indian" — not just the ISO code.
+ */
+export const CURRENCY_OPTIONS = SUPPORTED_CURRENCIES.map((c) => ({
+  value: c.code,
+  label: `${c.code} — ${c.name}`,
+}));
 
 export function toMinor(amount: number | string, currency: string): number {
   const { decimals } = getCurrency(currency);

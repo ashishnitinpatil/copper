@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAndLoad, waitForDB } from './helpers';
+import { resetAndLoad, waitForDB, selectCombobox } from './helpers';
 
 test.describe('Accounts CRUD', () => {
   test.beforeEach(async ({ page }) => {
@@ -13,7 +13,8 @@ test.describe('Accounts CRUD', () => {
 
     await page.getByLabel('Name').fill('HDFC Savings');
     await page.getByLabel('Type').selectOption('bank');
-    await page.getByLabel('Currency').selectOption('INR');
+    // Currency is a searchable Combobox (not a native <select>).
+    await selectCombobox(page, 'Currency', 'INR');
     await page.getByLabel('Starting balance', { exact: true }).fill('50000');
     await page.getByRole('button', { name: 'Create' }).click();
 
