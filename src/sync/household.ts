@@ -135,14 +135,17 @@ async function pullRemoteChanges(
       .sort((a, b) => a.seq - b.seq);
     if (pending.length === 0) continue;
 
-    let highestSeq = watermark;
+    // Record the watermark after each changeset, not once at the end. A large
+    // first pull runs for minutes; if it's interrupted (tab closed, connection
+    // dropped) an end-of-loop write would record nothing and the next attempt
+    // would re-download and re-apply the whole peer from scratch. `pending` is
+    // sorted by seq, so advancing per file keeps the watermark monotonic.
     for (const { file, seq } of pending) {
       const payload = await downloadJsonFile<ChangesetPayload>(token, file.id);
       if (!payload?.rows) continue;
       pulled += await applyRemoteChanges(db, payload.rows);
-      if (seq > highestSeq) highestSeq = seq;
+      await setSetting(db, watermarkKey, String(seq));
     }
-    await setSetting(db, watermarkKey, String(highestSeq));
   }
   return { pulled, peers: byPeer.size };
 }
