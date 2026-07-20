@@ -3,7 +3,7 @@ import { SCHEMA_NAME, SCHEMA_SQL } from './schema';
 import { seedIfEmpty } from './seed';
 import { materializeDueRecurrences } from './queries/recurring';
 import { ensureLocalDevice } from './changeLog';
-import { applyPendingJoin } from '@/sync/joinFresh';
+import { applyPendingJoin, hasPendingJoin } from '@/sync/joinFresh';
 
 const DB_FILE = 'household.db';
 
@@ -72,7 +72,12 @@ export async function openDB(): Promise<DB> {
     const sqlite = await getSQLite();
     const db = await sqlite.open(DB_FILE);
     await db.automigrateTo(SCHEMA_NAME, SCHEMA_SQL);
-    await seedIfEmpty(db);
+    // Skip the seed when adopting a partner's ledger. applyPendingJoin baselines
+    // the push version so seeded rows never reach their folder — but the rows do
+    // stay here, unioned with what we pull (their 183 categories plus our 16
+    // defaults). Being below the baseline they can never sync either, so they'd
+    // linger forever as local-only rows no other device sees.
+    if (!hasPendingJoin()) await seedIfEmpty(db);
     // If a "start fresh" folder join was queued before the wipe, adopt the
     // partner's folder now — before the first sync — so this device pulls their
     // ledger instead of pushing its seed defaults into their folder.

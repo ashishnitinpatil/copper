@@ -15,6 +15,15 @@ export function stashJoinTarget(folderId: string): void {
 }
 
 /**
+ * Whether the next boot should adopt a partner's ledger. Checked before seeding:
+ * a "start fresh" join takes the partner's categories wholesale, so seeding the
+ * defaults first would leave all 16 behind, unioned with what we pull.
+ */
+export function hasPendingJoin(): boolean {
+  return localStorage.getItem(JOIN_FOLDER_KEY) !== null;
+}
+
+/**
  * Boot-time step for a "start fresh" join. On the freshly-seeded DB, point sync
  * at the partner's folder and baseline the local version to the current one, so
  * the seed defaults are never pushed into their folder — this device only pulls
