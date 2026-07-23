@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { PwaPrompts } from '@/pwa/PwaPrompts';
+import { SyncProgressBanner } from '@/sync/SyncProgressBanner';
 import { useAppSettings } from './AppSettingsProvider';
 
 interface NavItem {
@@ -82,6 +83,7 @@ export function AppShell() {
         </div>
       </aside>
       <main className="flex-1 p-4 lg:p-8">
+        <SyncProgressBanner />
         <Outlet />
       </main>
       <PwaPrompts />

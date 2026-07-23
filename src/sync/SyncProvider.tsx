@@ -17,6 +17,7 @@ import {
   ensureFolderId,
   SYNC_KEYS,
   type SyncResult,
+  type SyncProgress,
   type KnownPeer,
 } from './household';
 import { describeSyncError, isReauthError } from './googleDrive';
@@ -37,6 +38,9 @@ interface SyncContextValue {
   status: SyncStatus;
   lastSyncAt: string | null;
   lastResult: SyncResult | null;
+  // Non-null only while the pull phase is applying changesets. Drives the
+  // "N of M" progress banner during a large first pull.
+  progress: SyncProgress | null;
   error: string | null;
   // True when the last sync failed because Google Drive access needs
   // re-granting (missing scope) — the UI offers a Reconnect button, not a retry.
@@ -66,6 +70,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SyncStatus>('idle');
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<SyncResult | null>(null);
+  const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsReauth, setNeedsReauth] = useState(false);
   const [folderId, setFolderId] = useState<string | null>(null);
@@ -128,7 +133,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           setStatus('signed-out');
           return;
         }
-        const result = await syncNow(db, async () => token);
+        const result = await syncNow(db, async () => token, setProgress);
         setLastResult(result);
         setStatus('idle');
         // Piggyback a once-a-day full-book snapshot into the folder. Best-effort:
@@ -154,6 +159,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         lastErrorAt.current = Date.now();
       } finally {
         inFlight.current = false;
+        setProgress(null);
       }
     },
     [db, auth, refreshStatus, status],
@@ -264,6 +270,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         status,
         lastSyncAt,
         lastResult,
+        progress,
         error,
         needsReauth,
         folderId,

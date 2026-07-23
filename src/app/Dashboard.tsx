@@ -21,6 +21,7 @@ import { startOfMonth, toDateString, formatRelativeDate } from '@/lib/dates';
 import { AccountTypeIcon } from '@/components/ui/AccountTypeIcon';
 import { Money } from '@/components/ui/Money';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
+import { useIsFirstPull } from '@/sync/SyncProgressBanner';
 import { useAppSettings } from './AppSettingsProvider';
 
 function LocalOnlyWarning() {
@@ -193,8 +194,12 @@ export function Dashboard() {
       cta: 'Create',
     },
   ];
+  // While a first pull is streaming the ledger in, both the checklist ("record
+  // your first transaction") and the local-only warning are wrong — the data is
+  // arriving. The global SyncProgressBanner speaks for this state instead.
+  const firstPull = useIsFirstPull();
   const showGettingStarted =
-    !gsDismissed && !gettingStartedSteps.every((s) => s.done);
+    !firstPull && !gsDismissed && !gettingStartedSteps.every((s) => s.done);
 
   return (
     <PageShell title="Dashboard" subtitle="Overview of accounts, budgets and recent activity">
@@ -206,7 +211,7 @@ export function Dashboard() {
             setGsDismissed(true);
           }}
         />
-      ) : (
+      ) : firstPull ? null : (
         <LocalOnlyWarning />
       )}
       <TotalBalanceCard totals={totalsState.data ?? []} />

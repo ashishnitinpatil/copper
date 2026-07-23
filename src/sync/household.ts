@@ -40,6 +40,17 @@ export interface SyncResult {
   uploadedFile: string | null;
 }
 
+// Progress of the pull phase, reported per changeset applied. `total` is the
+// number of pending changesets known at the start of the pull; `done` counts up
+// to it. Used to show a real "N of M" during a big first pull, which can run for
+// minutes on a large ledger.
+export interface SyncProgress {
+  done: number;
+  total: number;
+}
+
+export type SyncProgressFn = (progress: SyncProgress) => void;
+
 function changesetFileName(siteIdHex: string, seq: number): string {
   return `${CHANGES_PREFIX}${siteIdHex}-${String(seq).padStart(6, '0')}${CHANGES_EXT}`;
 }
@@ -113,6 +124,7 @@ async function pullRemoteChanges(
   token: string,
   folderId: string,
   localSiteIdHex: string,
+  onProgress?: SyncProgressFn,
 ): Promise<{ pulled: number; peers: number }> {
   const files = await listFolderFiles(token, folderId, CHANGES_PREFIX);
   const byPeer = new Map<string, { file: DriveFile; seq: number }[]>();
@@ -125,7 +137,12 @@ async function pullRemoteChanges(
     byPeer.set(parsed.siteIdHex, list);
   }
 
-  let pulled = 0;
+  // Flatten every peer's pending changesets into one work list first, so the
+  // total is known before applying — that's what lets the UI show "N of M"
+  // rather than an indeterminate spinner. Each entry keeps its own watermark
+  // key; peers are processed one after another, and each peer's changesets stay
+  // sorted by seq so its watermark only ever advances.
+  const work: { watermarkKey: string; file: DriveFile; seq: number }[] = [];
   for (const [peerId, entries] of byPeer) {
     const watermarkKey = SYNC_KEYS.PEER_PREFIX + peerId;
     const watermarkStr = await getSetting(db, watermarkKey);
@@ -133,19 +150,30 @@ async function pullRemoteChanges(
     const pending = entries
       .filter((e) => e.seq > watermark)
       .sort((a, b) => a.seq - b.seq);
-    if (pending.length === 0) continue;
+    for (const { file, seq } of pending) work.push({ watermarkKey, file, seq });
+  }
 
-    // Record the watermark after each changeset, not once at the end. A large
-    // first pull runs for minutes; if it's interrupted (tab closed, connection
-    // dropped) an end-of-loop write would record nothing and the next attempt
-    // would re-download and re-apply the whole peer from scratch. `pending` is
-    // sorted by seq, so advancing per file keeps the watermark monotonic.
-    for (const { file, seq } of pending) {
-      const payload = await downloadJsonFile<ChangesetPayload>(token, file.id);
-      if (!payload?.rows) continue;
+  const total = work.length;
+  onProgress?.({ done: 0, total });
+
+  let pulled = 0;
+  let done = 0;
+  for (const { watermarkKey, file, seq } of work) {
+    const payload = await downloadJsonFile<ChangesetPayload>(token, file.id);
+    if (payload?.rows) {
       pulled += await applyRemoteChanges(db, payload.rows);
+      // Record the watermark after each changeset, not once at the end. A large
+      // first pull runs for minutes; if it's interrupted (tab closed, connection
+      // dropped) an end-of-loop write would record nothing and the next attempt
+      // would re-download and re-apply everything from scratch.
       await setSetting(db, watermarkKey, String(seq));
     }
+    done++;
+    onProgress?.({ done, total });
+    // Yield so React can paint the progress update before the next changeset.
+    // sqlite runs on the main thread, so applyRemoteChanges blocks rendering;
+    // without this the bar would only appear once the whole pull finished.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
   return { pulled, peers: byPeer.size };
 }
@@ -153,6 +181,7 @@ async function pullRemoteChanges(
 export async function syncNow(
   db: DB,
   getAccessToken: () => Promise<string | null>,
+  onProgress?: SyncProgressFn,
 ): Promise<SyncResult> {
   const token = await getAccessToken();
   if (!token) throw new Error('Not signed in to Google');
@@ -160,7 +189,7 @@ export async function syncNow(
   const folderId = await ensureFolderId(db, token);
   const localSiteIdHex = await getLocalSiteIdHex(db);
 
-  const pullRes = await pullRemoteChanges(db, token, folderId, localSiteIdHex);
+  const pullRes = await pullRemoteChanges(db, token, folderId, localSiteIdHex, onProgress);
   const pushRes = await pushLocalChanges(db, token, folderId, localSiteIdHex);
 
   await setSetting(db, SYNC_KEYS.LAST_SYNC_AT, new Date().toISOString());

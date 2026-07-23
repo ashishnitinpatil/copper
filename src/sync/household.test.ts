@@ -220,6 +220,22 @@ describe('syncNow — pull', () => {
     expect(db.meta.get(SYNC_KEYS.PEER_PREFIX + 'bb')).toBe('1');
     expect(db.meta.get(SYNC_KEYS.PEER_PREFIX + 'cc')).toBe('2');
   });
+
+  it('reports pull progress per changeset with the total known upfront', async () => {
+    const db = makeDb();
+    seedPeerFile('bb', 1, [{ tag: 'bb1' }]);
+    seedPeerFile('cc', 1, [{ tag: 'cc1' }]);
+    seedPeerFile('cc', 2, [{ tag: 'cc2' }]);
+
+    const progress: { done: number; total: number }[] = [];
+    await syncNow(db as never, token, (p) => progress.push({ ...p }));
+
+    // Starts at 0/3 (total known before applying) and ticks up to 3/3.
+    expect(progress[0]).toEqual({ done: 0, total: 3 });
+    expect(progress.at(-1)).toEqual({ done: 3, total: 3 });
+    expect(progress.map((p) => p.done)).toEqual([0, 1, 2, 3]);
+    expect(progress.every((p) => p.total === 3)).toBe(true);
+  });
 });
 
 describe('syncNow — ordering & status', () => {
