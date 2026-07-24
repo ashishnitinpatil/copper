@@ -82,7 +82,9 @@ export function AppShell() {
           </nav>
         </div>
       </aside>
-      <main className="flex-1 p-4 lg:p-8">
+      {/* pb-24 keeps the last rows clear of the fixed mobile bottom nav; the
+          sidebar layout at lg has no bottom bar, so reset to the normal inset. */}
+      <main className="flex-1 p-4 pb-24 lg:p-8 lg:pb-8">
         <SyncProgressBanner />
         <Outlet />
       </main>
