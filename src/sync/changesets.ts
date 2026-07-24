@@ -106,28 +106,56 @@ export async function exportLocalChanges(
   return { rows, maxVersion };
 }
 
+// How many merge rows to apply per transaction. Each INSERT INTO crsql_changes
+// is a CRDT merge that cr-sqlite expands into writes across its internal clock
+// tables, and the IDBBatchAtomicVFS holds every dirty page of an open
+// transaction in memory until it commits atomically. A single peer changeset on
+// a large ledger can carry hundreds of thousands of merge rows (a real 23k-txn
+// book produced a 52 MB / ~200k-row changeset), and applying them all in one
+// transaction balloons the in-memory page set past what the VFS can commit —
+// the transaction fails with "database disk image is malformed" and takes the
+// local database with it.
+//
+// Committing in bounded batches keeps each commit's dirty-page footprint small
+// and lets the VFS flush to IndexedDB and release memory between them. This is
+// safe because CRDT merges are commutative and idempotent and the caller only
+// advances a changeset's watermark after applyRemoteChanges returns: an apply
+// interrupted between batches is simply re-merged in full next time, with no
+// double-counting. The proven restore path tolerates ~23k single-row *table*
+// inserts in one transaction; crsql_changes merges are heavier, so this stays
+// well below that with a wide safety margin.
+const APPLY_CHUNK_ROWS = 2000;
+
 export async function applyRemoteChanges(db: DB, rows: ChangeRow[]): Promise<number> {
   if (rows.length === 0) return 0;
   let applied = 0;
-  await db.tx(async (tx) => {
-    for (const r of rows) {
-      await tx.exec(
-        `INSERT INTO crsql_changes ("table", pk, cid, val, col_version, db_version, site_id, cl, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          r.table,
-          base64ToBytes(r.pk),
-          r.cid,
-          decodeVal(r.val, r.val_is_blob),
-          r.col_version,
-          r.db_version,
-          base64ToBytes(r.site_id),
-          r.cl,
-          r.seq,
-        ],
-      );
-      applied++;
+  for (let start = 0; start < rows.length; start += APPLY_CHUNK_ROWS) {
+    const chunk = rows.slice(start, start + APPLY_CHUNK_ROWS);
+    await db.tx(async (tx) => {
+      for (const r of chunk) {
+        await tx.exec(
+          `INSERT INTO crsql_changes ("table", pk, cid, val, col_version, db_version, site_id, cl, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            r.table,
+            base64ToBytes(r.pk),
+            r.cid,
+            decodeVal(r.val, r.val_is_blob),
+            r.col_version,
+            r.db_version,
+            base64ToBytes(r.site_id),
+            r.cl,
+            r.seq,
+          ],
+        );
+        applied++;
+      }
+    });
+    // Yield between batches so the main thread (sqlite runs on it) can repaint
+    // and the VFS can settle before the next transaction opens.
+    if (start + APPLY_CHUNK_ROWS < rows.length) {
+      await new Promise((resolve) => setTimeout(resolve));
     }
-  });
+  }
   return applied;
 }
