@@ -387,6 +387,20 @@ function AppearanceSection() {
 function SyncSection() {
   const auth = useAuth();
   const sync = useSync();
+  // Friendly device names live in the CRR `devices` table and sync between
+  // devices, so a peer we know only by site id here often already has a name a
+  // partner typed. Join by site id to show "Ashish's phone" instead of raw hex.
+  // `devices.site_id` (db.siteid) is upper-case hex while a peer's siteIdHex is
+  // lower-case, so key the map lower-cased and look up the same way.
+  const devicesState = useQuery<Device[]>(
+    useCallback((d) => listDevices(d), []),
+    { deps: ['devices'] },
+  );
+  const deviceNames = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of devicesState.data ?? []) if (d.name) m.set(d.site_id.toLowerCase(), d.name);
+    return m;
+  }, [devicesState.data]);
   const [copied, setCopied] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -627,19 +641,28 @@ function SyncSection() {
               </div>
             ) : (
               <ul className="divide-y divide-slate-800 text-xs">
-                {sync.peers.map((p) => (
-                  <li
-                    key={p.siteIdHex}
-                    className="flex items-center justify-between gap-2 py-1.5"
-                  >
-                    <code className="truncate rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                      {p.siteIdHex.slice(0, 12)}…{p.siteIdHex.slice(-4)}
-                    </code>
-                    <span className="text-slate-500" title="How far this device has synced">
-                      synced #{p.watermarkSeq}
-                    </span>
-                  </li>
-                ))}
+                {sync.peers.map((p) => {
+                  const name = deviceNames.get(p.siteIdHex.toLowerCase());
+                  return (
+                    <li
+                      key={p.siteIdHex}
+                      className="flex items-center justify-between gap-2 py-1.5"
+                    >
+                      {name ? (
+                        <span className="truncate text-slate-300" title={p.siteIdHex}>
+                          {name}
+                        </span>
+                      ) : (
+                        <code className="truncate rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
+                          {p.siteIdHex.slice(0, 12)}…{p.siteIdHex.slice(-4)}
+                        </code>
+                      )}
+                      <span className="text-slate-500" title="How far this device has synced">
+                        synced #{p.watermarkSeq}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
