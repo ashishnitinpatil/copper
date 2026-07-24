@@ -411,7 +411,7 @@ function TotalBalanceCard({ totals }: { totals: CurrencyTotal[] }) {
                 <Money
                   minor={t.balance_minor}
                   currency={t.currency}
-                  className="font-display text-4xl font-semibold tabular-nums"
+                  className="font-display text-3xl font-semibold tabular-nums sm:text-4xl"
                 />
               </div>
               <div className="mt-1 text-xs text-slate-500">
