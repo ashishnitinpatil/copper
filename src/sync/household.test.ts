@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   // In-memory Google Drive: a flat list of files + an ordered call log.
   drive: {
-    files: [] as { id: string; name: string; content: unknown }[],
+    files: [] as { id: string; name: string; content: unknown; modifiedTime?: string }[],
     calls: [] as string[],
   },
   // Stand-in for the cr-sqlite changeset layer.
@@ -20,7 +20,9 @@ const h = vi.hoisted(() => ({
 vi.mock('./googleDrive', () => ({
   findOrCreateFolder: async () => ({ id: 'folder1', name: 'Expense Tracker' }),
   listFolderFiles: async (_t: string, _f: string, prefix: string) =>
-    h.drive.files.filter((f) => f.name.startsWith(prefix)).map((f) => ({ id: f.id, name: f.name })),
+    h.drive.files
+      .filter((f) => f.name.includes(prefix))
+      .map((f) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime })),
   uploadJsonFile: async (_t: string, _f: string, name: string, payload: unknown) => {
     h.drive.calls.push(`upload:${name}`);
     h.drive.files.push({ id: `id-${name}`, name, content: payload });
@@ -57,6 +59,8 @@ import {
   listKnownPeers,
   resetSyncState,
   setHouseholdFolder,
+  peekFolder,
+  describeFolderPeek,
   SYNC_KEYS,
 } from './household';
 
@@ -284,6 +288,48 @@ describe('peer state helpers', () => {
     await resetSyncState(db as never);
 
     expect([...db.meta.keys()].some((k) => k.startsWith('sync.'))).toBe(false);
+  });
+
+  it('peekFolder summarizes a folder that already holds a ledger', async () => {
+    seedPeerFile('bb', 1, [{ tag: 'bb1' }]);
+    seedPeerFile('bb', 2, [{ tag: 'bb2' }]);
+    seedPeerFile('cc', 1, [{ tag: 'cc1' }]);
+    h.drive.files.push({
+      id: 'id-backup',
+      name: 'backup-2026-07-24.json',
+      content: {},
+      modifiedTime: '2026-07-24T09:00:00Z',
+    });
+    // Give the changeset files earlier timestamps so the backup is the latest.
+    for (const f of h.drive.files) {
+      if (f.name.startsWith('changes-')) f.modifiedTime = '2026-07-20T00:00:00Z';
+    }
+
+    const peek = await peekFolder('token', 'folder1');
+
+    expect(peek).toEqual({
+      changesets: 3,
+      devices: 2,
+      backups: 1,
+      lastActivity: '2026-07-24T09:00:00Z',
+    });
+  });
+
+  it('peekFolder reports an empty folder as empty', async () => {
+    const peek = await peekFolder('token', 'folder1');
+    expect(peek).toEqual({ changesets: 0, devices: 0, backups: 0, lastActivity: null });
+  });
+
+  it('describeFolderPeek phrases each folder shape', () => {
+    expect(describeFolderPeek({ changesets: 0, devices: 0, backups: 0, lastActivity: null })).toBe(
+      'This folder is empty — nothing to load yet.',
+    );
+    expect(
+      describeFolderPeek({ changesets: 1, devices: 1, backups: 0, lastActivity: null }),
+    ).toBe('Shared ledger · 1 sync file from 1 device');
+    expect(
+      describeFolderPeek({ changesets: 34, devices: 2, backups: 3, lastActivity: null }),
+    ).toBe('Shared ledger · 34 sync files from 2 devices · 3 backups');
   });
 
   it('setHouseholdFolder re-baselines onto the picked folder', async () => {

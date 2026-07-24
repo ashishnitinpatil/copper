@@ -44,6 +44,8 @@ import {
   type PickedFolder,
 } from '@/sync/googlePicker';
 import { stashJoinTarget } from '@/sync/joinFresh';
+import { peekFolder, type FolderPeek } from '@/sync/household';
+import { FolderIdentity } from '@/sync/FolderIdentity';
 import type { DriveSnapshot } from '@/sync/driveBackup';
 import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
 import { CURRENCY_OPTIONS } from '@/lib/money';
@@ -390,6 +392,8 @@ function SyncSection() {
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [pendingFolder, setPendingFolder] = useState<PickedFolder | null>(null);
+  const [pendingPeek, setPendingPeek] = useState<FolderPeek | null>(null);
+  const [pendingPeekLoading, setPendingPeekLoading] = useState(false);
   const [joinMode, setJoinMode] = useState<'fresh' | 'merge'>('fresh');
 
   const signedIn = !!auth.google;
@@ -459,6 +463,14 @@ function SyncSection() {
       if (folder) {
         setJoinMode('fresh');
         setPendingFolder(folder);
+        // Peek the folder's contents so the confirm dialog can show what was
+        // actually picked — the Picker can't distinguish two same-named folders.
+        setPendingPeek(null);
+        setPendingPeekLoading(true);
+        peekFolder(token, folder.id)
+          .then(setPendingPeek)
+          .catch(() => setPendingPeek(null))
+          .finally(() => setPendingPeekLoading(false));
       }
     } catch (e) {
       if (e instanceof PickerBlockedError) {
@@ -684,10 +696,17 @@ function SyncSection() {
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-300">
-            Connecting to{' '}
-            <span className="font-medium text-slate-100">"{pendingFolder?.name}"</span>. Choose what
-            happens to the data already on this device.
+            Connecting to this folder. Choose what happens to the data already on this device.
           </p>
+
+          {pendingFolder && (
+            <FolderIdentity
+              name={pendingFolder.name}
+              id={pendingFolder.id}
+              peek={pendingPeek}
+              loading={pendingPeekLoading}
+            />
+          )}
 
           <div className="space-y-2">
             <JoinModeOption

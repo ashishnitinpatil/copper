@@ -20,6 +20,8 @@ import {
   type PickedFolder,
 } from '@/sync/googlePicker';
 import { stashJoinTarget } from '@/sync/joinFresh';
+import { peekFolder, type FolderPeek } from '@/sync/household';
+import { FolderIdentity } from '@/sync/FolderIdentity';
 import { useAppSettings } from './AppSettingsProvider';
 
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
@@ -60,6 +62,8 @@ export function Welcome() {
   // Start-fresh mode). Requires a Google sign-in to open the Picker.
   const joinConfigured = auth.googleConfigured && isPickerConfigured();
   const [joinFolder, setJoinFolder] = useState<PickedFolder | null>(null);
+  const [joinPeek, setJoinPeek] = useState<FolderPeek | null>(null);
+  const [joinPeekLoading, setJoinPeekLoading] = useState(false);
   const [joinBusy, setJoinBusy] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
 
@@ -73,7 +77,17 @@ export function Welcome() {
         return;
       }
       const folder = await pickSharedFolder(token);
-      if (folder) setJoinFolder(folder);
+      if (folder) {
+        setJoinFolder(folder);
+        // Peek what the folder holds so the confirm step can show it — the Picker
+        // can't tell two same-named folders apart, so this is the safety check.
+        setJoinPeek(null);
+        setJoinPeekLoading(true);
+        peekFolder(token, folder.id)
+          .then(setJoinPeek)
+          .catch(() => setJoinPeek(null))
+          .finally(() => setJoinPeekLoading(false));
+      }
     } catch (e) {
       if (e instanceof PickerBlockedError) {
         setJoinError(
@@ -324,10 +338,15 @@ export function Welcome() {
               ) : joinFolder ? (
                 <>
                   <p className="text-sm text-slate-300">
-                    Start fresh from{' '}
-                    <span className="font-medium text-slate-100">{joinFolder.name}</span>? This
-                    device will load the shared ledger and sync with it from now on.
+                    Start fresh from this folder? This device will load the shared ledger and sync
+                    with it from now on.
                   </p>
+                  <FolderIdentity
+                    name={joinFolder.name}
+                    id={joinFolder.id}
+                    peek={joinPeek}
+                    loading={joinPeekLoading}
+                  />
                 </>
               ) : (
                 <>
@@ -354,6 +373,7 @@ export function Welcome() {
                   onClick={() => {
                     setMode('start');
                     setJoinFolder(null);
+                    setJoinPeek(null);
                     setJoinError(null);
                   }}
                 >

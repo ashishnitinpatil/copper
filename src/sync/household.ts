@@ -66,6 +66,71 @@ function parseChangesetFileName(name: string): { siteIdHex: string; seq: number 
   return { siteIdHex, seq };
 }
 
+export interface FolderPeek {
+  /** Number of CRDT changeset files (`changes-*.json`) in the folder. */
+  changesets: number;
+  /** Distinct devices that have written changesets here. */
+  devices: number;
+  /** Number of full-book backup snapshots (`backup-*.json`). */
+  backups: number;
+  /** Most recent modified time across sync/backup files, or null if empty. */
+  lastActivity: string | null;
+}
+
+// Backup snapshots share the folder with changesets; kept in sync with
+// driveBackup.ts (importing it here would make the two modules circular).
+const BACKUP_PREFIX = 'backup-';
+
+// Read-only look inside a folder the user just picked, so the connect/join
+// confirm screen can show what they actually chose. The Google Picker renders
+// only a folder's name and date, so two folders that share a name (the classic
+// two "Expense Tracker" folders) are indistinguishable in it — the wrong one
+// silently loads an empty or foreign ledger. Peeking the contents here gives the
+// user a real signal to confirm against before committing. Never writes.
+export async function peekFolder(token: string, folderId: string): Promise<FolderPeek> {
+  const [changeFiles, allFiles] = await Promise.all([
+    listFolderFiles(token, folderId, CHANGES_PREFIX),
+    listFolderFiles(token, folderId, BACKUP_PREFIX),
+  ]);
+  const devices = new Set<string>();
+  let lastActivity: string | null = null;
+  const seeActivity = (f: DriveFile) => {
+    if (f.modifiedTime && (!lastActivity || f.modifiedTime > lastActivity)) {
+      lastActivity = f.modifiedTime;
+    }
+  };
+  let changesets = 0;
+  for (const f of changeFiles) {
+    const parsed = parseChangesetFileName(f.name);
+    if (!parsed) continue;
+    changesets++;
+    devices.add(parsed.siteIdHex);
+    seeActivity(f);
+  }
+  // `name contains` is a substring match, so re-check the prefix before counting.
+  const backups = allFiles.filter((f) => f.name.startsWith(BACKUP_PREFIX));
+  for (const f of backups) seeActivity(f);
+  return { changesets, devices: devices.size, backups: backups.length, lastActivity };
+}
+
+function count(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+// One-line, human summary of a peeked folder for the connect/join confirm screen.
+// Counts only — the caller renders the "last active" date, which is locale work.
+export function describeFolderPeek(peek: FolderPeek): string {
+  if (peek.changesets === 0 && peek.backups === 0) {
+    return 'This folder is empty — nothing to load yet.';
+  }
+  const parts: string[] = [];
+  if (peek.changesets > 0) {
+    parts.push(`Shared ledger · ${count(peek.changesets, 'sync file')} from ${count(peek.devices, 'device')}`);
+  }
+  if (peek.backups > 0) parts.push(count(peek.backups, 'backup'));
+  return parts.join(' · ');
+}
+
 export async function ensureFolderId(db: DB, token: string): Promise<string> {
   const cached = await getSetting(db, SYNC_KEYS.FOLDER_ID);
   if (cached) return cached;
