@@ -1,14 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// applyPendingJoin reaches for the current db version and writes settings; drive
-// the version and back the settings with a plain Map so we can assert exactly
-// what the "start fresh" join persists onto the freshly-seeded device.
-const h = vi.hoisted(() => ({ dbVersion: 0 }));
-
-vi.mock('./changesets', () => ({
-  getLocalDbVersion: async () => h.dbVersion,
-}));
-
+// applyPendingJoin writes settings; back them with a plain Map so we can assert
+// exactly what the "start fresh" join persists onto the freshly-wiped device.
 vi.mock('@/db/queries/settings', () => ({
   SETTINGS_KEYS: { ONBOARDED: 'onboarded' },
   setSetting: async (db: FakeDb, key: string, value: string) => {
@@ -16,14 +9,14 @@ vi.mock('@/db/queries/settings', () => ({
   },
 }));
 
-import { applyPendingJoin, stashJoinTarget } from './joinFresh';
-import { SYNC_KEYS } from './household';
+import { applyPendingJoin, rememberRetiringIdentity, stashJoinTarget } from './joinFresh';
+import { SYNC_KEYS } from './syncKeys';
 
 interface FakeDb {
   meta: Map<string, string>;
 }
 
-const JOIN_FOLDER_KEY = 'et-join-folder-id';
+const JOIN_BOOK_KEY = 'et-join-book-id';
 
 // Minimal in-memory localStorage — the vitest node environment has none, and
 // joinFresh reads/writes the pending-join marker through it.
@@ -45,13 +38,12 @@ function makeDb(): FakeDb {
 
 beforeEach(() => {
   installLocalStorage();
-  h.dbVersion = 0;
 });
 
 describe('stashJoinTarget', () => {
-  it('records the folder id for the next boot to pick up', () => {
-    stashJoinTarget('folder-abc');
-    expect(localStorage.getItem(JOIN_FOLDER_KEY)).toBe('folder-abc');
+  it('records the book id for the next boot to pick up', () => {
+    stashJoinTarget('book-abc');
+    expect(localStorage.getItem(JOIN_BOOK_KEY)).toBe('book-abc');
   });
 });
 
@@ -62,32 +54,48 @@ describe('applyPendingJoin', () => {
     expect(db.meta.size).toBe(0);
   });
 
-  it('adopts the folder, baselines the version, and marks onboarding done', async () => {
-    stashJoinTarget('partner-folder');
-    // The seed defaults have already bumped the local clock to 42.
-    h.dbVersion = 42;
+  it('adopts the book and marks onboarding done', async () => {
+    stashJoinTarget('partner-book');
     const db = makeDb();
 
     await applyPendingJoin(db as never);
 
-    expect(db.meta.get(SYNC_KEYS.FOLDER_ID)).toBe('partner-folder');
-    // Baselined to the *current* version so the seed defaults are never pushed
-    // back into the partner's folder — this device only pulls their ledger.
-    expect(db.meta.get(SYNC_KEYS.LOCAL_VERSION)).toBe('42');
+    expect(db.meta.get(SYNC_KEYS.BOOK_FILE_ID)).toBe('partner-book');
     // onboarded lives in the non-replicated meta table, so the join must set it
     // locally or the device stays stranded on Welcome (regression guard for #82).
     expect(db.meta.get('onboarded')).toBe('true');
   });
 
   it('consumes the pending target so a later boot does not re-adopt', async () => {
-    stashJoinTarget('partner-folder');
+    stashJoinTarget('partner-book');
     const first = makeDb();
     await applyPendingJoin(first as never);
-    expect(localStorage.getItem(JOIN_FOLDER_KEY)).toBeNull();
+    expect(localStorage.getItem(JOIN_BOOK_KEY)).toBeNull();
 
     // A subsequent boot (fresh db, nothing stashed) writes nothing.
     const second = makeDb();
     await applyPendingJoin(second as never);
     expect(second.meta.size).toBe(0);
+  });
+
+  it('hands a reset device’s old identity to the next join, even one made later from Welcome', async () => {
+    // Reset (signed out): remember the identity being wiped; no join yet.
+    rememberRetiringIdentity('OLDSITE');
+    const welcomeDb = makeDb();
+    await applyPendingJoin(welcomeDb as never); // boot onto Welcome: nothing pending
+    expect(welcomeDb.meta.has(SYNC_KEYS.RETIRE_SITE)).toBe(false);
+
+    // Welcome → "Load my book": stash the book, wipe, boot.
+    stashJoinTarget('book-1');
+    const db = makeDb();
+    await applyPendingJoin(db as never);
+    expect(db.meta.get(SYNC_KEYS.BOOK_FILE_ID)).toBe('book-1');
+    expect(db.meta.get(SYNC_KEYS.RETIRE_SITE)).toBe('OLDSITE');
+
+    // Consumed: a later join doesn't retire it again.
+    stashJoinTarget('book-2');
+    const later = makeDb();
+    await applyPendingJoin(later as never);
+    expect(later.meta.has(SYNC_KEYS.RETIRE_SITE)).toBe(false);
   });
 });

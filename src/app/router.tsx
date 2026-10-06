@@ -16,6 +16,7 @@ import { Activity } from './Activity';
 import { Settings } from './Settings';
 import { Welcome } from './Welcome';
 import { WelcomeGate } from './WelcomeGate';
+import { JoinRoute } from './JoinRoute';
 
 export const router = createBrowserRouter([
   {
@@ -29,6 +30,8 @@ export const router = createBrowserRouter([
   // Public intro at the root. Landing redirects returning (onboarded) users
   // straight to their dashboard, so only first-time visitors see it.
   { path: '/', element: <Landing /> },
+  // Invite link from a partner: remembers the shared book, then routes on.
+  { path: '/join/:bookId', element: <JoinRoute /> },
   {
     element: <AppShell />,
     children: [

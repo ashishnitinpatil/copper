@@ -13,16 +13,6 @@ export interface ChangeRow {
   seq: number;
 }
 
-export interface ChangesetPayload {
-  version: 1;
-  site_id: string;
-  seq: number;
-  from_db_version: number;
-  to_db_version: number;
-  created_at: string;
-  rows: ChangeRow[];
-}
-
 interface RawChangeRow {
   table: string;
   pk: Uint8Array | null;
@@ -76,34 +66,29 @@ export async function getLocalSiteIdHex(db: DB): Promise<string> {
     .join('');
 }
 
-export async function exportLocalChanges(
-  db: DB,
-  sinceDbVersion: number,
-): Promise<{ rows: ChangeRow[]; maxVersion: number }> {
+function toChangeRow(r: RawChangeRow): ChangeRow {
+  const { val, val_is_blob } = encodeVal(r.val);
+  return {
+    table: r.table,
+    pk: r.pk ? bytesToBase64(r.pk) : '',
+    cid: r.cid,
+    val,
+    val_is_blob,
+    col_version: toNumber(r.col_version),
+    db_version: toNumber(r.db_version),
+    site_id: r.site_id ? bytesToBase64(r.site_id) : '',
+    cl: toNumber(r.cl),
+    seq: toNumber(r.seq),
+  };
+}
+
+// Every cell of the book, from every device — the full CRDT state that goes
+// into the shared book file (see bookFile.ts).
+export async function exportAllChanges(db: DB): Promise<ChangeRow[]> {
   const raw = await db.execO<RawChangeRow>(
-    `SELECT "table", pk, cid, val, col_version, db_version, site_id, cl, seq
-     FROM crsql_changes
-     WHERE db_version > ? AND site_id = crsql_site_id()
-     ORDER BY db_version ASC, seq ASC`,
-    [sinceDbVersion],
+    `SELECT "table", pk, cid, val, col_version, db_version, site_id, cl, seq FROM crsql_changes`,
   );
-  const rows: ChangeRow[] = raw.map((r) => {
-    const { val, val_is_blob } = encodeVal(r.val);
-    return {
-      table: r.table,
-      pk: r.pk ? bytesToBase64(r.pk) : '',
-      cid: r.cid,
-      val,
-      val_is_blob,
-      col_version: toNumber(r.col_version),
-      db_version: toNumber(r.db_version),
-      site_id: r.site_id ? bytesToBase64(r.site_id) : '',
-      cl: toNumber(r.cl),
-      seq: toNumber(r.seq),
-    };
-  });
-  const maxVersion = rows.reduce((m, r) => Math.max(m, r.db_version), sinceDbVersion);
-  return { rows, maxVersion };
+  return raw.map(toChangeRow);
 }
 
 // How many merge rows to apply per transaction. Each INSERT INTO crsql_changes
@@ -126,7 +111,11 @@ export async function exportLocalChanges(
 // well below that with a wide safety margin.
 const APPLY_CHUNK_ROWS = 2000;
 
-export async function applyRemoteChanges(db: DB, rows: ChangeRow[]): Promise<number> {
+export async function applyRemoteChanges(
+  db: DB,
+  rows: ChangeRow[],
+  onProgress?: (applied: number) => void,
+): Promise<number> {
   if (rows.length === 0) return 0;
   let applied = 0;
   for (let start = 0; start < rows.length; start += APPLY_CHUNK_ROWS) {
@@ -151,6 +140,7 @@ export async function applyRemoteChanges(db: DB, rows: ChangeRow[]): Promise<num
         applied++;
       }
     });
+    onProgress?.(applied);
     // Yield between batches so the main thread (sqlite runs on it) can repaint
     // and the VFS can settle before the next transaction opens.
     if (start + APPLY_CHUNK_ROWS < rows.length) {

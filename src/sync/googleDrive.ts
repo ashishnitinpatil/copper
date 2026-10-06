@@ -6,8 +6,16 @@ export interface DriveFile {
   name: string;
   mimeType: string;
   modifiedTime?: string;
+  createdTime?: string;
   size?: string;
+  /** Drive's monotonically increasing content version (a decimal string). */
+  version?: string;
+  owners?: { displayName?: string; emailAddress?: string; me?: boolean }[];
+  /** Private key/values this app attached to the file. */
+  appProperties?: Record<string, string>;
 }
+
+const META_FIELDS = 'id,name,mimeType,modifiedTime,createdTime,size,version,owners(displayName,emailAddress,me),appProperties';
 
 interface DriveListResponse {
   files: DriveFile[];
@@ -33,31 +41,66 @@ async function driveFetch(token: string, path: string, init: RequestInit = {}): 
   return res;
 }
 
-export async function findFolder(token: string, name: string): Promise<DriveFile | null> {
-  const q = encodeURIComponent(
-    `mimeType='application/vnd.google-apps.folder' and name='${name.replace(/'/g, "\\'")}' and trashed=false`,
-  );
+function q(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+// Oldest match first, so every device of one account resolves the same folder
+// even if a race ever created two with the same name.
+export async function findFolder(
+  token: string,
+  name: string,
+  parentId?: string,
+): Promise<DriveFile | null> {
+  const parts = [
+    `mimeType='application/vnd.google-apps.folder'`,
+    `name='${q(name)}'`,
+    'trashed=false',
+  ];
+  if (parentId) parts.push(`'${parentId}' in parents`);
   const res = await driveFetch(
     token,
-    `/files?q=${q}&fields=files(id,name,mimeType,modifiedTime)&pageSize=10`,
+    `/files?q=${encodeURIComponent(parts.join(' and '))}&orderBy=createdTime&fields=files(${META_FIELDS})&pageSize=10`,
   );
   const data = (await res.json()) as DriveListResponse;
   return data.files[0] ?? null;
 }
 
-export async function createFolder(token: string, name: string): Promise<DriveFile> {
-  const res = await driveFetch(token, '/files?fields=id,name,mimeType', {
+export async function createFolder(token: string, name: string, parentId?: string): Promise<DriveFile> {
+  const res = await driveFetch(token, `/files?fields=${META_FIELDS}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder' }),
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      ...(parentId ? { parents: [parentId] } : {}),
+    }),
   });
   return (await res.json()) as DriveFile;
 }
 
-export async function findOrCreateFolder(token: string, name: string): Promise<DriveFile> {
-  const existing = await findFolder(token, name);
+export async function findOrCreateFolder(
+  token: string,
+  name: string,
+  parentId?: string,
+): Promise<DriveFile> {
+  const existing = await findFolder(token, name, parentId);
   if (existing) return existing;
-  return createFolder(token, name);
+  return createFolder(token, name, parentId);
+}
+
+/** Oldest non-trashed file with this exact name directly inside the folder. */
+/**
+ * Every file with this name the app can open, oldest first — ones this account
+ * created plus ones picked in the Picker (drive.file shows nothing else).
+ */
+export async function findFilesByName(token: string, name: string): Promise<DriveFile[]> {
+  const query = `name='${q(name)}' and trashed=false`;
+  const res = await driveFetch(
+    token,
+    `/files?q=${encodeURIComponent(query)}&orderBy=createdTime&fields=files(${META_FIELDS})&pageSize=100`,
+  );
+  return ((await res.json()) as DriveListResponse).files;
 }
 
 export async function listFolderFiles(
@@ -66,15 +109,15 @@ export async function listFolderFiles(
   namePrefix?: string,
 ): Promise<DriveFile[]> {
   const queryParts = [`'${folderId}' in parents`, 'trashed=false'];
-  if (namePrefix) queryParts.push(`name contains '${namePrefix.replace(/'/g, "\\'")}'`);
-  const q = encodeURIComponent(queryParts.join(' and '));
+  if (namePrefix) queryParts.push(`name contains '${q(namePrefix)}'`);
+  const query = encodeURIComponent(queryParts.join(' and '));
   const files: DriveFile[] = [];
   let pageToken: string | undefined;
   do {
     const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
     const res = await driveFetch(
       token,
-      `/files?q=${q}&fields=files(id,name,mimeType,modifiedTime,size),nextPageToken&pageSize=1000${pageParam}`,
+      `/files?q=${query}&fields=files(${META_FIELDS}),nextPageToken&pageSize=1000${pageParam}`,
     );
     const data = (await res.json()) as DriveListResponse;
     files.push(...data.files);
@@ -83,43 +126,90 @@ export async function listFolderFiles(
   return files;
 }
 
-export async function uploadJsonFile(
-  token: string,
-  folderId: string,
-  name: string,
-  payload: unknown,
-): Promise<DriveFile> {
-  const metadata = { name, parents: [folderId], mimeType: 'application/json' };
-  const boundary = `-------expense-tracker-${Math.random().toString(36).slice(2)}`;
-  const body =
-    `--${boundary}\r\n` +
-    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-    `${JSON.stringify(metadata)}\r\n` +
-    `--${boundary}\r\n` +
-    `Content-Type: application/json\r\n\r\n` +
-    `${JSON.stringify(payload)}\r\n` +
-    `--${boundary}--`;
-  const res = await fetch(
-    `${DRIVE_UPLOAD}/files?uploadType=multipart&fields=id,name,mimeType,modifiedTime`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': `multipart/related; boundary=${boundary}`,
-      },
-      body,
-    },
-  );
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    throw new DriveError(`Drive upload ${res.status}: ${errBody.slice(0, 200)}`, res.status);
-  }
+export async function getFileMeta(token: string, fileId: string): Promise<DriveFile> {
+  const res = await driveFetch(token, `/files/${fileId}?fields=${META_FIELDS}`);
   return (await res.json()) as DriveFile;
 }
 
-export async function downloadJsonFile<T = unknown>(token: string, fileId: string): Promise<T> {
+export async function createBinaryFile(
+  token: string,
+  folderId: string,
+  name: string,
+  mimeType: string,
+  bytes: Uint8Array,
+): Promise<DriveFile> {
+  const boundary = `-------copper-${Math.random().toString(36).slice(2)}`;
+  const metadata = { name, parents: [folderId], mimeType };
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
+    `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
+    bytes as BlobPart,
+    `\r\n--${boundary}--`,
+  ]);
+  const res = await driveFetch(
+    token,
+    `${DRIVE_UPLOAD}/files?uploadType=multipart&fields=${META_FIELDS}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body,
+    },
+  );
+  return (await res.json()) as DriveFile;
+}
+
+// Replace a file's content in place — same id, so a partner's grant keeps working.
+export async function updateBinaryFile(
+  token: string,
+  fileId: string,
+  mimeType: string,
+  bytes: Uint8Array,
+): Promise<DriveFile> {
+  const res = await driveFetch(
+    token,
+    `${DRIVE_UPLOAD}/files/${fileId}?uploadType=media&fields=${META_FIELDS}`,
+    { method: 'PATCH', headers: { 'Content-Type': mimeType }, body: bytes as BodyInit },
+  );
+  return (await res.json()) as DriveFile;
+}
+
+export async function downloadBytes(token: string, fileId: string): Promise<Uint8Array> {
   const res = await driveFetch(token, `/files/${fileId}?alt=media`);
-  return (await res.json()) as T;
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+// Server-side copy: no download/upload, so a backup costs no mobile data.
+export async function copyFile(
+  token: string,
+  fileId: string,
+  name: string,
+  parentId: string,
+  appProperties?: Record<string, string>,
+): Promise<DriveFile> {
+  const res = await driveFetch(token, `/files/${fileId}/copy?fields=${META_FIELDS}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, parents: [parentId], appProperties }),
+  });
+  return (await res.json()) as DriveFile;
+}
+
+// Give another Google account edit access to a file this app created.
+export async function shareFileWithEmail(
+  token: string,
+  fileId: string,
+  email: string,
+  notify: boolean,
+): Promise<void> {
+  await driveFetch(
+    token,
+    `/files/${fileId}/permissions?sendNotificationEmail=${notify}&fields=id`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'user', role: 'writer', emailAddress: email }),
+    },
+  );
 }
 
 export async function deleteFile(token: string, fileId: string): Promise<void> {
@@ -148,6 +238,12 @@ export function describeSyncError(e: unknown): string {
       "Copper can't reach Google Drive because the Drive permission wasn't granted. " +
       'Reconnect to Google and keep the Google Drive permission checkbox ticked on the ' +
       'consent screen.'
+    );
+  }
+  if (e instanceof DriveError && e.status === 404) {
+    return (
+      "Copper can't open the shared book — it may have been deleted, or it's no longer " +
+      'shared with this Google account. Choose the shared book again below.'
     );
   }
   return raw || 'Sync failed';

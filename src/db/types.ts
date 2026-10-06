@@ -135,4 +135,6 @@ export interface Device {
   site_id: string;
   name: string;
   last_seen: string;
+  /** Set once a reset replaced this identity (see retireDevice). */
+  retired_at: string;
 }

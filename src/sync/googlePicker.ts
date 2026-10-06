@@ -1,18 +1,16 @@
-// Google Picker integration for connecting a *shared* Drive folder.
+// Google Picker integration for joining a partner's *shared book*.
 //
 // Copper uses the privacy-friendly `drive.file` OAuth scope, which only grants
-// access to files the app itself created or the user explicitly opened. That
-// means a folder a partner shares with you is invisible to the app on its own —
-// there is no "list everything shared with me" you can call under `drive.file`.
-//
-// The Picker is Google's blessed way around this: it runs as the user (so it can
-// show folders shared with them), and the act of *picking* a folder grants the
-// app `drive.file` access to it. So the partner taps "Connect a shared folder",
-// selects the folder in the Picker, and from then on Copper can sync into it.
+// access to files the app itself created or the user explicitly picked. A file a
+// partner shares with you is invisible to the app until you pick it here — the
+// pick is what grants access, and it lasts. (Picking a *folder* does not expose
+// the files inside it, which is why sync uses one shared file, not a folder.)
 //
 // Requires a Google Cloud API key (VITE_GOOGLE_API_KEY) with the Picker API
-// enabled, and optionally the project number as an app id (VITE_GOOGLE_APP_ID)
-// so the granted access is attributed to this app.
+// enabled, and the project number as an app id (VITE_GOOGLE_APP_ID) so the
+// granted access is attributed to this app.
+
+import { BOOK_FILE_NAME } from './bookFile';
 
 const GAPI_LOADER_URL = 'https://apis.google.com/js/api.js';
 
@@ -49,20 +47,20 @@ function loadPicker(): Promise<void> {
     script.onload = loadModule;
     script.onerror = () => {
       pickerLoad = null;
-      reject(new Error('Could not reach Google to open the folder picker.'));
+      reject(new Error('Could not reach Google to open the picker.'));
     };
     document.head.appendChild(script);
   });
   return pickerLoad;
 }
 
-export interface PickedFolder {
+export interface PickedFile {
   id: string;
   name: string;
 }
 
 // How long to wait for the Picker to signal it loaded before assuming its iframe
-// was refused (the classic multi-account "docs.google.com refused to connect").
+// was refused ("docs.google.com refused to connect").
 // The Picker fires a 'loaded' action on success, which cancels this — so the
 // timer only ever fires when the dialog never rendered, not while the user
 // browses. Generous enough to cover a slow load on a poor connection.
@@ -73,22 +71,23 @@ const PICKER_LOAD_TIMEOUT_MS = 15_000;
 // into an actionable "use a single-account profile" message.
 export class PickerBlockedError extends Error {
   constructor() {
-    super('The Google folder picker could not load.');
+    super('The Google picker could not load.');
     this.name = 'PickerBlockedError';
   }
 }
 
-// Open the Picker so the user can select a Drive folder — either one they own or
-// one shared with them. Resolves with the chosen folder, or null if they cancel.
-export async function pickSharedFolder(token: string): Promise<PickedFolder | null> {
+// Open the Picker so the user can pick the partner's shared book. With `fileId`
+// (from an invite link) it shows just that file; otherwise it lists books shared
+// with the user. Resolves with the pick, or null if they cancel.
+export async function pickSharedBook(token: string, fileId?: string): Promise<PickedFile | null> {
   const apiKey = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined;
-  if (!apiKey) throw new Error('Folder picker is not configured (VITE_GOOGLE_API_KEY missing).');
+  if (!apiKey) throw new Error('The Google picker is not configured (VITE_GOOGLE_API_KEY missing).');
   const appId = import.meta.env.VITE_GOOGLE_APP_ID as string | undefined;
 
   await loadPicker();
   const picker = globals().google.picker;
 
-  return new Promise<PickedFolder | null>((resolve, reject) => {
+  return new Promise<PickedFile | null>((resolve, reject) => {
     // Assume the iframe was refused unless the Picker tells us it loaded.
     let loaded = false;
     const failTimer = setTimeout(() => {
@@ -104,24 +103,15 @@ export async function pickSharedFolder(token: string): Promise<PickedFolder | nu
     const restoreScroll = () => window.scrollTo(scrollX, scrollY);
 
     try {
-      const folderView = () =>
-        new picker.DocsView(picker.ViewId.FOLDERS)
-          .setSelectFolderEnabled(true)
-          .setMode(picker.DocsViewMode.LIST);
-
-      // Two tabs: folders shared with the user (the partner case) and their own
-      // folders, so either party can connect the household folder. Both are
-      // FOLDERS views, so they'd both inherit the default "Folders" tab label —
-      // name them explicitly or the partner can't tell which tab is which.
-      const sharedView = folderView().setOwnedByMe(false).setLabel('Shared with me');
-      const myView = folderView().setOwnedByMe(true).setLabel('My folders');
+      const view = new picker.DocsView(picker.ViewId.DOCS).setMode(picker.DocsViewMode.LIST);
+      if (fileId) view.setFileIds(fileId);
+      else view.setOwnedByMe(false).setQuery(BOOK_FILE_NAME);
 
       const builder = new picker.PickerBuilder()
         .setOAuthToken(token)
         .setDeveloperKey(apiKey)
-        .setTitle('Connect your shared ledger folder')
-        .addView(sharedView)
-        .addView(myView)
+        .setTitle('Choose your shared Copper book')
+        .addView(view)
         .setCallback((data: any) => {
           const action = data.action;
           if (action === picker.Action.LOADED || action === 'loaded') {
@@ -146,7 +136,7 @@ export async function pickSharedFolder(token: string): Promise<PickedFolder | nu
       requestAnimationFrame(restoreScroll);
     } catch (e) {
       clearTimeout(failTimer);
-      reject(e instanceof Error ? e : new Error('Could not open the folder picker.'));
+      reject(e instanceof Error ? e : new Error('Could not open the picker.'));
     }
   });
 }

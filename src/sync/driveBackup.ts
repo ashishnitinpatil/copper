@@ -1,123 +1,147 @@
 import type { DB } from '@/db/wasm';
-import { getSetting, setSetting } from '@/db/queries/settings';
-import { toDateString } from '@/lib/dates';
-import { buildFullBackup, type BackupFile } from '@/features/export/exportData';
+import { getSetting, getSettingNumber, setSetting, SETTINGS_KEYS } from '@/db/queries/settings';
+import { BACKUP_TABLES, type BackupFile } from '@/features/export/exportData';
 import { parseBackup } from '@/features/export/restoreBackup';
-import { listFolderFiles, uploadJsonFile, downloadJsonFile, deleteFile } from './googleDrive';
-import { SYNC_KEYS } from './household';
+import { copyFile, deleteFile, downloadBytes, listFolderFiles } from './googleDrive';
+import { bookToBackup, gunzipJson, type BookFile } from './bookFile';
+import { ensureBackupsFolder } from './driveFolders';
+import { SYNC_KEYS } from './syncKeys';
 
-// Full-book restore snapshots written into the shared Drive folder, alongside
-// the live `changes-*.json` changesets. One snapshot per calendar day, named by
-// date so a same-day rewrite replaces rather than accumulates. Stored as
-// plaintext to match the changesets already in the folder — folder access
-// already exposes the data, so encrypting only the snapshot would add key
-// distribution pain for no real gain.
-const BACKUP_PREFIX = 'backup-';
-const BACKUP_EXT = '.json';
+// Drive backups are server-side COPIES of the shared book file, kept in this
+// account's own "Copper Expense Tracker/Backups" folder. Copying on Drive's
+// side costs no upload, so backups are free on mobile data. Restoring converts
+// the copy back into the ordinary backup format (bookToBackup).
+//
+// Names are for people browsing Drive, hyphenated so they survive downloads
+// and shells intact (local time, then why it was taken):
+//   "Copper-Expense-Tracker-backup-2026-09-27-1951-weekly.json.gz"
+// Ordering and pruning use Drive's createdTime, never the name.
+const BACKUP_PREFIX = 'Copper-Expense-Tracker-backup-';
+const BACKUP_EXT = '.json.gz';
+// appProperties key on each backup: the id of the book it's a copy of.
+const BOOK_PROP = 'copperBook';
 
 export const DEFAULT_BACKUP_RETENTION = 3;
+export const DEFAULT_BACKUP_INTERVAL_DAYS = 7;
+
+export type BackupReason =
+  | 'scheduled'
+  | 'manual'
+  | 'before merge'
+  | 'before overwrite'
+  | 'before restore'
+  | 'before import';
 
 export interface DriveSnapshot {
   id: string;
   name: string;
-  /** Calendar day parsed from the file name (YYYY-MM-DD). */
-  date: string;
-  modifiedTime?: string;
+  /** When it was taken (ISO). */
+  at: string;
+  /** Why it was taken, e.g. "weekly" or "before merge" (null if the name doesn't say). */
+  reason: string | null;
+  /**
+   * A copy of a different book than the one this device syncs with now (it
+   * switched books since). Still restorable, but labelled, and never pruned.
+   */
+  otherBook: boolean;
 }
 
-function snapshotFileName(date: string): string {
-  return `${BACKUP_PREFIX}${date}${BACKUP_EXT}`;
+const pad = (n: number) => String(n).padStart(2, '0');
+
+function scheduleLabel(intervalDays: number): string {
+  if (intervalDays === 1) return 'daily';
+  if (intervalDays === 7) return 'weekly';
+  return `every ${intervalDays} days`;
 }
 
-function parseSnapshotName(name: string): string | null {
-  if (!name.startsWith(BACKUP_PREFIX) || !name.endsWith(BACKUP_EXT)) return null;
-  const date = name.slice(BACKUP_PREFIX.length, -BACKUP_EXT.length);
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+export function backupFileName(at: Date, label: string): string {
+  const day = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  const time = `${pad(at.getHours())}${pad(at.getMinutes())}`;
+  return `${BACKUP_PREFIX}${day}-${time}-${label.replace(/ /g, '-')}${BACKUP_EXT}`;
 }
 
-/** Backup snapshots in the folder, newest day first. */
-export async function listDriveSnapshots(token: string, folderId: string): Promise<DriveSnapshot[]> {
-  const files = await listFolderFiles(token, folderId, BACKUP_PREFIX);
-  const snaps: DriveSnapshot[] = [];
-  for (const f of files) {
-    const date = parseSnapshotName(f.name);
-    if (date) snaps.push({ id: f.id, name: f.name, date, modifiedTime: f.modifiedTime });
-  }
-  // Newest day first; a duplicate day (rare write race) breaks the tie on the
-  // later modifiedTime so the freshest file sorts ahead.
-  snaps.sort((a, b) =>
-    a.date === b.date
-      ? (b.modifiedTime ?? '').localeCompare(a.modifiedTime ?? '')
-      : b.date.localeCompare(a.date),
-  );
-  return snaps;
+// "…-2026-09-27-1951-before-merge.json.gz" → "before merge"
+function parseLabel(name: string): string | null {
+  const m = /-\d{4}-\d{2}-\d{2}-\d{4}-(.+)\.json\.gz$/.exec(name);
+  return m ? m[1].replace(/-/g, ' ') : null;
 }
 
-// Delete everything past the newest `retention` distinct days. Deletes are
-// best-effort — a failed prune must not fail the backup that triggered it.
-async function pruneSnapshots(token: string, folderId: string, retention: number): Promise<void> {
-  const keep = Math.max(1, retention);
-  const snaps = await listDriveSnapshots(token, folderId);
-  const keptDates = new Set<string>();
-  for (const s of snaps) {
-    if (!keptDates.has(s.date) && keptDates.size >= keep) {
-      await deleteFile(token, s.id).catch(() => {});
-    } else {
-      keptDates.add(s.date);
-    }
-  }
+/** Backups available to restore, newest first. */
+export async function listDriveSnapshots(db: DB, token: string): Promise<DriveSnapshot[]> {
+  const [folderId, bookId] = await Promise.all([
+    ensureBackupsFolder(db, token),
+    getSetting(db, SYNC_KEYS.BOOK_FILE_ID),
+  ]);
+  return (await listFolderFiles(token, folderId, BACKUP_PREFIX))
+    .filter((f) => f.name.startsWith(BACKUP_PREFIX) && f.name.endsWith(BACKUP_EXT))
+    .map((f) => ({
+      id: f.id,
+      name: f.name,
+      at: f.createdTime ?? f.modifiedTime ?? '',
+      reason: parseLabel(f.name),
+      otherBook: !!bookId && !!f.appProperties?.[BOOK_PROP] && f.appProperties[BOOK_PROP] !== bookId,
+    }))
+    .sort((a, b) => b.at.localeCompare(a.at));
 }
 
-/**
- * Write today's snapshot into the folder, replacing any existing same-day one,
- * then prune to `retention` days. Also records the watermark used to throttle
- * the daily automatic snapshot.
- */
-export async function writeDriveSnapshot(
+// Keep the newest `retention` backups. Best-effort: a failed delete must not
+// fail the backup that triggered it.
+async function pruneBackups(db: DB, token: string, retention: number): Promise<void> {
+  const keep = Math.max(1, Math.round(retention));
+  const snaps = (await listDriveSnapshots(db, token)).filter((s) => !s.otherBook);
+  for (const s of snaps.slice(keep)) await deleteFile(token, s.id).catch(() => {});
+}
+
+/** Copy the shared book into Backups, labelled with why, then prune. */
+export async function backupBook(
   db: DB,
   token: string,
-  folderId: string,
-  retention: number = DEFAULT_BACKUP_RETENTION,
+  bookId: string,
+  reason: BackupReason,
 ): Promise<DriveSnapshot> {
-  const today = toDateString();
-  const name = snapshotFileName(today);
-  const backup = await buildFullBackup(db);
-
-  // Keep exactly one file per day: drop any earlier snapshot for today first.
-  const existing = await listDriveSnapshots(token, folderId);
-  for (const s of existing) {
-    if (s.date === today) await deleteFile(token, s.id).catch(() => {});
-  }
-
-  const file = await uploadJsonFile(token, folderId, name, backup);
-
-  await setSetting(db, SYNC_KEYS.LAST_BACKUP_AT, new Date().toISOString());
-  await setSetting(db, SYNC_KEYS.LAST_BACKUP_DATE, today);
-
-  await pruneSnapshots(token, folderId, retention);
-  return { id: file.id, name, date: today, modifiedTime: file.modifiedTime };
+  const [folderId, retention, intervalDays] = await Promise.all([
+    ensureBackupsFolder(db, token),
+    getSettingNumber(db, SETTINGS_KEYS.BACKUP_RETENTION, DEFAULT_BACKUP_RETENTION),
+    getSettingNumber(db, SETTINGS_KEYS.BACKUP_INTERVAL_DAYS, DEFAULT_BACKUP_INTERVAL_DAYS),
+  ]);
+  const label = reason === 'scheduled' ? scheduleLabel(intervalDays) : reason;
+  const now = new Date();
+  const file = await copyFile(token, bookId, backupFileName(now, label), folderId, { [BOOK_PROP]: bookId });
+  await setSetting(db, SYNC_KEYS.LAST_BACKUP_AT, now.toISOString());
+  await pruneBackups(db, token, retention);
+  return { id: file.id, name: file.name, at: file.createdTime ?? now.toISOString(), reason: label, otherBook: false };
 }
 
-/**
- * Write a snapshot only if none has been written today. Returns the snapshot on
- * a write, or null when today's is already present. Used to piggyback a daily
- * backup on an ordinary sync.
- */
-export async function maybeDailyDriveSnapshot(
+/** Take the scheduled backup if the last one is older than the interval. */
+export async function maybeScheduledBackup(
   db: DB,
   token: string,
-  folderId: string,
-  retention: number = DEFAULT_BACKUP_RETENTION,
+  bookId: string,
+  now: Date = new Date(),
 ): Promise<DriveSnapshot | null> {
-  const lastDate = await getSetting(db, SYNC_KEYS.LAST_BACKUP_DATE);
-  if (lastDate === toDateString()) return null;
-  return writeDriveSnapshot(db, token, folderId, retention);
+  const [last, intervalDays] = await Promise.all([
+    getSetting(db, SYNC_KEYS.LAST_BACKUP_AT),
+    getSettingNumber(db, SETTINGS_KEYS.BACKUP_INTERVAL_DAYS, DEFAULT_BACKUP_INTERVAL_DAYS),
+  ]);
+  const dueMs = Math.max(1, intervalDays) * 86_400_000;
+  if (last && now.getTime() - new Date(last).getTime() < dueMs) return null;
+  return backupBook(db, token, bookId, 'scheduled');
 }
 
-/** Download and validate a snapshot, ready to hand to restoreBackup. */
-export async function readDriveBackup(token: string, fileId: string): Promise<BackupFile> {
-  const raw = await downloadJsonFile(token, fileId);
-  // Snapshots are stored plaintext, so they run through the same validator as a
-  // file the user picked from disk.
-  return parseBackup(JSON.stringify(raw));
+async function primaryKeyColumns(db: DB): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {};
+  for (const t of BACKUP_TABLES) {
+    const rows = await db.execO<{ name: string }>(
+      `SELECT name FROM pragma_table_info('${t}') WHERE pk > 0 ORDER BY pk`,
+    );
+    out[t] = rows.map((r) => r.name);
+  }
+  return out;
+}
+
+/** Download a backup and turn it into a BackupFile, ready for restoreBackup. */
+export async function readDriveBackup(db: DB, token: string, snap: DriveSnapshot): Promise<BackupFile> {
+  const book = await gunzipJson<BookFile>(await downloadBytes(token, snap.id));
+  // Validate through the same checks as a file picked from disk.
+  return parseBackup(JSON.stringify(bookToBackup(book, await primaryKeyColumns(db))));
 }

@@ -69,12 +69,12 @@ const SHARE_STEPS: { title: string; desc: string }[] = [
     desc: 'Each person uses their own Google account — no shared login to hand around.',
   },
   {
-    title: 'Share the folder',
-    desc: 'One of you shares the ledger’s Drive folder with the other, straight from Drive.',
+    title: 'Invite your partner',
+    desc: 'One of you shares the book with the other’s Google account and sends them a link.',
   },
   {
     title: 'Connect, and go',
-    desc: 'The other taps “Connect a shared folder” once. From then on, changes merge both ways.',
+    desc: 'The other opens the link and picks the book once. From then on, changes merge both ways.',
   },
 ];
 
@@ -196,7 +196,7 @@ export function Landing() {
           </h2>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-[#C9B19A]">
             Copper began as a way to track money together. You and your partner each sign
-            in with your own Google account and connect the same Drive folder — then every
+            in with your own Google account and share one book in Drive — then every
             entry, from either phone, shows up for both. No shared password, no server in
             between, and it still works offline.
           </p>

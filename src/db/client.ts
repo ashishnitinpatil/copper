@@ -4,6 +4,8 @@ import { seedIfEmpty } from './seed';
 import { materializeDueRecurrences } from './queries/recurring';
 import { ensureLocalDevice } from './changeLog';
 import { applyPendingJoin, hasPendingJoin } from '@/sync/joinFresh';
+import { SYNC_KEYS } from '@/sync/syncKeys';
+import { getSetting } from './queries/settings';
 
 const DB_FILE = 'household.db';
 
@@ -72,15 +74,14 @@ export async function openDB(): Promise<DB> {
     const sqlite = await getSQLite();
     const db = await sqlite.open(DB_FILE);
     await db.automigrateTo(SCHEMA_NAME, SCHEMA_SQL);
-    // Skip the seed when adopting a partner's ledger. applyPendingJoin baselines
-    // the push version so seeded rows never reach their folder — but the rows do
-    // stay here, unioned with what we pull (their 183 categories plus our 16
-    // defaults). Being below the baseline they can never sync either, so they'd
-    // linger forever as local-only rows no other device sees.
-    if (!hasPendingJoin()) await seedIfEmpty(db);
-    // If a "start fresh" folder join was queued before the wipe, adopt the
-    // partner's folder now — before the first sync — so this device pulls their
-    // ledger instead of pushing its seed defaults into their folder.
+    // Seed only a brand-new, unconnected device. Sync merges the whole local
+    // state into the shared book, so defaults seeded on a device that is joining
+    // (or already joined — e.g. reloaded before its first sync landed) would be
+    // pushed into the book as 16 duplicate categories.
+    const connected = !!(await getSetting(db, SYNC_KEYS.BOOK_FILE_ID));
+    if (!hasPendingJoin() && !connected) await seedIfEmpty(db);
+    // If a "start fresh" join was queued before the wipe, point this device at
+    // the partner's book now — before the first sync — so it pulls their ledger.
     await applyPendingJoin(db);
     // Register this device (and refresh its last-seen) so the audit trail can
     // show a friendly name for changes it makes. Best-effort: a failure here

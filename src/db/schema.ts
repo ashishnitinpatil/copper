@@ -155,11 +155,14 @@ CREATE INDEX IF NOT EXISTS idx_changelog_batch ON change_log(batch_id);
 
 -- Registry of every device that has touched the book, so the audit trail can
 -- show a friendly name instead of a raw site id. \`name\` is user-editable and
--- syncs; \`last_seen\` is refreshed each boot.
+-- syncs; \`last_seen\` is refreshed each boot. \`retired_at\` is set when a reset
+-- gave the device a new identity: the old row stays so past activity keeps its
+-- name, but it no longer counts as one of the book's devices.
 CREATE TABLE IF NOT EXISTS devices (
-  site_id   TEXT NOT NULL PRIMARY KEY DEFAULT '',
-  name      TEXT NOT NULL DEFAULT '',
-  last_seen TEXT NOT NULL DEFAULT ''
+  site_id    TEXT NOT NULL PRIMARY KEY DEFAULT '',
+  name       TEXT NOT NULL DEFAULT '',
+  last_seen  TEXT NOT NULL DEFAULT '',
+  retired_at TEXT NOT NULL DEFAULT ''
 );
 
 SELECT crsql_as_crr('accounts');

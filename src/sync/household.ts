@@ -1,49 +1,52 @@
 import type { DB } from '@/db/wasm';
 import { getSetting, setSetting } from '@/db/queries/settings';
 import {
-  findOrCreateFolder,
-  listFolderFiles,
-  uploadJsonFile,
-  downloadJsonFile,
+  createBinaryFile,
+  downloadBytes,
+  deleteFile,
+  findFilesByName,
+  getFileMeta,
+  updateBinaryFile,
   type DriveFile,
 } from './googleDrive';
 import {
   applyRemoteChanges,
-  exportLocalChanges,
+  exportAllChanges,
   getLocalDbVersion,
   getLocalSiteIdHex,
-  type ChangesetPayload,
+  type ChangeRow,
 } from './changesets';
+import {
+  BOOK_FILE_NAME,
+  BOOK_MIME,
+  decodeBook,
+  diffBook,
+  encodeBook,
+  gunzipJson,
+  gzipJson,
+  type BookFile,
+} from './bookFile';
+import { uuid } from '@/db/uuid';
+import { ensureAppFolder } from './driveFolders';
+import { backupBook, type BackupReason } from './driveBackup';
+import { SYNC_KEYS } from './syncKeys';
 
-export const HOUSEHOLD_FOLDER_NAME = 'Expense Tracker';
-
-export const SYNC_KEYS = {
-  FOLDER_ID: 'sync.folder_id',
-  LOCAL_VERSION: 'sync.local_version',
-  LAST_SYNC_AT: 'sync.last_sync_at',
-  PEER_PREFIX: 'sync.peer.',
-  // Drive backup snapshots: when the last one was written, and its calendar day
-  // (used to throttle to one automatic snapshot per day). These live under
-  // `sync.*` so switching folders re-baselines them and a fresh snapshot is
-  // written into the new folder.
-  LAST_BACKUP_AT: 'sync.last_backup_at',
-  LAST_BACKUP_DATE: 'sync.last_backup_date',
-} as const;
-
-const CHANGES_PREFIX = 'changes-';
-const CHANGES_EXT = '.json';
+export { SYNC_KEYS };
 
 export interface SyncResult {
+  /** Local cells the book was missing (0 when nothing was uploaded). */
   pushed: number;
+  /** Cells merged in from the book. */
   pulled: number;
+  /** Other devices that have written to the book. */
   peers: number;
   uploadedFile: string | null;
+  /** Set when this sync wrote the whole book: created it, or overwrote it on join. */
+  wrote?: 'created' | 'replaced';
 }
 
-// Progress of the pull phase, reported per changeset applied. `total` is the
-// number of pending changesets known at the start of the pull; `done` counts up
-// to it. Used to show a real "N of M" during a big first pull, which can run for
-// minutes on a large ledger.
+// Progress of the merge phase, in cells applied. Drives the "N of M" banner
+// during a big first pull.
 export interface SyncProgress {
   done: number;
   total: number;
@@ -51,196 +54,132 @@ export interface SyncProgress {
 
 export type SyncProgressFn = (progress: SyncProgress) => void;
 
-function changesetFileName(siteIdHex: string, seq: number): string {
-  return `${CHANGES_PREFIX}${siteIdHex}-${String(seq).padStart(6, '0')}${CHANGES_EXT}`;
-}
-
-function parseChangesetFileName(name: string): { siteIdHex: string; seq: number } | null {
-  if (!name.startsWith(CHANGES_PREFIX) || !name.endsWith(CHANGES_EXT)) return null;
-  const core = name.slice(CHANGES_PREFIX.length, -CHANGES_EXT.length);
-  const lastDash = core.lastIndexOf('-');
-  if (lastDash < 0) return null;
-  const siteIdHex = core.slice(0, lastDash);
-  const seq = Number(core.slice(lastDash + 1));
-  if (!Number.isFinite(seq)) return null;
-  return { siteIdHex, seq };
-}
-
-export interface FolderPeek {
-  /** Number of CRDT changeset files (`changes-*.json`) in the folder. */
-  changesets: number;
-  /** Distinct devices that have written changesets here. */
-  devices: number;
-  /** Number of full-book backup snapshots (`backup-*.json`). */
-  backups: number;
-  /** Most recent modified time across sync/backup files, or null if empty. */
-  lastActivity: string | null;
-}
-
-// Backup snapshots share the folder with changesets; kept in sync with
-// driveBackup.ts (importing it here would make the two modules circular).
-const BACKUP_PREFIX = 'backup-';
-
-// Read-only look inside a folder the user just picked, so the connect/join
-// confirm screen can show what they actually chose. The Google Picker renders
-// only a folder's name and date, so two folders that share a name (the classic
-// two "Expense Tracker" folders) are indistinguishable in it — the wrong one
-// silently loads an empty or foreign ledger. Peeking the contents here gives the
-// user a real signal to confirm against before committing. Never writes.
-export async function peekFolder(token: string, folderId: string): Promise<FolderPeek> {
-  const [changeFiles, allFiles] = await Promise.all([
-    listFolderFiles(token, folderId, CHANGES_PREFIX),
-    listFolderFiles(token, folderId, BACKUP_PREFIX),
-  ]);
-  const devices = new Set<string>();
-  let lastActivity: string | null = null;
-  const seeActivity = (f: DriveFile) => {
-    if (f.modifiedTime && (!lastActivity || f.modifiedTime > lastActivity)) {
-      lastActivity = f.modifiedTime;
-    }
-  };
-  let changesets = 0;
-  for (const f of changeFiles) {
-    const parsed = parseChangesetFileName(f.name);
-    if (!parsed) continue;
-    changesets++;
-    devices.add(parsed.siteIdHex);
-    seeActivity(f);
+/**
+ * This Google account already has a book, found by a device that has never
+ * synced with it. Joining would merge this device's own data — at the very
+ * least the default categories every new device starts with — into it, so the
+ * person chooses: start fresh from the book, or merge.
+ */
+export class BookFoundError extends Error {
+  constructor(public bookId: string) {
+    super(
+      'This Google account already has a shared book. Sync is paused until you choose what to ' +
+        'do with this device’s data: start fresh from the book, or merge it in.',
+    );
+    this.name = 'BookFoundError';
   }
-  // `name contains` is a substring match, so re-check the prefix before counting.
-  const backups = allFiles.filter((f) => f.name.startsWith(BACKUP_PREFIX));
-  for (const f of backups) seeActivity(f);
-  return { changesets, devices: devices.size, backups: backups.length, lastActivity };
 }
 
-function count(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
-
-// One-line, human summary of a peeked folder for the connect/join confirm screen.
-// Counts only — the caller renders the "last active" date, which is locale work.
-export function describeFolderPeek(peek: FolderPeek): string {
-  if (peek.changesets === 0 && peek.backups === 0) {
-    return 'This folder is empty — nothing to load yet.';
+// The shared book was overwritten by another device (someone joined it with
+// "Overwrite the shared book") since this device last synced. Merging now would
+// bring every replaced row back as a duplicate, so sync stops until this device
+// Starts fresh from the book.
+export class BookReplacedError extends Error {
+  constructor() {
+    super(
+      'Your shared book was replaced from another device (someone joined it with “Overwrite the shared book”). ' +
+        'Sync is paused here so your old copy doesn’t add duplicates. Start fresh from the ' +
+        'shared book to load it — changes made on this device since its last sync will be lost.',
+    );
+    this.name = 'BookReplacedError';
   }
-  const parts: string[] = [];
-  if (peek.changesets > 0) {
-    parts.push(`Shared ledger · ${count(peek.changesets, 'sync file')} from ${count(peek.devices, 'device')}`);
+}
+
+// How many times to re-merge when the book changed on Drive while we were
+// merging it. Each loser of a write race self-heals on its next sync anyway (its
+// cells are still local, so it sees itself ahead and re-uploads) — this just
+// avoids overwriting a partner's write we already know about.
+const MAX_MERGE_ATTEMPTS = 3;
+
+async function readBook(token: string, fileId: string): Promise<BookFile> {
+  return gunzipJson<BookFile>(await downloadBytes(token, fileId));
+}
+
+async function encodeLocalBook(db: DB, siteHex: string): Promise<Uint8Array> {
+  const generation = (await getSetting(db, SYNC_KEYS.BOOK_GENERATION)) || undefined;
+  return gzipJson(encodeBook(await exportAllChanges(db), siteHex, generation));
+}
+
+// Start a new book generation — on creating the book, or overwriting it.
+async function newGeneration(db: DB): Promise<void> {
+  await setSetting(db, SYNC_KEYS.BOOK_GENERATION, uuid());
+}
+
+export class NewerBookError extends Error {
+  constructor() {
+    super('This book was last saved by a newer version of Copper. Reload Copper to update it, then sync again.');
+    this.name = 'NewerBookError';
   }
-  if (peek.backups > 0) parts.push(count(peek.backups, 'backup'));
-  return parts.join(' · ');
 }
 
-export async function ensureFolderId(db: DB, token: string): Promise<string> {
-  const cached = await getSetting(db, SYNC_KEYS.FOLDER_ID);
-  if (cached) return cached;
-  const folder = await findOrCreateFolder(token, HOUSEHOLD_FOLDER_NAME);
-  await setSetting(db, SYNC_KEYS.FOLDER_ID, folder.id);
-  return folder.id;
+// A newer Copper on another device may have added a table or column this
+// version doesn't have yet. Applying those cells fails deep in SQLite with a
+// bare "SQL logic error", so check first and say what's actually wrong. cid
+// '-1' is cr-sqlite's row-existence marker, not a column.
+async function assertKnownColumns(db: DB, rows: ChangeRow[]): Promise<void> {
+  const byTable = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (r.cid === '-1') continue;
+    const cids = byTable.get(r.table) ?? new Set<string>();
+    cids.add(r.cid);
+    byTable.set(r.table, cids);
+  }
+  for (const [table, cids] of byTable) {
+    const cols = await db.execO<{ name: string }>('SELECT name FROM pragma_table_info(?)', [table]);
+    const known = new Set(cols.map((c) => c.name));
+    for (const cid of cids) if (!known.has(cid)) throw new NewerBookError();
+  }
 }
 
-async function getNextLocalSeq(
-  token: string,
-  folderId: string,
-  localSiteIdHex: string,
-): Promise<number> {
-  const existing = await listFolderFiles(
-    token,
-    folderId,
-    `${CHANGES_PREFIX}${localSiteIdHex}`,
+async function countLocalChangesSince(db: DB, dbVersion: number): Promise<number> {
+  const rows = await db.execO<{ n: number }>(
+    'SELECT count(*) AS n FROM crsql_changes WHERE db_version > ?',
+    [dbVersion],
   );
-  let max = 0;
-  for (const f of existing) {
-    const parsed = parseChangesetFileName(f.name);
-    if (parsed && parsed.siteIdHex === localSiteIdHex) max = Math.max(max, parsed.seq);
-  }
-  return max + 1;
+  return Number(rows[0]?.n ?? 0);
 }
 
-async function pushLocalChanges(
-  db: DB,
-  token: string,
-  folderId: string,
-  localSiteIdHex: string,
-): Promise<{ pushed: number; uploadedFile: string | null }> {
-  const lastVersionStr = await getSetting(db, SYNC_KEYS.LOCAL_VERSION);
-  const lastVersion = lastVersionStr ? Number(lastVersionStr) : 0;
-  const { rows, maxVersion } = await exportLocalChanges(db, lastVersion);
-  if (rows.length === 0) return { pushed: 0, uploadedFile: null };
+// ── sync ────────────────────────────────────────────────────────────────────
 
-  const seq = await getNextLocalSeq(token, folderId, localSiteIdHex);
-  const fileName = changesetFileName(localSiteIdHex, seq);
-  const payload: ChangesetPayload = {
-    version: 1,
-    site_id: localSiteIdHex,
-    seq,
-    from_db_version: lastVersion,
-    to_db_version: maxVersion,
-    created_at: new Date().toISOString(),
-    rows,
-  };
-  await uploadJsonFile(token, folderId, fileName, payload);
-  await setSetting(db, SYNC_KEYS.LOCAL_VERSION, String(maxVersion));
-  return { pushed: rows.length, uploadedFile: fileName };
+// The book a device that doesn't know its book yet (a new or reset device)
+// should use. A book this account joined — shared by someone else — beats its
+// own: joining was a deliberate choice, and an account that joined may still
+// have its own pre-join book lying around. Otherwise the oldest of its own, so
+// devices that raced to create one all settle on the same book.
+export async function findBook(token: string): Promise<DriveFile | null> {
+  const books = await findFilesByName(token, BOOK_FILE_NAME);
+  return books.find((f) => !f.owners?.some((o) => o.me)) ?? books[0] ?? null;
 }
 
-async function pullRemoteChanges(
-  db: DB,
-  token: string,
-  folderId: string,
-  localSiteIdHex: string,
-  onProgress?: SyncProgressFn,
-): Promise<{ pulled: number; peers: number }> {
-  const files = await listFolderFiles(token, folderId, CHANGES_PREFIX);
-  const byPeer = new Map<string, { file: DriveFile; seq: number }[]>();
-  for (const f of files) {
-    const parsed = parseChangesetFileName(f.name);
-    if (!parsed) continue;
-    if (parsed.siteIdHex === localSiteIdHex) continue;
-    const list = byPeer.get(parsed.siteIdHex) ?? [];
-    list.push({ file: f, seq: parsed.seq });
-    byPeer.set(parsed.siteIdHex, list);
-  }
+// Resolve the book this device syncs with. Returns null when this account has
+// none yet, and the caller creates it. Finding one it hasn't synced with pauses
+// for the person's choice (BookFoundError) rather than merging into it.
+async function resolveBook(db: DB, token: string): Promise<string | null> {
+  const cached = await getSetting(db, SYNC_KEYS.BOOK_FILE_ID);
+  if (cached) return cached;
+  const existing = await findBook(token);
+  if (existing) throw new BookFoundError(existing.id);
+  return null;
+}
 
-  // Flatten every peer's pending changesets into one work list first, so the
-  // total is known before applying — that's what lets the UI show "N of M"
-  // rather than an indeterminate spinner. Each entry keeps its own watermark
-  // key; peers are processed one after another, and each peer's changesets stay
-  // sorted by seq so its watermark only ever advances.
-  const work: { watermarkKey: string; file: DriveFile; seq: number }[] = [];
-  for (const [peerId, entries] of byPeer) {
-    const watermarkKey = SYNC_KEYS.PEER_PREFIX + peerId;
-    const watermarkStr = await getSetting(db, watermarkKey);
-    const watermark = watermarkStr ? Number(watermarkStr) : 0;
-    const pending = entries
-      .filter((e) => e.seq > watermark)
-      .sort((a, b) => a.seq - b.seq);
-    for (const { file, seq } of pending) work.push({ watermarkKey, file, seq });
-  }
+async function recordSynced(db: DB, version: string | undefined): Promise<void> {
+  await setSetting(db, SYNC_KEYS.BOOK_VERSION, version ?? '');
+  await setSetting(db, SYNC_KEYS.SYNCED_DB_VERSION, String(await getLocalDbVersion(db)));
+  await setSetting(db, SYNC_KEYS.LAST_SYNC_AT, new Date().toISOString());
+}
 
-  const total = work.length;
-  onProgress?.({ done: 0, total });
+// Other devices in the book, as lower-case hex site ids. Read from the synced
+// `devices` table, where every device registers itself on each boot — not from
+// whose cells are in the book, which drops a device once all its cells are
+// overwritten or deleted (after a restore on another device, say).
+async function otherDeviceIds(db: DB, siteHex: string): Promise<string[]> {
+  const rows = await db.execO<{ site_id: string }>("SELECT site_id FROM devices WHERE retired_at = ''");
+  const self = siteHex.toLowerCase();
+  return rows.map((r) => r.site_id.toLowerCase()).filter((s) => s !== self);
+}
 
-  let pulled = 0;
-  let done = 0;
-  for (const { watermarkKey, file, seq } of work) {
-    const payload = await downloadJsonFile<ChangesetPayload>(token, file.id);
-    if (payload?.rows) {
-      pulled += await applyRemoteChanges(db, payload.rows);
-      // Record the watermark after each changeset, not once at the end. A large
-      // first pull runs for minutes; if it's interrupted (tab closed, connection
-      // dropped) an end-of-loop write would record nothing and the next attempt
-      // would re-download and re-apply everything from scratch.
-      await setSetting(db, watermarkKey, String(seq));
-    }
-    done++;
-    onProgress?.({ done, total });
-    // Yield so React can paint the progress update before the next changeset.
-    // sqlite runs on the main thread, so applyRemoteChanges blocks rendering;
-    // without this the bar would only appear once the whole pull finished.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  return { pulled, peers: byPeer.size };
+async function peerCount(db: DB, siteHex: string): Promise<number> {
+  return (await otherDeviceIds(db, siteHex)).length;
 }
 
 export async function syncNow(
@@ -250,65 +189,188 @@ export async function syncNow(
 ): Promise<SyncResult> {
   const token = await getAccessToken();
   if (!token) throw new Error('Not signed in to Google');
+  const siteHex = await getLocalSiteIdHex(db);
 
-  const folderId = await ensureFolderId(db, token);
-  const localSiteIdHex = await getLocalSiteIdHex(db);
+  let bookId = await resolveBook(db, token);
+  let pulled = 0;
 
-  const pullRes = await pullRemoteChanges(db, token, folderId, localSiteIdHex, onProgress);
-  const pushRes = await pushLocalChanges(db, token, folderId, localSiteIdHex);
+  // First device of this account: publish the local book.
+  if (!bookId) {
+    await newGeneration(db);
+    const folderId = await ensureAppFolder(db, token);
+    const file = await createBinaryFile(
+      token,
+      folderId,
+      BOOK_FILE_NAME,
+      BOOK_MIME,
+      await encodeLocalBook(db, siteHex),
+    );
+    await setSetting(db, SYNC_KEYS.PENDING_OVERWRITE, '');
+    await setSetting(db, SYNC_KEYS.PENDING_SAFETY_BACKUP, '');
+    // Another device of this account may have created one at the same moment.
+    // Everyone keeps the oldest; the others delete theirs and merge into it.
+    const winner = await findBook(token);
+    if (!winner || winner.id === file.id) {
+      await setSetting(db, SYNC_KEYS.BOOK_FILE_ID, file.id);
+      await recordSynced(db, file.version);
+      return { pushed: 1, pulled, peers: 0, uploadedFile: BOOK_FILE_NAME, wrote: 'created' };
+    }
+    await deleteFile(token, file.id);
+    bookId = winner.id;
+    await setSetting(db, SYNC_KEYS.BOOK_FILE_ID, bookId);
+    await setSetting(db, SYNC_KEYS.BOOK_GENERATION, '');
+    await setSetting(db, SYNC_KEYS.BOOK_VERSION, '');
+  }
 
+  // A major change is about to reach the shared book: snapshot it first, so the
+  // change can be undone by restoring that copy.
+  const safetyReason = (await getSetting(db, SYNC_KEYS.PENDING_SAFETY_BACKUP)) as BackupReason | null;
+  if (safetyReason) {
+    await backupBook(db, token, bookId, safetyReason);
+    await setSetting(db, SYNC_KEYS.PENDING_SAFETY_BACKUP, '');
+  }
+
+  // "Overwrite the shared book" on join: replace the book with this device's
+  // state (the safety backup above kept the old one). A new generation makes
+  // every other device pause and Start fresh rather than merge the replaced
+  // rows back in as duplicates.
+  if (await getSetting(db, SYNC_KEYS.PENDING_OVERWRITE)) {
+    await newGeneration(db);
+    const file = await updateBinaryFile(token, bookId, BOOK_MIME, await encodeLocalBook(db, siteHex));
+    await setSetting(db, SYNC_KEYS.PENDING_OVERWRITE, '');
+    await recordSynced(db, file.version);
+    return { pushed: 1, pulled, peers: 0, uploadedFile: BOOK_FILE_NAME, wrote: 'replaced' };
+  }
+
+  let pushed = 0;
+  for (let attempt = 1; ; attempt++) {
+    const meta = await getFileMeta(token, bookId);
+    const remoteChanged = meta.version !== (await getSetting(db, SYNC_KEYS.BOOK_VERSION));
+    const syncedDbv = Number((await getSetting(db, SYNC_KEYS.SYNCED_DB_VERSION)) ?? -1);
+    const localChanged = (await getLocalDbVersion(db)) !== syncedDbv;
+
+    // The common case: nothing changed anywhere — one metadata request, done.
+    if (!remoteChanged && !localChanged) break;
+
+    let needsUpload = localChanged;
+    if (remoteChanged) {
+      const book = await readBook(token, bookId);
+      const mine = await getSetting(db, SYNC_KEYS.BOOK_GENERATION);
+      if (book.generation !== mine) {
+        if (mine) throw new BookReplacedError();
+        // First sync with this book (a join): adopt its generation.
+        if (book.generation) await setSetting(db, SYNC_KEYS.BOOK_GENERATION, book.generation);
+      }
+      const remoteCells = decodeBook(book);
+      const diff = diffBook(await exportAllChanges(db), remoteCells);
+      await assertKnownColumns(db, diff.toApply);
+      const total = diff.toApply.length;
+      onProgress?.({ done: 0, total });
+      pulled += await applyRemoteChanges(db, diff.toApply, (done) => onProgress?.({ done, total }));
+      // Before the merge, a local cell that's about to lose to a newer remote
+      // value also looks "different". Re-compare after cr-sqlite has merged, so
+      // only cells that are genuinely ahead (local-only, or won the merge)
+      // trigger an upload — a pure pull must not re-upload the whole book.
+      pushed =
+        diff.localAhead > 0 ? diffBook(await exportAllChanges(db), remoteCells).localAhead : 0;
+      needsUpload = pushed > 0;
+    } else {
+      pushed = await countLocalChangesSince(db, syncedDbv);
+    }
+
+    if (!needsUpload) {
+      await recordSynced(db, meta.version);
+      break;
+    }
+    // Someone wrote while we merged: merge their write too before uploading.
+    const latest = await getFileMeta(token, bookId);
+    if (latest.version !== meta.version && attempt < MAX_MERGE_ATTEMPTS) continue;
+    const file = await updateBinaryFile(token, bookId, BOOK_MIME, await encodeLocalBook(db, siteHex));
+    await recordSynced(db, file.version);
+    return { pushed, pulled, peers: await peerCount(db, siteHex), uploadedFile: BOOK_FILE_NAME };
+  }
   await setSetting(db, SYNC_KEYS.LAST_SYNC_AT, new Date().toISOString());
-  return {
-    pushed: pushRes.pushed,
-    pulled: pullRes.pulled,
-    peers: pullRes.peers,
-    uploadedFile: pushRes.uploadedFile,
-  };
+  return { pushed: 0, pulled, peers: await peerCount(db, siteHex), uploadedFile: null };
 }
 
-export async function getSyncStatus(
-  db: DB,
-): Promise<{ lastSyncAt: string | null; folderId: string | null; localVersion: number }> {
-  const [lastSyncAt, folderId, localVersion] = await Promise.all([
+// ── status & joining ────────────────────────────────────────────────────────
+
+export interface SyncStatusInfo {
+  lastSyncAt: string | null;
+  bookId: string | null;
+  appFolderId: string | null;
+}
+
+export async function getSyncStatus(db: DB): Promise<SyncStatusInfo> {
+  const [lastSyncAt, bookId, appFolderId] = await Promise.all([
     getSetting(db, SYNC_KEYS.LAST_SYNC_AT),
-    getSetting(db, SYNC_KEYS.FOLDER_ID),
-    getSetting(db, SYNC_KEYS.LOCAL_VERSION).then((v) => (v ? Number(v) : 0)),
+    getSetting(db, SYNC_KEYS.BOOK_FILE_ID),
+    getSetting(db, SYNC_KEYS.APP_FOLDER_ID),
   ]);
-  return { lastSyncAt, folderId, localVersion };
+  return { lastSyncAt, bookId: bookId || null, appFolderId: appFolderId || null };
 }
 
 export interface KnownPeer {
   siteIdHex: string;
-  watermarkSeq: number;
 }
 
+/** Other devices in the shared book. */
 export async function listKnownPeers(db: DB): Promise<KnownPeer[]> {
-  const rows = await db.execO<{ key: string; value: string }>(
-    `SELECT key, value FROM meta WHERE key LIKE 'sync.peer.%'`,
-  );
-  return rows.map((r) => ({
-    siteIdHex: r.key.slice(SYNC_KEYS.PEER_PREFIX.length),
-    watermarkSeq: Number(r.value) || 0,
-  }));
+  const self = await getLocalSiteIdHex(db).catch(() => '');
+  return (await otherDeviceIds(db, self)).map((siteIdHex) => ({ siteIdHex }));
 }
 
 export async function resetSyncState(db: DB): Promise<void> {
   await db.exec(`DELETE FROM meta WHERE key LIKE 'sync.%'`);
 }
 
-// Point sync at a specific folder — e.g. one a partner shared and this device
-// picked via the Google Picker. Clearing the rest of the sync state re-baselines
-// the device against the new folder: it re-pushes all local changes into it and
-// re-pulls every peer changeset already there, so both sides converge.
-export async function setHouseholdFolder(db: DB, folderId: string): Promise<void> {
+export type JoinMode = 'merge' | 'replace';
+
+// Point this device at a shared book (one a partner shared and this device
+// picked). Re-baselines sync state, then queues a safety backup of the book so
+// the merge or overwrite can be undone. "Start fresh" goes through joinFresh.
+export async function joinSharedBook(db: DB, bookId: string, mode: JoinMode): Promise<void> {
   await resetSyncState(db);
-  await setSetting(db, SYNC_KEYS.FOLDER_ID, folderId);
+  await setSetting(db, SYNC_KEYS.BOOK_FILE_ID, bookId);
+  await setSetting(
+    db,
+    SYNC_KEYS.PENDING_SAFETY_BACKUP,
+    mode === 'merge' ? 'before merge' : 'before overwrite',
+  );
+  if (mode === 'replace') await setSetting(db, SYNC_KEYS.PENDING_OVERWRITE, '1');
 }
 
-export async function getLocalDbVersionSafe(db: DB): Promise<number> {
-  try {
-    return await getLocalDbVersion(db);
-  } catch {
-    return 0;
-  }
+async function isConnected(db: DB): Promise<boolean> {
+  return !!(await getSetting(db, SYNC_KEYS.BOOK_FILE_ID));
+}
+
+// After a restore or import while connected: back the book up before the change
+// reaches it. The change itself merges normally — a restore deletes the old rows
+// (CRDT tombstones) and inserts the restored ones, so partners converge on the
+// restored book without duplicates and keep any edits they hadn't synced yet.
+export async function markSafetyBackup(db: DB, reason: BackupReason): Promise<void> {
+  if (await isConnected(db)) await setSetting(db, SYNC_KEYS.PENDING_SAFETY_BACKUP, reason);
+}
+
+export interface BookPeek {
+  name: string;
+  owner: string | null;
+  /** The signed-in account owns it (its own book, not a partner's). */
+  ownedByMe: boolean;
+  modifiedTime: string | null;
+  sizeBytes: number | null;
+}
+
+// Read-only look at a picked book for the join confirm screen: whose it is and
+// when it last changed, so the person can confirm they picked the right one.
+export async function peekBook(token: string, bookId: string): Promise<BookPeek> {
+  const meta = await getFileMeta(token, bookId);
+  const o = meta.owners?.[0];
+  return {
+    name: meta.name,
+    owner: o ? (o.emailAddress ?? o.displayName ?? null) : null,
+    ownedByMe: !!o?.me,
+    modifiedTime: meta.modifiedTime ?? null,
+    sizeBytes: meta.size ? Number(meta.size) : null,
+  };
 }

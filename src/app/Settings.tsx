@@ -35,17 +35,18 @@ import { listAccounts } from '@/db/queries/accounts';
 import { listCategories } from '@/db/queries/categories';
 import { getSettingNumber, setSetting, SETTINGS_KEYS } from '@/db/queries/settings';
 import { useAuth } from '@/auth/AuthProvider';
-import { HOUSEHOLD_FOLDER_NAME } from '@/sync/household';
 import { useSync } from '@/sync/SyncProvider';
-import {
-  isPickerConfigured,
-  pickSharedFolder,
-  PickerBlockedError,
-  type PickedFolder,
-} from '@/sync/googlePicker';
-import { stashJoinTarget } from '@/sync/joinFresh';
-import { peekFolder, type FolderPeek } from '@/sync/household';
-import { FolderIdentity } from '@/sync/FolderIdentity';
+import { isPickerConfigured, type PickedFile } from '@/sync/googlePicker';
+import { BOOK_FILE_NAME } from '@/sync/bookFile';
+import { GoogleAccessNote } from '@/auth/GoogleAccessNote';
+import { rememberRetiringIdentity, stashJoinTarget } from '@/sync/joinFresh';
+import { DevJoinById } from '@/sync/DevJoinById';
+import { markSafetyBackup, type SyncResult } from '@/sync/household';
+import { APP_FOLDER_NAME } from '@/sync/driveFolders';
+import { shareFileWithEmail } from '@/sync/googleDrive';
+import { useBookPicker } from '@/sync/useBookPicker';
+import { BookIdentity } from '@/sync/BookIdentity';
+import { clearInvite, inviteLink, peekInvite } from '@/sync/invite';
 import type { DriveSnapshot } from '@/sync/driveBackup';
 import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
 import { CURRENCY_OPTIONS } from '@/lib/money';
@@ -231,7 +232,7 @@ function ThisDeviceSection({ siteId }: { siteId: string }) {
     getLocalDeviceName(db).then(setName);
   }, [db]);
 
-  const others = (devicesState.data ?? []).filter((d) => d.site_id !== siteId);
+  const others = (devicesState.data ?? []).filter((d) => d.site_id !== siteId && !d.retired_at);
   const placeholder = defaultDeviceName(siteId);
 
   const save = async () => {
@@ -286,6 +287,9 @@ function ThisDeviceSection({ siteId }: { siteId: string }) {
 }
 
 function ResetDeviceSection() {
+  const db = useDB();
+  const auth = useAuth();
+  const sync = useSync();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -323,6 +327,10 @@ function ResetDeviceSection() {
               variant="danger"
               onClick={() => {
                 setBusy(true);
+                // Connected: come back as a fresh copy of the shared book — no
+                // seeded defaults merged into it, and no Welcome screen.
+                rememberRetiringIdentity(db.siteid);
+                if (sync.bookId && auth.google) stashJoinTarget(sync.bookId);
                 requestLocalReset();
               }}
               disabled={busy}
@@ -384,7 +392,21 @@ function AppearanceSection() {
   );
 }
 
+// Plain words, no counts: the counts are CRDT cells (one transaction is ~10),
+// which mean nothing to the person reading this.
+function syncResultText(r: SyncResult): string {
+  if (r.wrote === 'created') return 'Created the shared book';
+  if (r.wrote === 'replaced') return "Replaced the shared book with this device's copy";
+  const sent = !!r.uploadedFile;
+  const got = r.pulled > 0;
+  if (sent && got) return 'Sent your changes and got the latest';
+  if (sent) return 'Sent your changes';
+  if (got) return 'Got the latest changes';
+  return 'Up to date';
+}
+
 function SyncSection() {
+  const db = useDB();
   const auth = useAuth();
   const sync = useSync();
   // Friendly device names live in the CRR `devices` table and sync between
@@ -401,21 +423,31 @@ function SyncSection() {
     for (const d of devicesState.data ?? []) if (d.name) m.set(d.site_id.toLowerCase(), d.name);
     return m;
   }, [devicesState.data]);
-  const [copied, setCopied] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
-  const [pendingFolder, setPendingFolder] = useState<PickedFolder | null>(null);
-  const [pendingPeek, setPendingPeek] = useState<FolderPeek | null>(null);
-  const [pendingPeekLoading, setPendingPeekLoading] = useState(false);
-  const [joinMode, setJoinMode] = useState<'fresh' | 'merge'>('fresh');
+  const book = useBookPicker();
+  // An invite link (/join/<bookId>) routes an onboarded device here.
+  const [inviteBookId, setInviteBookId] = useState(() => peekInvite());
+  const [joinMode, setJoinMode] = useState<'fresh' | 'merge' | 'replace'>('fresh');
+  // "Overwrite the shared book" is a sharp, rarely-right tool (other devices
+  // lose unsynced changes), so it stays tucked behind an Advanced disclosure
+  // rather than sitting as a co-equal choice next to Start fresh / Merge.
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [invitedEmail, setInvitedEmail] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmFresh, setConfirmFresh] = useState(false);
 
   const signedIn = !!auth.google;
   const pickerReady = isPickerConfigured();
-  const folderUrl = sync.folderId
-    ? `https://drive.google.com/drive/folders/${sync.folderId}`
+  const folderUrl = sync.appFolderId
+    ? `https://drive.google.com/drive/folders/${sync.appFolderId}`
     : null;
   const busy = sync.status === 'syncing';
+  const link = sync.bookId ? inviteLink(sync.bookId) : null;
 
   const needsReconnect = signedIn && sync.status === 'signed-out';
   const statusLabel = (() => {
@@ -459,78 +491,73 @@ function SyncSection() {
   };
 
   // Partner-across-accounts sharing: because Copper uses the narrow `drive.file`
-  // scope, a folder shared with you is invisible until you pick it in the Google
+  // scope, a book shared with you is invisible until you pick it in the Google
   // Picker — the pick is what grants access. See googlePicker.ts.
-  const handleConnectFolder = async () => {
-    setConnecting(true);
+  const openBookPicker = async (fileId?: string, devFile?: PickedFile) => {
+    setJoinMode('fresh');
+    setShowAdvanced(false);
     setConnectError(null);
+    await book.choose(fileId, devFile);
+  };
+
+  // Give the partner's Google account edit access to the book, then hand over a
+  // link to send them. No Google notification email is sent: those tend to land
+  // in spam, and the partner needs the link to open the book in Copper anyway.
+  const handleInvite = async () => {
+    const email = inviteEmail.trim();
+    if (!sync.bookId || !email) return;
+    setInviting(true);
+    setInviteError(null);
     try {
       const token = await auth.getGoogleAccessToken();
-      if (!token) {
-        setConnectError('Reconnect to Google first, then try again.');
-        return;
-      }
-      const folder = await pickSharedFolder(token);
-      // Don't connect straight away — let the person choose whether to start
-      // fresh (adopt the shared ledger) or merge this device's data in, since
-      // the two have very different, hard-to-undo outcomes.
-      if (folder) {
-        setJoinMode('fresh');
-        setPendingFolder(folder);
-        // Peek the folder's contents so the confirm dialog can show what was
-        // actually picked — the Picker can't distinguish two same-named folders.
-        setPendingPeek(null);
-        setPendingPeekLoading(true);
-        peekFolder(token, folder.id)
-          .then(setPendingPeek)
-          .catch(() => setPendingPeek(null))
-          .finally(() => setPendingPeekLoading(false));
-      }
+      if (!token) throw new Error('Reconnect to Google first, then try again.');
+      await shareFileWithEmail(token, sync.bookId, email, false);
+      setInvitedEmail(email);
+      setInviteEmail('');
     } catch (e) {
-      if (e instanceof PickerBlockedError) {
-        setConnectError(
-          "The Google folder picker couldn't load. This usually means more than one Google " +
-            'account is signed in to this browser. Open Copper in a browser or profile signed in ' +
-            'to only this Google account, then try again.',
-        );
-      } else {
-        setConnectError(e instanceof Error ? e.message : 'Could not connect the folder.');
-      }
+      setInviteError(e instanceof Error ? e.message : 'Could not share the book.');
     } finally {
-      setConnecting(false);
+      setInviting(false);
     }
   };
 
-  // "Start fresh": erase this device, then adopt the partner's folder at the next
-  // boot (see joinFresh + db/client). "Merge": keep everything and union both
-  // ledgers via the shared folder (the original behaviour).
-  const handleConfirmConnect = async () => {
-    if (!pendingFolder) return;
+  const handleCopyLink = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard blocked; the link is on screen to copy by hand
+    }
+  };
+
+  const closeJoin = () => {
+    book.clear();
+    clearInvite();
+    setInviteBookId(null);
+  };
+
+  // "Start fresh": erase this device, then adopt the partner's book at the next
+  // boot (see joinFresh + db/client). "Merge" / "Overwrite": switch now; the
+  // next sync backs the book up first, then merges into or replaces it.
+  const handleConfirmJoin = async () => {
+    if (!book.picked) return;
     if (joinMode === 'fresh') {
-      stashJoinTarget(pendingFolder.id);
+      stashJoinTarget(book.picked.id, db.siteid);
+      clearInvite();
       requestLocalReset();
       return;
     }
     setConnecting(true);
     setConnectError(null);
     try {
-      await sync.connectSharedFolder(pendingFolder.id);
-      setPendingFolder(null);
+      await sync.joinBook(book.picked.id, joinMode);
+      closeJoin();
     } catch (e) {
-      setConnectError(e instanceof Error ? e.message : 'Could not connect the folder.');
+      setConnectError(e instanceof Error ? e.message : 'Could not join the book.');
     } finally {
       setConnecting(false);
-    }
-  };
-
-  const handleCopyUrl = async () => {
-    if (!folderUrl) return;
-    try {
-      await navigator.clipboard.writeText(folderUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard blocked; ignore
     }
   };
 
@@ -566,11 +593,32 @@ function SyncSection() {
         </div>
       )}
 
+      {signedIn && inviteBookId && pickerReady && (
+        <div className="mb-3 flex items-start justify-between gap-3 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-info">
+          <span className="min-w-0">
+            You opened an invite to a shared book. Open it to choose how to join.
+          </span>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              className="rounded border border-info/50 px-2 py-1 font-medium hover:bg-info/20 disabled:opacity-50"
+              onClick={() => openBookPicker(inviteBookId)}
+              disabled={book.busy || busy}
+            >
+              {book.busy ? 'Opening…' : 'Open shared book'}
+            </button>
+            <button type="button" className="underline" onClick={closeJoin}>
+              dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {signedIn && (
         <div className="space-y-3 text-sm">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <div className="font-medium text-slate-200">Household folder</div>
+              <div className="font-medium text-slate-200">Shared book</div>
               <div className="truncate text-xs text-slate-500">
                 {folderUrl ? (
                   <a
@@ -579,10 +627,12 @@ function SyncSection() {
                     rel="noreferrer"
                     className="underline decoration-dotted hover:text-slate-300"
                   >
-                    Open "{HOUSEHOLD_FOLDER_NAME}" in Drive
+                    Open "{APP_FOLDER_NAME}" in Drive
                   </a>
+                ) : sync.bookId ? (
+                  <>Connected — loads on the next sync</>
                 ) : (
-                  <>Will be created on first sync as "{HOUSEHOLD_FOLDER_NAME}"</>
+                  <>Created on first sync in "{APP_FOLDER_NAME}"</>
                 )}
               </div>
             </div>
@@ -596,13 +646,12 @@ function SyncSection() {
             <span className="text-slate-400">
               {sync.lastSyncAt ? new Date(sync.lastSyncAt).toLocaleString() : 'never'}
             </span>
-            <span className="ml-2 text-slate-500">· automatically every 5 minutes</span>
+            <span className="ml-2 text-slate-500">· when you open or leave the app, and every few minutes while it's open</span>
           </div>
 
           {sync.lastResult && (
             <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
-              Sent {sync.lastResult.pushed} change(s) · received {sync.lastResult.pulled} from{' '}
-              {sync.lastResult.peers} other device(s)
+              {syncResultText(sync.lastResult)}
             </div>
           )}
 
@@ -628,6 +677,25 @@ function SyncSection() {
                   {reconnecting ? 'Reconnecting…' : 'Reconnect to Google'}
                 </button>
               )}
+              {sync.foundBookId && !book.picked && (
+                <button
+                  type="button"
+                  className="self-start rounded border border-danger/50 px-2 py-1 font-medium text-danger hover:bg-danger/20 disabled:opacity-50"
+                  onClick={() => book.choose(undefined, { id: sync.foundBookId!, name: BOOK_FILE_NAME })}
+                  disabled={book.busy}
+                >
+                  Choose what to do…
+                </button>
+              )}
+              {sync.bookReplaced && sync.bookId && (
+                <button
+                  type="button"
+                  className="self-start rounded border border-danger/50 px-2 py-1 font-medium text-danger hover:bg-danger/20"
+                  onClick={() => setConfirmFresh(true)}
+                >
+                  Start fresh from shared book…
+                </button>
+              )}
             </div>
           )}
 
@@ -637,17 +705,14 @@ function SyncSection() {
             </div>
             {sync.peers.length === 0 ? (
               <div className="text-xs text-slate-500">
-                No other devices have synced yet. Share the Drive folder with someone to combine your data.
+                No other devices have synced yet. Invite your partner below to share one book.
               </div>
             ) : (
               <ul className="divide-y divide-slate-800 text-xs">
                 {sync.peers.map((p) => {
                   const name = deviceNames.get(p.siteIdHex.toLowerCase());
                   return (
-                    <li
-                      key={p.siteIdHex}
-                      className="flex items-center justify-between gap-2 py-1.5"
-                    >
+                    <li key={p.siteIdHex} className="flex items-center gap-2 py-1.5">
                       {name ? (
                         <span className="truncate text-slate-300" title={p.siteIdHex}>
                           {name}
@@ -657,9 +722,6 @@ function SyncSection() {
                           {p.siteIdHex.slice(0, 12)}…{p.siteIdHex.slice(-4)}
                         </code>
                       )}
-                      <span className="text-slate-500" title="How far this device has synced">
-                        synced #{p.watermarkSeq}
-                      </span>
                     </li>
                   );
                 })}
@@ -668,66 +730,127 @@ function SyncSection() {
           </div>
 
           {pickerReady && (
-            <div className="rounded-md border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
-              <div className="mb-1 font-medium text-slate-300">Share with your partner</div>
-              <p>
-                To keep one shared ledger across two Google accounts: one of you keeps this
-                household folder and shares it in Drive (as an Editor). The other taps{' '}
-                <span className="text-slate-300">Connect a shared folder</span> below and picks it.
-                From then on, both devices sync into the same folder and your changes merge
-                automatically.
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleConnectFolder}
-                  disabled={connecting || busy}
-                >
-                  {connecting ? 'Opening…' : 'Connect a shared folder'}
-                </Button>
-                {folderUrl && (
+            <div className="space-y-3 rounded-md border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
+              <div>
+                <div className="mb-1 font-medium text-slate-300">Invite your partner</div>
+                <p>
+                  Share this book with your partner's Google account, then send them the link. They
+                  open it, sign in, and pick the book once — from then on you both sync to it.
+                </p>
+                {sync.bookId ? (
                   <>
-                    <Button variant="ghost" size="sm" onClick={handleCopyUrl}>
-                      {copied ? 'Copied!' : 'Copy folder URL'}
-                    </Button>
-                    <a
-                      href={folderUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-slate-500 underline decoration-dotted hover:text-slate-300"
-                    >
-                      Open in Drive
-                    </a>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <input
+                        type="email"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        placeholder="partner@gmail.com"
+                        aria-label="Partner's Google email"
+                        className="w-60 rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1 text-sm text-slate-50 focus:border-brand-400 focus:outline-none"
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleInvite}
+                        disabled={inviting || !inviteEmail.trim()}
+                      >
+                        {inviting ? 'Sharing…' : 'Share book'}
+                      </Button>
+                    </div>
+                    {invitedEmail && link && (
+                      <div className="mt-2 space-y-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-success">
+                        <div>
+                          Shared with {invitedEmail}. Now send them this link:
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <code className="break-all rounded bg-slate-900/60 px-1.5 py-0.5 text-slate-300">
+                            {link}
+                          </code>
+                          <Button variant="ghost" size="sm" onClick={handleCopyLink}>
+                            {copied ? 'Copied!' : 'Copy link'}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {inviteError && (
+                      <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-danger">
+                        {inviteError}
+                      </div>
+                    )}
                   </>
+                ) : (
+                  <p className="mt-1 text-slate-500">Sync once to create your book, then invite.</p>
                 )}
               </div>
-              {connectError && (
-                <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-danger">
-                  {connectError}
+
+              <div className="border-t border-slate-800 pt-3">
+                <div className="mb-1 font-medium text-slate-300">Join your partner's book</div>
+                <p>Got an invite? Open the link they sent, or choose the book they shared here.</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => openBookPicker()}
+                    disabled={book.busy || busy}
+                  >
+                    {book.busy ? 'Opening…' : 'Choose shared book…'}
+                  </Button>
+                  <DevJoinById onPick={(f) => openBookPicker(undefined, f)} disabled={book.busy || busy} />
                 </div>
-              )}
+                {book.error && (
+                  <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-danger">
+                    {book.error}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
       )}
 
+      <Modal open={confirmFresh} onClose={() => setConfirmFresh(false)} title="Start fresh from shared book">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-300">
+            This erases the data on this device and loads the shared book in its place.
+          </p>
+          <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            Changes made on this device since it last synced are lost. Export a backup first if you
+            want to keep them.
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmFresh(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                stashJoinTarget(sync.bookId!, db.siteid);
+                requestLocalReset();
+              }}
+            >
+              Erase and load shared book
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal
-        open={!!pendingFolder}
-        onClose={() => !connecting && setPendingFolder(null)}
-        title="Connect a shared folder"
+        open={!!book.picked}
+        onClose={() => !connecting && closeJoin()}
+        title="Join a shared book"
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-300">
-            Connecting to this folder. Choose what happens to the data already on this device.
+            Joining this book. Choose what happens to the data already on this device.
           </p>
 
-          {pendingFolder && (
-            <FolderIdentity
-              name={pendingFolder.name}
-              id={pendingFolder.id}
-              peek={pendingPeek}
-              loading={pendingPeekLoading}
+          {book.picked && (
+            <BookIdentity
+              name={book.picked.name}
+              peek={book.peek}
+              peekError={book.peekError}
+              onRetry={() => book.choose(book.picked!.id)}
+              retrying={book.busy}
             />
           )}
 
@@ -737,13 +860,13 @@ function SyncSection() {
               onSelect={() => setJoinMode('fresh')}
               title="Start fresh"
               badge="Recommended"
-              desc="Erase this device and load the shared ledger. Nothing here is copied into your partner's folder. Best when you're joining their book."
+              desc="Erase this device and load the shared book. Nothing here is copied into it. Best for a new device, or when you're joining your partner's book."
             />
             <JoinModeOption
               active={joinMode === 'merge'}
               onSelect={() => setJoinMode('merge')}
               title="Merge my data in"
-              desc="Combine this device's data with the shared ledger. Everything here is copied into the folder for both of you. Best when you each have data to keep."
+              desc="Combine this device's data with the shared book. Everything here is copied into it for both of you. Best when you each have data to keep."
             />
           </div>
 
@@ -754,20 +877,69 @@ function SyncSection() {
             </div>
           )}
 
+          {joinMode === 'merge' && (
+            <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              Merging adds this device's copy on top — if it's the same book you just restored,
+              you'll get duplicates. If you only want what's already in the book, choose{' '}
+              <span className="font-medium">Start fresh</span> instead. A backup of the book is saved
+              before merging.
+            </div>
+          )}
+
+          {/* Overwrite is the sharp tool: dangerous with other devices. Kept
+              behind a disclosure. */}
+          <div className="border-t border-slate-800 pt-3">
+            {!showAdvanced ? (
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(true)}
+                className="text-xs text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-300"
+              >
+                Advanced: overwrite the shared book with this device's data
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <JoinModeOption
+                  active={joinMode === 'replace'}
+                  onSelect={() => setJoinMode('replace')}
+                  title="Overwrite the shared book"
+                  desc="Replace the book's contents with this device's copy. Only for when this device holds the version you want everyone to end up with."
+                />
+                {joinMode === 'replace' && (
+                  <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+                    Any other device using this book will lose changes it hasn't synced yet and must
+                    Start fresh afterward, or the duplicates come back. A backup of the book is saved
+                    first, so you can restore it from Backups if this was a mistake.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {connectError && (
+            <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+              {connectError}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setPendingFolder(null)} disabled={connecting}>
+            <Button variant="ghost" onClick={closeJoin} disabled={connecting}>
               Cancel
             </Button>
             <Button
-              variant={joinMode === 'fresh' ? 'danger' : 'primary'}
-              onClick={handleConfirmConnect}
-              disabled={connecting}
+              variant={joinMode === 'merge' ? 'primary' : 'danger'}
+              onClick={handleConfirmJoin}
+              disabled={connecting || book.peekError}
             >
               {joinMode === 'fresh'
                 ? 'Erase & join'
-                : connecting
-                  ? 'Merging…'
-                  : 'Merge & connect'}
+                : joinMode === 'replace'
+                  ? connecting
+                    ? 'Overwriting…'
+                    : 'Overwrite & join'
+                  : connecting
+                    ? 'Merging…'
+                    : 'Merge & join'}
             </Button>
           </div>
         </div>
@@ -868,6 +1040,8 @@ function AuthSection() {
             <span className="text-xs text-slate-500">Not configured</span>
           )}
         </div>
+
+        {auth.googleConfigured && <GoogleAccessNote />}
 
         {auth.googleConfigured && (
           <label className="flex items-start gap-3 rounded-md border border-slate-800 bg-slate-900/40 px-3 py-2">
@@ -1069,7 +1243,7 @@ function ExportSection() {
     setDriveNote(null);
     try {
       await sync.backupNow();
-      setDriveNote('Snapshot saved to your Drive folder.');
+      setDriveNote('Backup saved to your Backups folder in Drive.');
     } catch (e) {
       setDriveNote((e as Error).message);
     } finally {
@@ -1172,8 +1346,9 @@ function ExportSection() {
             <div>
               <h4 className="mb-1 text-sm font-semibold text-slate-300">Google Drive backups</h4>
               <div className="text-xs text-slate-500">
-                A full snapshot is saved to your shared folder once a day, and whenever you back up
-                by hand. Bring one back under Restore below.
+                A copy of your book is saved to “{APP_FOLDER_NAME}/Backups” on a schedule, before any
+                merge, overwrite, restore or import, and whenever you back up by hand. Bring one back
+                under Restore below.
               </div>
             </div>
             <Button
@@ -1187,7 +1362,7 @@ function ExportSection() {
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
             <div>
-              Last snapshot:{' '}
+              Last backup:{' '}
               <span className="text-slate-400">
                 {sync.lastBackupAt ? new Date(sync.lastBackupAt).toLocaleString() : 'never'}
               </span>
@@ -1197,7 +1372,6 @@ function ExportSection() {
               <input
                 type="number"
                 min={1}
-                max={30}
                 value={retention}
                 onChange={(e) => setRetention(e.target.value)}
                 onBlur={commitRetention}
@@ -1206,7 +1380,19 @@ function ExportSection() {
                 }}
                 className="w-14 rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1 text-center text-sm text-slate-50 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
               />
-              daily snapshots
+              backups
+            </label>
+            <label className="flex items-center gap-2">
+              Back up
+              <select
+                value={sync.backupIntervalDays}
+                onChange={(e) => sync.setBackupIntervalDays(Number(e.target.value))}
+                className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-1 text-sm text-slate-50 focus:border-brand-400 focus:outline-none"
+              >
+                <option value={1}>daily</option>
+                <option value={7}>weekly</option>
+                <option value={30}>monthly</option>
+              </select>
             </label>
           </div>
           {driveNote && <div className="mt-3 text-xs text-slate-400">{driveNote}</div>}
@@ -1312,7 +1498,7 @@ function RestoreSection() {
     setFetchingId(snap.id);
     setDriveError(null);
     try {
-      const backup = await sync.fetchBackup(snap.id);
+      const backup = await sync.fetchBackup(snap);
       setDriveOpen(false);
       preview(backup, snap.name);
     } catch (e) {
@@ -1369,6 +1555,10 @@ function RestoreSection() {
     setRowsDone(0);
     try {
       await restoreBackup(db, pending.backup, (done) => setRowsDone(done));
+      // The restore deletes the old rows and inserts the backup's, and the next
+      // sync carries both to the shared book. Back the book up first so this
+      // can be undone. No-op when not connected.
+      await markSafetyBackup(db, 'before restore');
       // The VFS persists with "relaxed" durability, so the write isn't
       // guaranteed flushed to IndexedDB when restoreBackup resolves — reloading
       // here can tear the page down mid-flush and leave a malformed file.
@@ -1444,6 +1634,13 @@ function RestoreSection() {
                 tab open until the app reloads on its own.
               </div>
             )}
+            {!busy && sync.bookId && (
+              <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+                This device syncs to a shared book, so the restored data replaces the book for
+                {sync.peers.length > 0 ? ' everyone using it' : ' all your devices'} on the next sync. A
+                backup of the book is saved first, so you can undo this from Backups.
+              </div>
+            )}
             {busy && phase && (
               <div className="space-y-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5">
                 <div className="text-xs font-medium text-warning">
@@ -1487,18 +1684,18 @@ function RestoreSection() {
       >
         <div className="space-y-3">
           <p className="text-sm text-slate-300">
-            Pick a snapshot to bring back. Each is a full copy saved to your shared folder — the
-            newest is at the top.
+            Pick a backup to bring back. Each is a full copy of your book from your Backups folder —
+            the newest is at the top.
           </p>
           {driveError && (
             <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
               {driveError}
             </div>
           )}
-          {driveLoading && <div className="text-xs text-slate-400">Loading snapshots…</div>}
+          {driveLoading && <div className="text-xs text-slate-400">Loading backups…</div>}
           {!driveLoading && driveSnaps && driveSnaps.length === 0 && (
             <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950/40 px-3 py-6 text-center text-xs text-slate-400">
-              No snapshots yet. Use “Back up now” under Export, or sync once and one is saved
+              No backups yet. Use “Back up now” under Export, or sync once and one is saved
               automatically.
             </div>
           )}
@@ -1507,12 +1704,13 @@ function RestoreSection() {
               {driveSnaps.map((snap) => (
                 <li key={snap.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
                   <div>
-                    <div className="text-sm text-slate-200">{formatHumanDate(snap.date)}</div>
-                    {snap.modifiedTime && (
-                      <div className="text-xs text-slate-500">
-                        Saved {new Date(snap.modifiedTime).toLocaleString()}
-                      </div>
-                    )}
+                    <div className="text-sm text-slate-200">
+                      {snap.at ? new Date(snap.at).toLocaleString() : snap.name}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {snap.otherBook ? 'A different book · ' : 'Backup · '}
+                      {snap.reason ?? 'older'}
+                    </div>
                   </div>
                   <Button
                     size="sm"
@@ -1663,6 +1861,9 @@ function ImportSection() {
         mainAccount: mainAccount || null,
         wipeFirst,
       };
+      // Back the shared book up before any imported row can reach it — set before
+      // the import starts, since a sync could otherwise run mid-import.
+      await markSafetyBackup(db, 'before import');
       const res = await runMonefyImport(db, plan, overrides);
       await settings.refresh();
       setResult(

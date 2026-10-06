@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
+import { DevJoinById } from '@/sync/DevJoinById';
 import { Card } from '@/components/ui/Card';
 import { Input, Select } from '@/components/ui/Input';
 import { Combobox } from '@/components/ui/Combobox';
@@ -13,15 +14,13 @@ import { decryptBackup, isEncryptedBackup, type EncryptedBackup } from '@/featur
 import type { BackupFile } from '@/features/export/exportData';
 import { closeDB, openDB, requestLocalReset } from '@/db/client';
 import { useAuth } from '@/auth/AuthProvider';
-import {
-  isPickerConfigured,
-  pickSharedFolder,
-  PickerBlockedError,
-  type PickedFolder,
-} from '@/sync/googlePicker';
+import { isPickerConfigured } from '@/sync/googlePicker';
 import { stashJoinTarget } from '@/sync/joinFresh';
-import { peekFolder, type FolderPeek } from '@/sync/household';
-import { FolderIdentity } from '@/sync/FolderIdentity';
+import { useBookPicker } from '@/sync/useBookPicker';
+import { BookIdentity } from '@/sync/BookIdentity';
+import { clearInvite, peekInvite } from '@/sync/invite';
+import { findBook } from '@/sync/household';
+import { GoogleAccessNote } from '@/auth/GoogleAccessNote';
 import { useAppSettings } from './AppSettingsProvider';
 
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
@@ -37,8 +36,21 @@ export function Welcome() {
   const settings = useAppSettings();
   const auth = useAuth();
 
-  const [mode, setMode] = useState<'start' | 'restore' | 'join'>(() =>
-    new URLSearchParams(window.location.search).has('restore') ? 'restore' : 'start',
+  // An invite link (/join/<bookId>) lands here with the book remembered.
+  const [inviteBookId] = useState(() => peekInvite());
+  // choose: sign in or go local · cloud: signed in, looking for this account's
+  // book · start: currency + first account · restore: from a file · join: pick
+  // a partner's book.
+  const [mode, setMode] = useState<'choose' | 'cloud' | 'start' | 'restore' | 'join'>(() =>
+    inviteBookId
+      ? 'join'
+      : new URLSearchParams(window.location.search).has('restore')
+        ? 'restore'
+        : !auth.googleConfigured
+          ? 'start'
+          : auth.google
+            ? 'cloud'
+            : 'choose',
   );
   const [step, setStep] = useState<1 | 2>(1);
   const [currency, setCurrency] = useState<string>(settings.defaultCurrency);
@@ -57,59 +69,56 @@ export function Welcome() {
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
-  // Join-a-partner branch: adopt a shared Drive folder and start fresh from their
-  // ledger (the onboarding equivalent of Settings → "Connect a shared folder",
-  // Start-fresh mode). Requires a Google sign-in to open the Picker.
+  // Join-a-partner branch: adopt a partner's shared book and start fresh from
+  // it (the onboarding equivalent of Settings → "Join a shared book", Start-fresh
+  // mode). Requires a Google sign-in to open the Picker.
   const joinConfigured = auth.googleConfigured && isPickerConfigured();
-  const [joinFolder, setJoinFolder] = useState<PickedFolder | null>(null);
-  const [joinPeek, setJoinPeek] = useState<FolderPeek | null>(null);
-  const [joinPeekLoading, setJoinPeekLoading] = useState(false);
-  const [joinBusy, setJoinBusy] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
+  const book = useBookPicker();
 
-  const chooseSharedFolder = async () => {
-    setJoinBusy(true);
-    setJoinError(null);
+  // Signed in on Welcome: look for a book this account already has (its own,
+  // or one it joined), so a returning person just loads it. A partner's book
+  // can't be found until it's picked once (drive.file), so "none" still offers
+  // Join.
+  const [lookup, setLookup] = useState<'idle' | 'looking' | 'found' | 'none' | 'error'>('idle');
+  const [signingIn, setSigningIn] = useState(false);
+  useEffect(() => {
+    if (mode !== 'cloud' || !auth.google || lookup !== 'idle') return;
+    setLookup('looking');
+    (async () => {
+      try {
+        const token = await auth.getGoogleAccessToken();
+        if (!token) throw new Error('No Google access');
+        const found = await findBook(token);
+        if (!found) return setLookup('none');
+        await book.choose(undefined, { id: found.id, name: found.name });
+        setLookup('found');
+      } catch (e) {
+        console.warn('Could not look for a book:', e);
+        setLookup('error');
+      }
+    })();
+  }, [mode, auth, lookup, book]);
+
+  const signIn = async () => {
+    setSigningIn(true);
     try {
-      const token = await auth.getGoogleAccessToken();
-      if (!token) {
-        setJoinError('Reconnect to Google first, then try again.');
-        return;
-      }
-      const folder = await pickSharedFolder(token);
-      if (folder) {
-        setJoinFolder(folder);
-        // Peek what the folder holds so the confirm step can show it — the Picker
-        // can't tell two same-named folders apart, so this is the safety check.
-        setJoinPeek(null);
-        setJoinPeekLoading(true);
-        peekFolder(token, folder.id)
-          .then(setJoinPeek)
-          .catch(() => setJoinPeek(null))
-          .finally(() => setJoinPeekLoading(false));
-      }
-    } catch (e) {
-      if (e instanceof PickerBlockedError) {
-        setJoinError(
-          "The Google folder picker couldn't load. This usually means more than one Google " +
-            'account is signed in to this browser. Open Copper in a browser or profile signed in ' +
-            'to only this Google account, then try again.',
-        );
-      } else {
-        setJoinError(e instanceof Error ? e.message : 'Could not open the folder picker.');
-      }
+      await auth.signInGoogle();
     } finally {
-      setJoinBusy(false);
+      setSigningIn(false);
     }
   };
+  // Signing in from the first screen moves on to looking for the book.
+  useEffect(() => {
+    if (mode === 'choose' && auth.google) setMode('cloud');
+  }, [mode, auth.google]);
 
-  // Erase this device's seed defaults and adopt the partner's folder on the next
-  // boot. applyPendingJoin (db/client) then points sync at the folder, baselines
-  // the version so nothing is pushed back, and marks onboarding done — so this
-  // device lands on the dashboard with the partner's data, not back here.
-  const startFreshFromFolder = () => {
-    if (!joinFolder) return;
-    stashJoinTarget(joinFolder.id);
+  // Adopt the partner's book on the next boot. applyPendingJoin (db/client) then
+  // points sync at it and marks onboarding done — so this device lands on the
+  // dashboard with the partner's data, not back here.
+  const startFreshFromBook = () => {
+    if (!book.picked) return;
+    stashJoinTarget(book.picked.id);
+    clearInvite();
     requestLocalReset();
   };
 
@@ -215,7 +224,15 @@ export function Welcome() {
           <div className="text-3xl">💰</div>
           <h1 className="mt-2 text-2xl font-semibold text-slate-50">Welcome</h1>
           <p className="mt-1 text-sm text-slate-400">
-            {mode === 'restore'
+            {mode === 'choose'
+              ? 'Track what you spend — on its own, or shared with a partner.'
+              : mode === 'cloud'
+                ? lookup === 'found'
+                  ? 'Found your book.'
+                  : lookup === 'idle' || lookup === 'looking'
+                    ? 'Signed in. Looking for your book…'
+                    : 'Signed in. Set up your book.'
+                : mode === 'restore'
               ? 'Bring your data over from a backup file.'
               : mode === 'join'
                 ? 'Load the shared ledger a partner already set up.'
@@ -224,6 +241,100 @@ export function Welcome() {
                   : 'Add your first account to start tracking.'}
           </p>
         </div>
+
+        {mode === 'choose' && (
+          <Card>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Button className="w-full" onClick={signIn} disabled={signingIn}>
+                  {signingIn ? 'Signing in…' : 'Sign in with Google'}
+                </Button>
+                <p className="text-xs text-slate-400">
+                  Use Copper on more than one device, or with a partner. Your book is kept in your own
+                  Google Drive — Copper only sees the files it creates or you pick.
+                </p>
+                <GoogleAccessNote />
+              </div>
+              {auth.error && (
+                <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+                  {auth.error}
+                </div>
+              )}
+              <div className="space-y-2 border-t border-slate-800 pt-4">
+                <Button variant="secondary" className="w-full" onClick={() => setMode('start')}>
+                  Continue without an account
+                </Button>
+                <p className="text-xs text-slate-400">
+                  Everything stays on this device. You can connect Google later in Settings.
+                </p>
+              </div>
+              <div className="border-t border-slate-800 pt-3 text-center text-xs text-slate-500">
+                Have a backup file?{' '}
+                <button
+                  type="button"
+                  className="text-slate-300 underline hover:text-slate-100"
+                  onClick={() => setMode('restore')}
+                >
+                  Restore it
+                </button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {mode === 'cloud' && (
+          <Card>
+            <div className="space-y-4">
+              {lookup === 'found' && book.picked ? (
+                <>
+                  <p className="text-sm text-slate-300">
+                    Welcome back. This Google account already has a book — load it onto this device
+                    and keep it in sync.
+                  </p>
+                  <BookIdentity
+                    name={book.picked.name}
+                    peek={book.peek}
+                    peekError={book.peekError}
+                  />
+                </>
+              ) : lookup === 'none' || lookup === 'error' ? (
+                <>
+                  <p className="text-sm text-slate-300">
+                    {lookup === 'none'
+                      ? 'No Copper book in this Google account yet.'
+                      : "Copper couldn't check this Google account for a book."}{' '}
+                    Start a new one, or join the book your partner shared with you.
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <Button onClick={() => setMode('start')}>Start a new book</Button>
+                    {joinConfigured && (
+                      <Button variant="secondary" onClick={() => setMode('join')}>
+                        Join a partner's book
+                      </Button>
+                    )}
+                    {lookup === 'error' && (
+                      <Button variant="ghost" onClick={() => setLookup('idle')}>
+                        Try again
+                      </Button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-slate-400">Looking for your book in Google Drive…</p>
+              )}
+              <div className="flex items-center justify-between pt-2">
+                <span className="truncate text-xs text-slate-500">
+                  {auth.google?.identity.email}
+                </span>
+                {lookup === 'found' && book.picked && (
+                  <Button onClick={startFreshFromBook} disabled={book.peekError}>
+                    Load my book
+                  </Button>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
 
         {mode === 'restore' && (
           <Card>
@@ -293,7 +404,7 @@ export function Welcome() {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    setMode('start');
+                    setMode(auth.googleConfigured ? 'choose' : 'start');
                     setRestorePending(null);
                     setEncrypted(null);
                     setPassword('');
@@ -323,8 +434,8 @@ export function Welcome() {
               {!auth.google ? (
                 <>
                   <p className="text-sm text-slate-300">
-                    Sign in with the Google account your partner shared the folder with. Copper only
-                    ever touches the folder you pick — nothing else in your Drive.
+                    Sign in with the Google account your partner shared their book with. Copper only
+                    ever opens the file you pick — nothing else in your Drive.
                   </p>
                   {auth.error && (
                     <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
@@ -334,18 +445,20 @@ export function Welcome() {
                   <Button variant="secondary" onClick={() => auth.signInGoogle()}>
                     Sign in with Google
                   </Button>
+                  <GoogleAccessNote />
                 </>
-              ) : joinFolder ? (
+              ) : book.picked ? (
                 <>
                   <p className="text-sm text-slate-300">
-                    Start fresh from this folder? This device will load the shared ledger and sync
+                    Start fresh from this book? This device will load the shared ledger and sync
                     with it from now on.
                   </p>
-                  <FolderIdentity
-                    name={joinFolder.name}
-                    id={joinFolder.id}
-                    peek={joinPeek}
-                    loading={joinPeekLoading}
+                  <BookIdentity
+                    name={book.picked.name}
+                    peek={book.peek}
+                    peekError={book.peekError}
+                    onRetry={() => book.choose(book.picked!.id)}
+                    retrying={book.busy}
                   />
                 </>
               ) : (
@@ -353,17 +466,24 @@ export function Welcome() {
                   <p className="text-sm text-slate-300">
                     Signed in as{' '}
                     <span className="font-medium text-slate-100">{auth.google.identity.email}</span>.
-                    Choose the folder your partner shared to load their ledger onto this device.
+                    {inviteBookId
+                      ? ' Open the book your partner invited you to, then confirm it in the Google window.'
+                      : ' Choose the book your partner shared (“Copper-Expense-Tracker-shared-book”) to load their ledger onto this device.'}
                   </p>
-                  <Button variant="secondary" onClick={chooseSharedFolder} disabled={joinBusy}>
-                    {joinBusy ? 'Opening picker…' : 'Choose shared folder…'}
+                  <Button
+                    variant="secondary"
+                    onClick={() => book.choose(inviteBookId ?? undefined)}
+                    disabled={book.busy}
+                  >
+                    {book.busy ? 'Opening…' : inviteBookId ? 'Open shared book' : 'Choose shared book…'}
                   </Button>
+                  <DevJoinById onPick={(f) => book.choose(undefined, f)} disabled={book.busy} />
                 </>
               )}
 
-              {joinError && (
+              {book.error && (
                 <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
-                  {joinError}
+                  {book.error}
                 </div>
               )}
 
@@ -371,16 +491,17 @@ export function Welcome() {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    setMode('start');
-                    setJoinFolder(null);
-                    setJoinPeek(null);
-                    setJoinError(null);
+                    setMode(auth.google ? 'cloud' : auth.googleConfigured ? 'choose' : 'start');
+                    setLookup('idle');
+                    book.clear();
                   }}
                 >
                   Back
                 </Button>
-                {joinFolder && (
-                  <Button onClick={startFreshFromFolder}>Start fresh</Button>
+                {book.picked && (
+                  <Button onClick={startFreshFromBook} disabled={book.peekError}>
+                    Start fresh
+                  </Button>
                 )}
               </div>
             </div>
@@ -401,32 +522,21 @@ export function Welcome() {
                 We guessed this from your device. You can change it later in Settings, and each
                 account can still use a different currency.
               </p>
-              <div className="flex justify-end">
-                <Button onClick={goStep2}>Continue</Button>
-              </div>
-              <div className="space-y-1 border-t border-slate-800 pt-3 text-center text-xs text-slate-500">
-                <div>
-                  Moving from another device?{' '}
+              <div className="flex items-center justify-between">
+                {auth.googleConfigured ? (
+                  <Button variant="ghost" onClick={() => setMode(auth.google ? 'cloud' : 'choose')}>
+                    Back
+                  </Button>
+                ) : (
                   <button
                     type="button"
+                    className="text-xs text-slate-400 underline hover:text-slate-200"
                     onClick={() => setMode('restore')}
-                    className="font-medium text-success hover:text-success"
                   >
                     Restore from a backup
                   </button>
-                </div>
-                {joinConfigured && (
-                  <div>
-                    Partner already sharing their folder?{' '}
-                    <button
-                      type="button"
-                      onClick={() => setMode('join')}
-                      className="font-medium text-success hover:text-success"
-                    >
-                      Join their shared ledger
-                    </button>
-                  </div>
                 )}
+                <Button onClick={goStep2}>Continue</Button>
               </div>
             </div>
           )}
@@ -480,7 +590,9 @@ export function Welcome() {
 
         <p className="text-center text-xs text-slate-600">
           {mode === 'start' && `Step ${step} of 2 · `}
-          Your data stays on this device unless you turn on syncing later.
+          {auth.google
+            ? 'Your book syncs through your Google Drive.'
+            : 'Your data stays on this device unless you turn on syncing later.'}
         </p>
       </div>
     </div>

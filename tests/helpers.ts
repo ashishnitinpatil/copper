@@ -31,7 +31,11 @@ export async function resetAndLoad(page: Page, path = '/dashboard') {
 // (so amount assertions stay locale-independent across machines/CI) and the
 // pre-filled "Cash" account.
 async function completeOnboarding(page: Page) {
-  const continueBtn = page.getByRole('button', { name: 'Continue' });
+  // With Google configured, Welcome first asks to sign in or stay local.
+  const local = page.getByRole('button', { name: 'Continue without an account' });
+  const continueBtn = page.getByRole('button', { name: 'Continue', exact: true });
+  await local.or(continueBtn).first().waitFor({ timeout: 10000 });
+  if (await local.isVisible()) await local.click();
   await continueBtn.waitFor({ timeout: 10000 });
   // "Default currency" is a searchable Combobox (not a native <select>); pick INR
   // by its code so amount assertions stay locale-independent across machines/CI.

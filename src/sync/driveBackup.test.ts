@@ -1,186 +1,238 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// In-memory Drive + a controllable "today", so snapshot naming, same-day
-// replacement, pruning and the daily throttle are all assertable without a
-// real clock or network.
+// In-memory Drive so naming, pruning, the schedule and restore conversion are
+// assertable without a network. Backups are copies of the book file; the book
+// codec (bookFile.ts) runs for real.
+interface FakeFile {
+  id: string;
+  name: string;
+  parents: string[];
+  folder: boolean;
+  createdTime: string;
+  bytes?: Uint8Array;
+  json?: unknown;
+  appProperties?: Record<string, string>;
+}
+
 const h = vi.hoisted(() => ({
-  today: '2026-07-18',
-  seq: 0, // makes each upload's modifiedTime strictly increasing
-  drive: {
-    files: [] as { id: string; name: string; modifiedTime?: string; content: unknown }[],
-    calls: [] as string[],
-  },
+  files: [] as FakeFile[],
+  nextId: 1,
+  clock: 0,
 }));
 
-vi.mock('@/lib/dates', () => ({ toDateString: () => h.today }));
-
-vi.mock('@/features/export/exportData', () => ({
-  buildFullBackup: async () => ({
-    format: 'expense-tracker-backup',
-    version: 1,
-    exported_at: 'x',
-    tables: { accounts: [{ id: 'a1', name: 'Cash' }] },
-  }),
-}));
-
-// Pass-through validator: the real parseBackup is exercised elsewhere; here we
-// only care that readDriveBackup routes the download through it.
 vi.mock('@/features/export/restoreBackup', () => ({
+  // Pass-through validator: the real parseBackup is exercised elsewhere.
   parseBackup: (text: string) => JSON.parse(text),
 }));
 
 vi.mock('@/db/queries/settings', () => ({
-  getSetting: async (db: FakeDb, key: string) => db.meta.get(key) ?? null,
-  setSetting: async (db: FakeDb, key: string, value: string) => {
-    db.meta.set(key, String(value));
+  SETTINGS_KEYS: { BACKUP_RETENTION: 'backup.retention', BACKUP_INTERVAL_DAYS: 'backup.interval_days' },
+  getSetting: async (db: FakeDb, k: string) => db.meta.get(k) ?? null,
+  getSettingNumber: async (db: FakeDb, k: string, fallback: number) =>
+    db.meta.has(k) ? Number(db.meta.get(k)) : fallback,
+  setSetting: async (db: FakeDb, k: string, v: string) => {
+    db.meta.set(k, String(v));
   },
 }));
 
-vi.mock('./googleDrive', () => ({
-  listFolderFiles: async (_t: string, _f: string, prefix?: string) =>
-    h.drive.files.filter((f) => f.name.startsWith(prefix ?? '')),
-  uploadJsonFile: async (_t: string, _f: string, name: string, payload: unknown) => {
-    h.drive.calls.push(`upload:${name}`);
+vi.mock('./googleDrive', () => {
+  const add = (f: Omit<FakeFile, 'id' | 'createdTime'>) => {
     const file = {
-      id: `id-${name}-${h.seq}`,
-      name,
-      modifiedTime: `2026-07-18T00:00:0${h.seq}Z`,
-      content: payload,
+      ...f,
+      id: `f${h.nextId++}`,
+      createdTime: new Date(Date.UTC(2026, 8, 1, 0, 0, h.clock++)).toISOString(),
     };
-    h.seq += 1;
-    h.drive.files.push(file);
+    h.files.push(file);
     return file;
-  },
-  downloadJsonFile: async (_t: string, id: string) =>
-    h.drive.files.find((f) => f.id === id)?.content ?? null,
-  deleteFile: async (_t: string, id: string) => {
-    h.drive.calls.push(`delete:${id}`);
-    h.drive.files = h.drive.files.filter((f) => f.id !== id);
-  },
-}));
+  };
+  return {
+    findOrCreateFolder: async (_t: string, name: string, parent?: string) =>
+      h.files.find((f) => f.folder && f.name === name && (!parent || f.parents.includes(parent))) ??
+      add({ name, parents: parent ? [parent] : [], folder: true }),
+    listFolderFiles: async (_t: string, folderId: string, prefix = '') =>
+      h.files.filter((f) => !f.folder && f.parents.includes(folderId) && f.name.includes(prefix)),
+    copyFile: async (_t: string, id: string, name: string, parent: string, appProperties?: Record<string, string>) =>
+      add({ name, parents: [parent], folder: false, bytes: h.files.find((f) => f.id === id)!.bytes, appProperties }),
+    deleteFile: async (_t: string, id: string) => {
+      h.files = h.files.filter((f) => f.id !== id);
+    },
+    downloadBytes: async (_t: string, id: string) => h.files.find((f) => f.id === id)!.bytes!,
+  };
+});
 
 import {
-  writeDriveSnapshot,
-  maybeDailyDriveSnapshot,
+  backupBook,
+  backupFileName,
+  maybeScheduledBackup,
   listDriveSnapshots,
   readDriveBackup,
   DEFAULT_BACKUP_RETENTION,
+  DEFAULT_BACKUP_INTERVAL_DAYS,
 } from './driveBackup';
-import { SYNC_KEYS } from './household';
+import { encodeBook, gzipJson } from './bookFile';
+import { SYNC_KEYS } from './syncKeys';
 
 interface FakeDb {
   meta: Map<string, string>;
+  execO: (sql: string) => Promise<{ name: string }[]>;
 }
 function makeDb(): FakeDb {
-  return { meta: new Map<string, string>() };
+  return {
+    meta: new Map(),
+    // primaryKeyColumns: every table here is keyed by `id`.
+    execO: async () => [{ name: 'id' }],
+  };
 }
 
-/** Drop a pre-existing snapshot into the fake Drive for a given day. */
-function seedSnapshot(date: string) {
-  h.drive.files.push({
-    id: `id-backup-${date}.json`,
-    name: `backup-${date}.json`,
-    modifiedTime: `${date}T00:00:00Z`,
-    content: { format: 'expense-tracker-backup', version: 1, tables: {} },
-  });
+const token = 'token';
+const b64 = (bytes: number[]) => btoa(String.fromCharCode(...bytes));
+const textPk = (s: string) => b64([1, (1 << 3) | 3, s.length, ...Array.from(s, (c) => c.charCodeAt(0))]);
+
+async function seedBook(): Promise<string> {
+  const bytes = await gzipJson(
+    encodeBook(
+      [
+        {
+          table: 'accounts',
+          pk: textPk('a1'),
+          cid: 'name',
+          val: 'Cash',
+          val_is_blob: false,
+          col_version: 1,
+          db_version: 1,
+          site_id: b64([0xaa]),
+          cl: 1,
+          seq: 0,
+        },
+      ],
+      'aa',
+    ),
+  );
+  h.files.push({ id: 'book', name: 'Copper-Expense-Tracker-shared-book.json.gz', parents: [], folder: false, createdTime: '', bytes });
+  return 'book';
 }
+
+const backupFiles = () => h.files.filter((f) => f.name.startsWith('Copper-Expense-Tracker-backup-'));
 
 beforeEach(() => {
-  h.today = '2026-07-18';
-  h.seq = 0;
-  h.drive.files = [];
-  h.drive.calls = [];
+  h.files = [];
+  h.nextId = 1;
+  h.clock = 0;
 });
 
-describe('writeDriveSnapshot', () => {
-  it('uploads a date-named snapshot and records the watermark', async () => {
-    const db = makeDb();
-    const snap = await writeDriveSnapshot(db as never, 'token', 'folder1', 3);
+describe('naming', () => {
+  it('uses a readable local timestamp and the reason', () => {
+    expect(backupFileName(new Date(2026, 8, 27, 9, 5), 'before merge')).toBe(
+      'Copper-Expense-Tracker-backup-2026-09-27-0905-before-merge.json.gz',
+    );
+  });
+});
 
-    expect(snap.name).toBe('backup-2026-07-18.json');
-    expect(h.drive.calls).toContain('upload:backup-2026-07-18.json');
-    expect(db.meta.get(SYNC_KEYS.LAST_BACKUP_DATE)).toBe('2026-07-18');
+describe('backupBook', () => {
+  it('copies the book into Copper Expense Tracker/Backups and records when', async () => {
+    const db = makeDb();
+    const bookId = await seedBook();
+    const snap = await backupBook(db as never, token, bookId, 'manual');
+
+    const [copy] = backupFiles();
+    const backups = h.files.find((f) => f.id === copy.parents[0])!;
+    const app = h.files.find((f) => f.id === backups.parents[0])!;
+    expect([app.name, backups.name]).toEqual(['Copper Expense Tracker', 'Backups']);
+    expect(copy.name).toMatch(/-manual\.json\.gz$/);
+    expect(snap.reason).toBe('manual');
     expect(db.meta.get(SYNC_KEYS.LAST_BACKUP_AT)).toBeTruthy();
-    // The snapshot carries the full backup payload.
-    expect(h.drive.files[0].content).toMatchObject({ format: 'expense-tracker-backup' });
   });
 
-  it('replaces an existing same-day snapshot instead of duplicating it', async () => {
+  it('labels scheduled backups by their interval', async () => {
     const db = makeDb();
-    seedSnapshot('2026-07-18'); // an earlier snapshot from today
-    await writeDriveSnapshot(db as never, 'token', 'folder1', 3);
-
-    const today = h.drive.files.filter((f) => f.name === 'backup-2026-07-18.json');
-    expect(today).toHaveLength(1); // exactly one file per day
-    expect(h.drive.calls).toContain('delete:id-backup-2026-07-18.json');
+    const bookId = await seedBook();
+    await backupBook(db as never, token, bookId, 'scheduled');
+    db.meta.set('backup.interval_days', '1');
+    await backupBook(db as never, token, bookId, 'scheduled');
+    db.meta.set('backup.interval_days', '3');
+    await backupBook(db as never, token, bookId, 'scheduled');
+    expect(backupFiles().map((f) => f.name.split('-').slice(8).join('-'))).toEqual([
+      'weekly.json.gz',
+      'daily.json.gz',
+      'every-3-days.json.gz',
+    ]);
+    // …and read back as words.
+    const reasons = (await listDriveSnapshots(db as never, token)).map((s) => s.reason);
+    expect(reasons.sort()).toEqual(['daily', 'every 3 days', 'weekly']);
   });
 
-  it('prunes to the newest `retention` days, deleting the oldest', async () => {
+  it('keeps only the newest `retention` backups (default 3), any N >= 1', async () => {
     const db = makeDb();
-    for (const d of ['2026-07-14', '2026-07-15', '2026-07-16', '2026-07-17']) seedSnapshot(d);
+    const bookId = await seedBook();
+    for (let i = 0; i < 5; i++) await backupBook(db as never, token, bookId, 'manual');
+    expect(backupFiles()).toHaveLength(DEFAULT_BACKUP_RETENTION);
 
-    await writeDriveSnapshot(db as never, 'token', 'folder1', 3);
-
-    const remaining = (await listDriveSnapshots('token', 'folder1')).map((s) => s.date);
-    // 5 days existed after the write (14–18); keep only the newest 3.
-    expect(remaining).toEqual(['2026-07-18', '2026-07-17', '2026-07-16']);
+    db.meta.set('backup.retention', '1');
+    await backupBook(db as never, token, bookId, 'manual');
+    const left = backupFiles();
+    expect(left).toHaveLength(1);
+    // The one kept is the newest.
+    expect(left[0].id).toBe(`f${h.nextId - 1}`);
   });
 
-  it('never prunes below one snapshot even for a bad retention value', async () => {
+});
+
+describe('maybeScheduledBackup', () => {
+  it('is weekly by default', async () => {
+    expect(DEFAULT_BACKUP_INTERVAL_DAYS).toBe(7);
     const db = makeDb();
-    await writeDriveSnapshot(db as never, 'token', 'folder1', 0);
-    expect(await listDriveSnapshots('token', 'folder1')).toHaveLength(1);
+    const bookId = await seedBook();
+    const t0 = new Date('2026-09-01T10:00:00Z');
+    expect(await maybeScheduledBackup(db as never, token, bookId, t0)).not.toBeNull();
+    db.meta.set(SYNC_KEYS.LAST_BACKUP_AT, t0.toISOString());
+    expect(await maybeScheduledBackup(db as never, token, bookId, new Date('2026-09-07T10:00:00Z'))).toBeNull();
+    expect(await maybeScheduledBackup(db as never, token, bookId, new Date('2026-09-08T10:00:00Z'))).not.toBeNull();
+  });
+
+  it('honours a custom interval', async () => {
+    const db = makeDb();
+    db.meta.set('backup.interval_days', '1');
+    db.meta.set(SYNC_KEYS.LAST_BACKUP_AT, '2026-09-01T10:00:00Z');
+    const bookId = await seedBook();
+    expect(await maybeScheduledBackup(db as never, token, bookId, new Date('2026-09-02T11:00:00Z'))).not.toBeNull();
   });
 });
 
-describe('maybeDailyDriveSnapshot', () => {
-  it('writes when no snapshot exists for today', async () => {
+describe('listing and restoring', () => {
+  it('lists backups newest first', async () => {
     const db = makeDb();
-    const snap = await maybeDailyDriveSnapshot(db as never, 'token', 'folder1', 3);
-    expect(snap?.date).toBe('2026-07-18');
-    expect(h.drive.calls.some((c) => c.startsWith('upload:'))).toBe(true);
+    const bookId = await seedBook();
+    await backupBook(db as never, token, bookId, 'manual');
+    await backupBook(db as never, token, bookId, 'before merge');
+    const snaps = await listDriveSnapshots(db as never, token);
+    expect(snaps.map((s) => s.reason)).toEqual(['before merge', 'manual']);
   });
 
-  it('is a no-op when today’s snapshot was already written', async () => {
+  it('labels copies of a book this device no longer syncs with, and never prunes them', async () => {
     const db = makeDb();
-    db.meta.set(SYNC_KEYS.LAST_BACKUP_DATE, '2026-07-18');
-    const snap = await maybeDailyDriveSnapshot(db as never, 'token', 'folder1', 3);
-    expect(snap).toBeNull();
-    expect(h.drive.calls).toHaveLength(0);
+    const bookId = await seedBook();
+    db.meta.set(SYNC_KEYS.BOOK_FILE_ID, bookId);
+    await backupBook(db as never, token, bookId, 'scheduled');
+    // This device then switched to another book (a partner's).
+    h.files.push({ ...h.files.find((f) => f.id === bookId)!, id: 'partner' });
+    db.meta.set(SYNC_KEYS.BOOK_FILE_ID, 'partner');
+    db.meta.set('backup.retention', '1');
+    await backupBook(db as never, token, 'partner', 'manual');
+    await backupBook(db as never, token, 'partner', 'before merge');
+
+    const snaps = await listDriveSnapshots(db as never, token);
+    expect(snaps.map((s) => [s.reason, s.otherBook])).toEqual([
+      ['before merge', false],
+      ['weekly', true],
+    ]);
   });
 
-  it('writes again once the day rolls over', async () => {
+  it('turns a book copy back into a restorable backup', async () => {
     const db = makeDb();
-    db.meta.set(SYNC_KEYS.LAST_BACKUP_DATE, '2026-07-17');
-    const snap = await maybeDailyDriveSnapshot(db as never, 'token', 'folder1', 3);
-    expect(snap?.date).toBe('2026-07-18');
-  });
-});
-
-describe('listDriveSnapshots', () => {
-  it('parses and orders snapshots newest day first, ignoring other files', async () => {
-    seedSnapshot('2026-07-16');
-    seedSnapshot('2026-07-18');
-    seedSnapshot('2026-07-17');
-    h.drive.files.push({ id: 'x', name: 'changes-aa-000001.json', content: {} }); // not a snapshot
-
-    const snaps = await listDriveSnapshots('token', 'folder1');
-    expect(snaps.map((s) => s.date)).toEqual(['2026-07-18', '2026-07-17', '2026-07-16']);
-  });
-});
-
-describe('readDriveBackup', () => {
-  it('downloads and validates a snapshot into a BackupFile', async () => {
-    const db = makeDb();
-    const written = await writeDriveSnapshot(db as never, 'token', 'folder1', 3);
-    const backup = await readDriveBackup('token', written.id);
+    const bookId = await seedBook();
+    const snap = await backupBook(db as never, token, bookId, 'manual');
+    const backup = await readDriveBackup(db as never, token, snap);
     expect(backup.format).toBe('expense-tracker-backup');
-    expect(backup.tables.accounts).toHaveLength(1);
-  });
-});
-
-describe('defaults', () => {
-  it('defaults retention to 3', () => {
-    expect(DEFAULT_BACKUP_RETENTION).toBe(3);
+    expect(backup.tables.accounts).toEqual([{ id: 'a1', name: 'Cash' }]);
   });
 });

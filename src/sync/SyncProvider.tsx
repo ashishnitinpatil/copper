@@ -9,24 +9,29 @@ import {
 } from 'react';
 import { useDB } from '@/db/DBProvider';
 import { useAuth } from '@/auth/AuthProvider';
+import { useAppSettings } from '@/app/AppSettingsProvider';
+import { retireDevice } from '@/db/changeLog';
 import {
   syncNow,
   getSyncStatus,
   listKnownPeers,
-  setHouseholdFolder,
-  ensureFolderId,
+  joinSharedBook,
+  BookFoundError,
+  BookReplacedError,
   SYNC_KEYS,
+  type JoinMode,
   type SyncResult,
   type SyncProgress,
   type KnownPeer,
 } from './household';
 import { describeSyncError, isReauthError } from './googleDrive';
 import {
-  writeDriveSnapshot,
-  maybeDailyDriveSnapshot,
+  backupBook,
+  maybeScheduledBackup,
   listDriveSnapshots,
   readDriveBackup,
   DEFAULT_BACKUP_RETENTION,
+  DEFAULT_BACKUP_INTERVAL_DAYS,
   type DriveSnapshot,
 } from './driveBackup';
 import type { BackupFile } from '@/features/export/exportData';
@@ -38,29 +43,45 @@ interface SyncContextValue {
   status: SyncStatus;
   lastSyncAt: string | null;
   lastResult: SyncResult | null;
-  // Non-null only while the pull phase is applying changesets. Drives the
+  // Non-null only while a sync is applying the shared book's changes. Drives the
   // "N of M" progress banner during a large first pull.
   progress: SyncProgress | null;
   error: string | null;
   // True when the last sync failed because Google Drive access needs
   // re-granting (missing scope) — the UI offers a Reconnect button, not a retry.
   needsReauth: boolean;
-  folderId: string | null;
+  // True when sync stopped because another device replaced the shared book —
+  // the UI offers Start fresh, not a retry.
+  bookReplaced: boolean;
+  // Set when this device's first sync found a book this account already has:
+  // sync pauses until the person picks Start fresh or Merge for it.
+  foundBookId: string | null;
+  /** The shared book file this device syncs with (null before the first sync). */
+  bookId: string | null;
+  /** This account's own "Copper Expense Tracker" folder. */
+  appFolderId: string | null;
   peers: KnownPeer[];
   triggerSync: (reason?: string) => Promise<void>;
-  connectSharedFolder: (folderId: string) => Promise<void>;
+  // Switch to a partner's shared book (picked in the Picker). "merge" unions
+  // both ledgers; "replace" overwrites the book with this device's data. Both
+  // back the book up first. Start fresh goes through joinFresh instead.
+  joinBook: (bookId: string, mode: JoinMode) => Promise<void>;
   dismissError: () => void;
-  // Drive backup snapshots (full-book restore points in the shared folder).
+  // Drive backups: copies of the book in this account's Backups folder.
   lastBackupAt: string | null;
   backupRetention: number;
   setBackupRetention: (n: number) => Promise<void>;
+  backupIntervalDays: number;
+  setBackupIntervalDays: (n: number) => Promise<void>;
   backupNow: () => Promise<void>;
   listBackups: () => Promise<DriveSnapshot[]>;
-  fetchBackup: (fileId: string) => Promise<BackupFile>;
+  fetchBackup: (snap: DriveSnapshot) => Promise<BackupFile>;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
 
+// While the app is on screen, check the book this often. A check with nothing
+// to do is one small metadata request; data only moves when something changed.
 const AUTO_SYNC_INTERVAL_MS = 5 * 60_000;
 const ERROR_BACKOFF_MS = 5 * 60_000;
 
@@ -73,25 +94,36 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsReauth, setNeedsReauth] = useState(false);
-  const [folderId, setFolderId] = useState<string | null>(null);
+  const [bookReplaced, setBookReplaced] = useState(false);
+  const [foundBookId, setFoundBookId] = useState<string | null>(null);
+  const [bookId, setBookId] = useState<string | null>(null);
+  const [appFolderId, setAppFolderId] = useState<string | null>(null);
   const [peers, setPeers] = useState<KnownPeer[]>([]);
   const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
   const [backupRetention, setBackupRetentionState] = useState<number>(DEFAULT_BACKUP_RETENTION);
+  const [backupIntervalDays, setBackupIntervalState] = useState<number>(DEFAULT_BACKUP_INTERVAL_DAYS);
+  const { onboarded } = useAppSettings();
   const inFlight = useRef(false);
+  // Settles when the running sync finishes, so backupNow can wait its turn
+  // rather than run a second syncNow alongside it.
+  const running = useRef<Promise<void> | null>(null);
   const lastErrorAt = useRef<number>(0);
 
   const refreshStatus = useCallback(async () => {
-    const [s, p, backupAt, retention] = await Promise.all([
+    const [s, p, backupAt, retention, interval] = await Promise.all([
       getSyncStatus(db),
       listKnownPeers(db),
       getSetting(db, SYNC_KEYS.LAST_BACKUP_AT),
       getSettingNumber(db, SETTINGS_KEYS.BACKUP_RETENTION, DEFAULT_BACKUP_RETENTION),
+      getSettingNumber(db, SETTINGS_KEYS.BACKUP_INTERVAL_DAYS, DEFAULT_BACKUP_INTERVAL_DAYS),
     ]);
     setLastSyncAt(s.lastSyncAt);
-    setFolderId(s.folderId);
+    setBookId(s.bookId);
+    setAppFolderId(s.appFolderId);
     setPeers(p);
     setLastBackupAt(backupAt);
     setBackupRetentionState(retention);
+    setBackupIntervalState(interval);
   }, [db]);
 
   useEffect(() => {
@@ -121,9 +153,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
 
       inFlight.current = true;
+      let done!: () => void;
+      running.current = new Promise<void>((r) => (done = r));
       setStatus('syncing');
       setError(null);
       setNeedsReauth(false);
+      setBookReplaced(false);
+      setFoundBookId(null);
       try {
         // Acquire the token up front. A failed/timed-out silent refresh returns
         // null — that's a "needs reconnect" situation, not a sync error, so show
@@ -133,32 +169,38 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           setStatus('signed-out');
           return;
         }
-        const result = await syncNow(db, async () => token, setProgress);
+        let result = await syncNow(db, async () => token, setProgress);
+        // First sync after a reset: the book's devices are in now, so retire
+        // this device's old identity — and send that straight back up.
+        const retire = await getSetting(db, SYNC_KEYS.RETIRE_SITE);
+        if (retire) {
+          const changed = await retireDevice(db, retire);
+          await setSetting(db, SYNC_KEYS.RETIRE_SITE, '');
+          if (changed) result = await syncNow(db, async () => token);
+        }
         setLastResult(result);
         setStatus('idle');
-        // Piggyback a once-a-day full-book snapshot into the folder. Best-effort:
-        // a backup failure must never turn a successful sync red.
+        // Piggyback the scheduled (weekly by default) backup — after the sync,
+        // so it includes this device's latest changes. Best-effort: a backup
+        // failure must never turn a successful sync red.
         try {
-          const { folderId: fid } = await getSyncStatus(db);
-          if (fid) {
-            const retention = await getSettingNumber(
-              db,
-              SETTINGS_KEYS.BACKUP_RETENTION,
-              DEFAULT_BACKUP_RETENTION,
-            );
-            await maybeDailyDriveSnapshot(db, token, fid, retention);
-          }
+          const { bookId: bid } = await getSyncStatus(db);
+          if (bid) await maybeScheduledBackup(db, token, bid);
         } catch (e) {
-          console.warn('Daily Drive backup skipped:', e);
+          console.warn('Scheduled Drive backup skipped:', e);
         }
         await refreshStatus();
       } catch (e) {
         setError(describeSyncError(e));
         setNeedsReauth(isReauthError(e));
+        setBookReplaced(e instanceof BookReplacedError);
+        setFoundBookId(e instanceof BookFoundError ? e.bookId : null);
         setStatus('error');
         lastErrorAt.current = Date.now();
       } finally {
         inFlight.current = false;
+        running.current = null;
+        done();
         setProgress(null);
       }
     },
@@ -173,13 +215,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setStatus('signed-out');
       return;
     }
+    // Not before onboarding: a device still on Welcome only has the seeded
+    // defaults, and a sync would merge them into the account's book.
+    if (!onboarded) return;
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const tick = async () => {
       if (cancelled) return;
-      await triggerSyncRef.current('timer');
+      if (document.visibilityState === 'visible') await triggerSyncRef.current('timer');
       if (cancelled) return;
       timer = setTimeout(tick, AUTO_SYNC_INTERVAL_MS);
     };
@@ -189,10 +234,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     const onOnline = () => {
       void triggerSyncRef.current('online');
     };
+    // Coming back: pick up a partner's changes. Going away: upload this
+    // device's edits while the page can still run.
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        void triggerSyncRef.current('visible');
-      }
+      void triggerSyncRef.current(document.visibilityState === 'visible' ? 'visible' : 'hidden');
     };
 
     window.addEventListener('online', onOnline);
@@ -204,13 +249,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [auth.google]);
+  }, [auth.google, onboarded]);
 
-  // Switch this device to a partner-shared folder (chosen via the Picker) and
-  // sync immediately so both sides start merging.
-  const connectSharedFolder = useCallback(
-    async (id: string) => {
-      await setHouseholdFolder(db, id);
+  const joinBook = useCallback(
+    async (id: string, mode: JoinMode) => {
+      await joinSharedBook(db, id, mode);
       await refreshStatus();
       await triggerSync('manual');
     },
@@ -232,36 +275,47 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     [db],
   );
 
-  // Manual "Back up to Drive now": writes today's snapshot immediately,
-  // regardless of whether the daily one already ran.
+  const setBackupIntervalDays = useCallback(
+    async (n: number) => {
+      const clamped = Math.max(1, Math.round(n));
+      await setSetting(db, SETTINGS_KEYS.BACKUP_INTERVAL_DAYS, String(clamped));
+      setBackupIntervalState(clamped);
+    },
+    [db],
+  );
+
+  // Manual "Back up now": sync first so the copy includes this device's latest
+  // changes, then copy the book into Backups.
   const backupNow = useCallback(async () => {
     const token = await auth.getGoogleAccessToken();
     if (!token) throw new Error('Reconnect to Google first, then try again.');
-    const fid = await ensureFolderId(db, token);
-    const retention = await getSettingNumber(
-      db,
-      SETTINGS_KEYS.BACKUP_RETENTION,
-      DEFAULT_BACKUP_RETENTION,
-    );
-    await writeDriveSnapshot(db, token, fid, retention);
+    // Never run two syncs at once (two could each create a book on first sync).
+    while (running.current) await running.current;
+    inFlight.current = true;
+    try {
+      await syncNow(db, async () => token);
+      const { bookId: bid } = await getSyncStatus(db);
+      if (!bid) throw new Error('Sync once before backing up.');
+      await backupBook(db, token, bid, 'manual');
+    } finally {
+      inFlight.current = false;
+    }
     await refreshStatus();
   }, [db, auth, refreshStatus]);
 
   const listBackups = useCallback(async () => {
     const token = await auth.getGoogleAccessToken();
     if (!token) throw new Error('Reconnect to Google first, then try again.');
-    const { folderId: fid } = await getSyncStatus(db);
-    if (!fid) return [];
-    return listDriveSnapshots(token, fid);
+    return listDriveSnapshots(db, token);
   }, [db, auth]);
 
   const fetchBackup = useCallback(
-    async (fileId: string) => {
+    async (snap: DriveSnapshot) => {
       const token = await auth.getGoogleAccessToken();
       if (!token) throw new Error('Reconnect to Google first, then try again.');
-      return readDriveBackup(token, fileId);
+      return readDriveBackup(db, token, snap);
     },
-    [auth],
+    [db, auth],
   );
 
   return (
@@ -273,14 +327,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         progress,
         error,
         needsReauth,
-        folderId,
+        bookReplaced,
+        foundBookId,
+        bookId,
+        appFolderId,
         peers,
         triggerSync,
-        connectSharedFolder,
+        joinBook,
         dismissError,
         lastBackupAt,
         backupRetention,
         setBackupRetention,
+        backupIntervalDays,
+        setBackupIntervalDays,
         backupNow,
         listBackups,
         fetchBackup,

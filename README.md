@@ -29,7 +29,8 @@ A local-first, offline-capable PWA for personal expense tracking. All data stays
 
 ### Sync, Auth & Onboarding
 - **Onboarding** — first-run Welcome flow seeds a starting account and default currency before the main app is shown.
-- **Google Drive Sync** — no central server. Each device exports `crsql_changes()` deltas to a shared Drive folder and pulls peers' changesets. Auto-syncs on an interval, on reconnect, and on tab focus; manual sync available.
+- **Google Drive Sync** — no central server. Partners share one book file in Drive (`Copper Expense Tracker/Copper-Expense-Tracker-shared-book.json.gz`: the full cr-sqlite CRDT state, columnar + gzipped). Each sync checks the file's version with one metadata call, and only downloads/merges when someone changed it and only uploads when this device has something new. Syncs on open, when leaving the app, every few minutes while open, on reconnect, and by hand. Invite a partner from Settings; they open the link and pick the book once.
+- **Drive backups** — server-side copies of the book in `Copper Expense Tracker/Backups/` (`Copper-Expense-Tracker-backup-YYYY-MM-DD-HHMM-reason.json.gz`): weekly by default, before any merge, overwrite, restore or import, and on demand. Keeps the newest 3 by default (any number ≥ 1).
 - **Sign-in** — Google OAuth (required for Drive) and Sign in with Apple (identity only). App stays fully usable signed-out in local-only mode.
 - **Monefy CSV Import** — load a Monefy export to seed or replace your book.
 - **PWA install prompts** — installable, offline-capable via a Workbox service worker.
@@ -59,14 +60,14 @@ Browser (PWA)
 - No SQL foreign keys (cr-sqlite can't replicate FKs across diverging peers)
 - Per-account native currency, no cross-currency conversion
 - **`meta` is intentionally _not_ a CRR — it is device-local.** It holds the
-  onboarding flag, the connected Drive folder id, and per-device sync watermarks;
+  onboarding flag, the shared book's file id, and per-device sync state;
   replicating it would leak one device's sync cursor onto another. Corollary:
   anything that must travel between devices has to live in a CRR table, not in
-  `meta`. This is why a "start fresh" folder join must set `onboarded` on the
+  `meta`. This is why a "start fresh" join must set `onboarded` on the
   joining device locally — the flag cannot arrive over sync.
 
 **Gotcha — no COOP/COEP cross-origin-isolation headers.** The Google Drive
-Picker ("Connect a shared folder") embeds `docs.google.com` in an iframe that
+Picker ("Choose shared book…") embeds `docs.google.com` in an iframe that
 needs the user's Google cookies to authenticate. Setting
 `Cross-Origin-Embedder-Policy` (even `credentialless`) makes Chrome load that
 iframe _without_ cookies, so it fails with **"docs.google.com refused to
@@ -96,7 +97,7 @@ npm install
 npm run dev          # starts Vite dev server at localhost:5173
 ```
 
-Requires Chrome/Edge (SharedArrayBuffer support for WASM). The dev server sets `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless` headers.
+Tested in Chrome/Edge. The DB is IndexedDB-backed, so no cross-origin isolation is needed — see the COOP/COEP gotcha above.
 
 ## Scripts
 

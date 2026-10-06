@@ -1,17 +1,27 @@
 import type { DB } from '@/db/wasm';
 import { setSetting, SETTINGS_KEYS } from '@/db/queries/settings';
-import { getLocalDbVersion } from './changesets';
-import { SYNC_KEYS } from './household';
+import { SYNC_KEYS } from './syncKeys';
 
 // "Start fresh" join: adopt a partner's shared ledger instead of merging this
 // device's data into it. The wipe can only run at the next boot (see
-// requestLocalReset in db/client), so we stash the target folder here and pick
+// requestLocalReset in db/client), so we stash the target book here and pick
 // it up in applyPendingJoin() once the DB has been recreated empty.
-const JOIN_FOLDER_KEY = 'et-join-folder-id';
+const JOIN_BOOK_KEY = 'et-join-book-id';
+const RETIRE_SITE_KEY = 'et-join-retire-site';
 
-/** Remember which shared folder to adopt after the wipe-and-reload completes. */
-export function stashJoinTarget(folderId: string): void {
-  localStorage.setItem(JOIN_FOLDER_KEY, folderId);
+/**
+ * Remember this device's identity before a wipe. If it was in the book this
+ * device next joins, it's retired there (see retireDevice) rather than left
+ * behind as a phantom device — even when the join comes later, from Welcome.
+ */
+export function rememberRetiringIdentity(siteId: string): void {
+  localStorage.setItem(RETIRE_SITE_KEY, siteId);
+}
+
+/** Remember which shared book to adopt after the wipe-and-reload completes. */
+export function stashJoinTarget(bookId: string, currentSiteId?: string): void {
+  localStorage.setItem(JOIN_BOOK_KEY, bookId);
+  if (currentSiteId) rememberRetiringIdentity(currentSiteId);
 }
 
 /**
@@ -20,22 +30,22 @@ export function stashJoinTarget(folderId: string): void {
  * defaults first would leave all 16 behind, unioned with what we pull.
  */
 export function hasPendingJoin(): boolean {
-  return localStorage.getItem(JOIN_FOLDER_KEY) !== null;
+  return localStorage.getItem(JOIN_BOOK_KEY) !== null;
 }
 
 /**
- * Boot-time step for a "start fresh" join. On the freshly-seeded DB, point sync
- * at the partner's folder and baseline the local version to the current one, so
- * the seed defaults are never pushed into their folder — this device only pulls
- * the partner's ledger. No-op when no join is pending.
+ * Boot-time step for a "start fresh" join. On the empty (unseeded) DB, point
+ * sync at the partner's book; the next sync pulls it in whole. No-op when no
+ * join is pending.
  */
 export async function applyPendingJoin(db: DB): Promise<void> {
-  const folderId = localStorage.getItem(JOIN_FOLDER_KEY);
-  if (!folderId) return;
-  localStorage.removeItem(JOIN_FOLDER_KEY);
-  const version = await getLocalDbVersion(db);
-  await setSetting(db, SYNC_KEYS.FOLDER_ID, folderId);
-  await setSetting(db, SYNC_KEYS.LOCAL_VERSION, String(version));
+  const bookId = localStorage.getItem(JOIN_BOOK_KEY);
+  if (!bookId) return;
+  localStorage.removeItem(JOIN_BOOK_KEY);
+  await setSetting(db, SYNC_KEYS.BOOK_FILE_ID, bookId);
+  const retire = localStorage.getItem(RETIRE_SITE_KEY);
+  localStorage.removeItem(RETIRE_SITE_KEY);
+  if (retire) await setSetting(db, SYNC_KEYS.RETIRE_SITE, retire);
   // Mark onboarded here. The user deliberately chose to adopt an existing shared
   // ledger, so they must skip the first-run flow — and `onboarded` lives in the
   // device-local `meta` table, which is NOT a CRR, so the partner's flag never

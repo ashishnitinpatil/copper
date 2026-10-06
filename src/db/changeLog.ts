@@ -152,7 +152,9 @@ export function defaultDeviceName(siteId: string): string {
 /**
  * Make sure this device has a row in the registry and refresh its last-seen.
  * Runs once per boot. A name the user set earlier is preserved (INSERT OR
- * IGNORE never overwrites it); only last_seen moves forward.
+ * IGNORE never overwrites it); only last_seen moves forward — at most once a
+ * day (the UI shows only the day), because every write to this synced table
+ * makes the next sync re-upload the whole shared book.
  */
 export async function ensureLocalDevice(db: DB): Promise<void> {
   const now = nowIso();
@@ -161,7 +163,31 @@ export async function ensureLocalDevice(db: DB): Promise<void> {
     defaultDeviceName(db.siteid),
     now,
   ]);
-  await db.exec('UPDATE devices SET last_seen = ? WHERE site_id = ?', [now, db.siteid]);
+  await db.exec(
+    'UPDATE devices SET last_seen = ? WHERE site_id = ? AND substr(last_seen, 1, 10) <> substr(?, 1, 10)',
+    [now, db.siteid, now],
+  );
+}
+
+/**
+ * A reset gives this device a new identity (site id). Once the book has synced
+ * back in, retire the old one: keep its row so past activity still shows its
+ * name, carry a name the person chose over to this identity, and stop listing it
+ * as a device. Returns whether anything changed (so it can be synced).
+ */
+export async function retireDevice(db: DB, oldSiteId: string): Promise<boolean> {
+  if (oldSiteId === db.siteid) return false;
+  const [old] = await db.execO<Device>('SELECT * FROM devices WHERE site_id = ?', [oldSiteId]);
+  if (!old || old.retired_at) return false;
+  if (old.name !== defaultDeviceName(oldSiteId)) {
+    await db.exec('UPDATE devices SET name = ? WHERE site_id = ? AND name = ?', [
+      old.name,
+      db.siteid,
+      defaultDeviceName(db.siteid),
+    ]);
+  }
+  await db.exec('UPDATE devices SET retired_at = ? WHERE site_id = ?', [nowIso(), oldSiteId]);
+  return true;
 }
 
 export async function listDevices(db: DB): Promise<Device[]> {
