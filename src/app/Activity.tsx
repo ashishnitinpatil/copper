@@ -360,13 +360,13 @@ function DiffDetail({ entry, compact = false }: { entry: ActivityEntry; compact?
             <tr key={r.field} className="align-top">
               <td className="py-0.5 pr-3 font-mono text-slate-500">{r.field}</td>
               {isChange ? (
-                <td className="py-0.5 font-mono">
+                <td className="py-0.5 font-mono break-all">
                   <span className="text-danger/80">{fmtValue(r.old)}</span>
                   <span className="mx-1 text-slate-600">→</span>
                   <span className="text-success/90">{fmtValue(r.new)}</span>
                 </td>
               ) : (
-                <td className="py-0.5 font-mono text-slate-400">{fmtValue(r.value)}</td>
+                <td className="py-0.5 font-mono break-all text-slate-400">{fmtValue(r.value)}</td>
               )}
             </tr>
           ))}

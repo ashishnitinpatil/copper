@@ -31,7 +31,10 @@ export function InfoHint({ label, title, children, align = 'left' }: InfoHintPro
       </button>
       <span
         role="tooltip"
-        className={`invisible absolute top-6 z-20 w-64 translate-y-1 rounded-lg border border-slate-700 bg-slate-900 p-3 text-left font-normal normal-case tracking-normal opacity-0 shadow-xl transition-all duration-150 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100 ${
+        // display:none while closed: a hidden-but-laid-out 16rem popover near
+        // the screen edge would widen the page. On phones it opens as a panel
+        // inset from both edges (above the bottom nav) instead of off-screen.
+        className={`absolute top-6 z-20 hidden w-64 group-hover:block group-focus-within:block max-sm:fixed max-sm:inset-x-4 max-sm:top-auto max-sm:bottom-24 max-sm:w-auto rounded-lg border border-slate-700 bg-slate-900 p-3 text-left font-normal normal-case tracking-normal shadow-xl ${
           align === 'right' ? 'right-0' : 'left-0'
         }`}
       >

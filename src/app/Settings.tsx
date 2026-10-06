@@ -1318,7 +1318,7 @@ function ExportSection() {
 
   return (
     <Card>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="mb-1 text-sm font-semibold text-slate-300">Export</h3>
           <div className="text-xs text-slate-500">
@@ -1326,7 +1326,7 @@ function ExportSection() {
             copy of everything, for safekeeping. An encrypted backup locks that copy with a password.
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
           <Button variant="secondary" disabled={busy !== null} onClick={() => run('csv')}>
             {busy === 'csv' ? 'Exporting…' : 'Spreadsheet (CSV)'}
           </Button>
@@ -1581,7 +1581,7 @@ function RestoreSection() {
 
   return (
     <Card>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="mb-1 text-sm font-semibold text-slate-300">Restore</h3>
           <div className="text-xs text-slate-500">
@@ -1599,7 +1599,7 @@ function RestoreSection() {
             e.target.value = '';
           }}
         />
-        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
           {auth.google && (
             <Button variant="secondary" onClick={openDrive}>
               Restore from Drive…
@@ -1880,14 +1880,14 @@ function ImportSection() {
 
   return (
     <Card>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="mb-1 text-sm font-semibold text-slate-300">Import</h3>
           <div className="text-xs text-slate-500">
             Load a Monefy CSV export to replace or fill in your data.
           </div>
         </div>
-        <Button variant="secondary" onClick={() => setOpen(true)}>
+        <Button variant="secondary" className="self-start sm:shrink-0" onClick={() => setOpen(true)}>
           Import Monefy CSV
         </Button>
       </div>
