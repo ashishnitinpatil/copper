@@ -13,9 +13,11 @@ export interface DriveFile {
   owners?: { displayName?: string; emailAddress?: string; me?: boolean }[];
   /** Private key/values this app attached to the file. */
   appProperties?: Record<string, string>;
+  /** Whether the signed-in account may share it (an owner can restrict editors). */
+  capabilities?: { canShare?: boolean };
 }
 
-const META_FIELDS = 'id,name,mimeType,modifiedTime,createdTime,size,version,owners(displayName,emailAddress,me),appProperties';
+const META_FIELDS = 'id,name,mimeType,modifiedTime,createdTime,size,version,owners(displayName,emailAddress,me),appProperties,capabilities(canShare)';
 
 interface DriveListResponse {
   files: DriveFile[];

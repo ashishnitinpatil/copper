@@ -357,6 +357,8 @@ export interface BookPeek {
   owner: string | null;
   /** The signed-in account owns it (its own book, not a partner's). */
   ownedByMe: boolean;
+  /** The signed-in account may share it with someone else. */
+  canShare: boolean;
   modifiedTime: string | null;
   sizeBytes: number | null;
 }
@@ -370,6 +372,7 @@ export async function peekBook(token: string, bookId: string): Promise<BookPeek>
     name: meta.name,
     owner: o ? (o.emailAddress ?? o.displayName ?? null) : null,
     ownedByMe: !!o?.me,
+    canShare: meta.capabilities?.canShare ?? !!o?.me,
     modifiedTime: meta.modifiedTime ?? null,
     sizeBytes: meta.size ? Number(meta.size) : null,
   };

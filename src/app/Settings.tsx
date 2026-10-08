@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   LogIn,
   RefreshCw,
@@ -39,9 +40,11 @@ import { useSync } from '@/sync/SyncProvider';
 import { isPickerConfigured, type PickedFile } from '@/sync/googlePicker';
 import { BOOK_FILE_NAME } from '@/sync/bookFile';
 import { GoogleAccessNote } from '@/auth/GoogleAccessNote';
+import { TrustDeviceToggle } from '@/auth/TrustDeviceToggle';
+import { SpamHint } from '@/sync/SpamHint';
 import { rememberRetiringIdentity, stashJoinTarget } from '@/sync/joinFresh';
 import { DevJoinById } from '@/sync/DevJoinById';
-import { markSafetyBackup, type SyncResult } from '@/sync/household';
+import { markSafetyBackup, peekBook, type BookPeek, type SyncResult } from '@/sync/household';
 import { APP_FOLDER_NAME } from '@/sync/driveFolders';
 import { shareFileWithEmail } from '@/sync/googleDrive';
 import { useBookPicker } from '@/sync/useBookPicker';
@@ -94,6 +97,12 @@ const NAV_ITEMS: { id: string; label: string; Icon: LucideIcon }[] = [
 
 export function Settings() {
   const siteId = useSiteId();
+  const { hash } = useLocation();
+
+  // Deep links like /settings#sync (from the sync-paused banner) land on that section.
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' });
+  }, [hash]);
 
   return (
     <PageShell title="Settings" subtitle="Sync, recurring rules and backup">
@@ -440,9 +449,32 @@ function SyncSection() {
   const [invitedEmail, setInvitedEmail] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirmFresh, setConfirmFresh] = useState(false);
+  // Whose book this is: the owner shares it; someone who joined sees whose it
+  // is, and may only re-share if Drive allows (an owner can restrict editors).
+  // Keyed by book id so a token refresh (which re-runs the lookup) doesn't blank it.
+  const [ownership, setOwnership] = useState<(BookPeek & { bookId: string }) | null>(null);
 
   const signedIn = !!auth.google;
   const pickerReady = isPickerConfigured();
+  const { getGoogleAccessToken } = auth;
+  useEffect(() => {
+    const bookId = sync.bookId;
+    if (!signedIn || !bookId) return;
+    let cancelled = false;
+    (async () => {
+      const token = await getGoogleAccessToken();
+      if (!token) return;
+      const peek = await peekBook(token, bookId);
+      if (!cancelled) setOwnership({ ...peek, bookId });
+    })().catch(() => {
+      // Unknown ownership: the generic copy below still holds.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn, sync.bookId, getGoogleAccessToken]);
+  const joined = ownership?.bookId === sync.bookId && !ownership.ownedByMe;
+  const ownerName = ownership?.owner ?? 'its owner';
   const folderUrl = sync.appFolderId
     ? `https://drive.google.com/drive/folders/${sync.appFolderId}`
     : null;
@@ -620,7 +652,9 @@ function SyncSection() {
             <div className="min-w-0">
               <div className="font-medium text-slate-200">Shared book</div>
               <div className="truncate text-xs text-slate-500">
-                {folderUrl ? (
+                {joined ? (
+                  <>Shared by {ownerName}</>
+                ) : folderUrl ? (
                   <a
                     href={folderUrl}
                     target="_blank"
@@ -732,12 +766,23 @@ function SyncSection() {
           {pickerReady && (
             <div className="space-y-3 rounded-md border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
               <div>
-                <div className="mb-1 font-medium text-slate-300">Invite your partner</div>
-                <p>
-                  Share this book with your partner's Google account, then send them the link. They
-                  open it, sign in, and pick the book once — from then on you both sync to it.
-                </p>
-                {sync.bookId ? (
+                <div className="mb-1 font-medium text-slate-300">
+                  {joined ? 'Invite someone else' : 'Invite your partner'}
+                </div>
+                {joined ? (
+                  <p>
+                    This is {ownerName}'s book.{' '}
+                    {ownership!.canShare
+                      ? 'You can share it with another Google account too, then send them the link.'
+                      : `Only ${ownerName} can share it — ask them to invite anyone else.`}
+                  </p>
+                ) : (
+                  <p>
+                    Share this book with your partner's Google account, then send them the link. They
+                    open it, sign in, and pick the book once — from then on you both sync to it.
+                  </p>
+                )}
+                {joined && !ownership!.canShare ? null : sync.bookId ? (
                   <>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <input
@@ -760,7 +805,8 @@ function SyncSection() {
                     {invitedEmail && link && (
                       <div className="mt-2 space-y-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-success">
                         <div>
-                          Shared with {invitedEmail}. Now send them this link:
+                          Shared with {invitedEmail}. Now send them this link. If they can't
+                          find the book, it may be in their Drive's Spam.
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <code className="break-all rounded bg-slate-900/60 px-1.5 py-0.5 text-slate-300">
@@ -784,7 +830,9 @@ function SyncSection() {
               </div>
 
               <div className="border-t border-slate-800 pt-3">
-                <div className="mb-1 font-medium text-slate-300">Join your partner's book</div>
+                <div className="mb-1 font-medium text-slate-300">
+                  {joined ? 'Join a different book' : "Join your partner's book"}
+                </div>
                 <p>Got an invite? Open the link they sent, or choose the book they shared here.</p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <Button
@@ -797,6 +845,7 @@ function SyncSection() {
                   </Button>
                   <DevJoinById onPick={(f) => openBookPicker(undefined, f)} disabled={book.busy || busy} />
                 </div>
+                <SpamHint className="mt-2" />
                 {book.error && (
                   <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-danger">
                     {book.error}
@@ -1043,22 +1092,7 @@ function AuthSection() {
 
         {auth.googleConfigured && <GoogleAccessNote />}
 
-        {auth.googleConfigured && (
-          <label className="flex items-start gap-3 rounded-md border border-slate-800 bg-slate-900/40 px-3 py-2">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 shrink-0 accent-sky-500"
-              checked={auth.trustDevice}
-              onChange={(e) => auth.setTrustDevice(e.target.checked)}
-            />
-            <span className="text-xs text-slate-400">
-              <span className="font-medium text-slate-300">Trust this device (stay signed in)</span>
-              <br />
-              Keeps you connected across browser restarts. On a shared or public computer, leave
-              this off — your sign-in is then forgotten when you close the tab.
-            </span>
-          </label>
-        )}
+        {auth.googleConfigured && <TrustDeviceToggle />}
 
         {!auth.googleConfigured && (
           <div className="rounded-md border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-500">

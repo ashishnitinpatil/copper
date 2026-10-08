@@ -21,6 +21,8 @@ import { BookIdentity } from '@/sync/BookIdentity';
 import { clearInvite, peekInvite } from '@/sync/invite';
 import { findBook } from '@/sync/household';
 import { GoogleAccessNote } from '@/auth/GoogleAccessNote';
+import { TrustDeviceToggle } from '@/auth/TrustDeviceToggle';
+import { SpamHint } from '@/sync/SpamHint';
 import { useAppSettings } from './AppSettingsProvider';
 
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
@@ -254,6 +256,7 @@ export function Welcome() {
                   Google Drive — Copper only sees the files it creates or you pick.
                 </p>
                 <GoogleAccessNote />
+                <TrustDeviceToggle />
               </div>
               {auth.error && (
                 <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
@@ -446,6 +449,7 @@ export function Welcome() {
                     Sign in with Google
                   </Button>
                   <GoogleAccessNote />
+                  <TrustDeviceToggle />
                 </>
               ) : book.picked ? (
                 <>
@@ -478,6 +482,7 @@ export function Welcome() {
                     {book.busy ? 'Opening…' : inviteBookId ? 'Open shared book' : 'Choose shared book…'}
                   </Button>
                   <DevJoinById onPick={(f) => book.choose(undefined, f)} disabled={book.busy} />
+                  <SpamHint />
                 </>
               )}
 

@@ -18,6 +18,7 @@ import {
   joinSharedBook,
   BookFoundError,
   BookReplacedError,
+  NewerBookError,
   SYNC_KEYS,
   type JoinMode,
   type SyncResult,
@@ -53,6 +54,8 @@ interface SyncContextValue {
   // True when sync stopped because another device replaced the shared book —
   // the UI offers Start fresh, not a retry.
   bookReplaced: boolean;
+  // True when the book holds columns from a newer Copper — reload to update.
+  newerBook: boolean;
   // Set when this device's first sync found a book this account already has:
   // sync pauses until the person picks Start fresh or Merge for it.
   foundBookId: string | null;
@@ -95,6 +98,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [needsReauth, setNeedsReauth] = useState(false);
   const [bookReplaced, setBookReplaced] = useState(false);
+  const [newerBook, setNewerBook] = useState(false);
   const [foundBookId, setFoundBookId] = useState<string | null>(null);
   const [bookId, setBookId] = useState<string | null>(null);
   const [appFolderId, setAppFolderId] = useState<string | null>(null);
@@ -148,7 +152,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setStatus('signed-out');
         return;
       }
-      if (status === 'error' && Date.now() - lastErrorAt.current < ERROR_BACKOFF_MS) {
+      // Back off background retries after an error — but never ignore a sync the
+      // person asked for (Sync now, or the one a join/merge starts).
+      if (
+        reason !== 'manual' &&
+        status === 'error' &&
+        Date.now() - lastErrorAt.current < ERROR_BACKOFF_MS
+      ) {
         return;
       }
 
@@ -158,8 +168,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setStatus('syncing');
       setError(null);
       setNeedsReauth(false);
-      setBookReplaced(false);
-      setFoundBookId(null);
       try {
         // Acquire the token up front. A failed/timed-out silent refresh returns
         // null — that's a "needs reconnect" situation, not a sync error, so show
@@ -180,6 +188,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         }
         setLastResult(result);
         setStatus('idle');
+        setBookReplaced(false);
+        setNewerBook(false);
+        setFoundBookId(null);
         // Piggyback the scheduled (weekly by default) backup — after the sync,
         // so it includes this device's latest changes. Best-effort: a backup
         // failure must never turn a successful sync red.
@@ -194,6 +205,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setError(describeSyncError(e));
         setNeedsReauth(isReauthError(e));
         setBookReplaced(e instanceof BookReplacedError);
+        setNewerBook(e instanceof NewerBookError);
         setFoundBookId(e instanceof BookFoundError ? e.bookId : null);
         setStatus('error');
         lastErrorAt.current = Date.now();
@@ -328,6 +340,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         error,
         needsReauth,
         bookReplaced,
+        newerBook,
         foundBookId,
         bookId,
         appFolderId,

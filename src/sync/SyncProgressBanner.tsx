@@ -33,7 +33,7 @@ export function SyncProgressBanner() {
 
   return (
     <div
-      className="mb-4 rounded-xl border border-brand-500/30 bg-brand-500/[0.06] p-4"
+      className="mx-auto mb-4 max-w-6xl rounded-xl border border-brand-500/30 bg-brand-500/[0.06] p-4"
       role="status"
       aria-live="polite"
     >
