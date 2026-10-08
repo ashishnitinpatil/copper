@@ -16,7 +16,6 @@ import { listCategories } from '@/db/queries/categories';
 import {
   bulkDeleteTransactions,
   bulkSetCategory,
-  createTransfer,
   deleteTransaction,
   listTransactions,
   searchTransactions,
@@ -32,7 +31,8 @@ import {
 } from '@/db/queries/tags';
 import { TagChip, TagPicker } from '@/components/ui/TagPicker';
 import { EntityHistory } from './Activity';
-import type { Account, Tag, Transaction, TransactionKind } from '@/db/types';
+import { TransferModal } from './TransferModal';
+import type { Tag, Transaction, TransactionKind } from '@/db/types';
 import { formatMoney, parseAmount, fromMinor } from '@/lib/money';
 import { useDefaultCurrency } from './AppSettingsProvider';
 import { formatRelativeDate, toDateString } from '@/lib/dates';
@@ -411,17 +411,21 @@ export function Transactions() {
       </Modal>
 
       <EditTransactionModal
-        open={editing !== null}
-        existing={editing}
+        open={editing !== null && editing.kind !== 'transfer'}
+        existing={editing?.kind === 'transfer' ? null : editing}
         accounts={accountsQuery.data ?? []}
         categories={categoriesQuery.data ?? []}
         tags={tagsQuery.data ?? []}
         onClose={() => setEditing(null)}
       />
       <TransferModal
-        open={showTransfer}
+        open={showTransfer || editing?.kind === 'transfer'}
+        transferId={editing?.kind === 'transfer' ? editing.id : null}
         accounts={accountsQuery.data ?? []}
-        onClose={() => setShowTransfer(false)}
+        onClose={() => {
+          setShowTransfer(false);
+          setEditing(null);
+        }}
       />
     </PageShell>
   );
@@ -530,7 +534,6 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
   }
 
   const handleSave = async () => {
-    if (existing.kind === 'transfer') return;
     const amount = parseAmount(form.amount_input, existing.account_currency);
     if (amount == null) return;
     setSubmitting(true);
@@ -562,84 +565,70 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
 
   return (
     <Modal open={open} onClose={onClose} title="Edit transaction">
-      {existing.kind === 'transfer' ? (
-        <div className="space-y-4">
-          <p className="text-sm text-slate-300">Transfer between accounts. Transfers can't be edited — delete it and create a new one to change it.</p>
-          <div className="rounded-lg bg-slate-800/50 p-3 text-sm">
-            <div>{formatMoney(existing.amount_minor, existing.account_currency, { signed: true })}</div>
-            <div className="text-xs text-slate-500">{existing.account_name} · {existing.occurred_on}</div>
-          </div>
-          <div className="flex justify-between">
-            <Button variant="danger" onClick={handleDelete} disabled={submitting}>Delete transfer</Button>
-            <Button variant="ghost" onClick={onClose}>Close</Button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
+      <div className="space-y-3">
+        <Input
+          label="Amount"
+          inputMode="decimal"
+          value={form.amount_input}
+          onChange={(e) => setForm((f) => ({ ...f, amount_input: e.target.value }))}
+          autoFocus
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <Select
+            label="Kind"
+            value={form.kind}
+            onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as TransactionKind }))}
+          >
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+          </Select>
           <Input
-            label="Amount"
-            inputMode="decimal"
-            value={form.amount_input}
-            onChange={(e) => setForm((f) => ({ ...f, amount_input: e.target.value }))}
-            autoFocus
+            label="Date"
+            type="date"
+            value={form.occurred_on}
+            onChange={(e) => setForm((f) => ({ ...f, occurred_on: e.target.value }))}
           />
-          <div className="grid grid-cols-2 gap-3">
-            <Select
-              label="Kind"
-              value={form.kind}
-              onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as TransactionKind }))}
-            >
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-            </Select>
-            <Input
-              label="Date"
-              type="date"
-              value={form.occurred_on}
-              onChange={(e) => setForm((f) => ({ ...f, occurred_on: e.target.value }))}
-            />
+        </div>
+        <Combobox
+          label="Account"
+          value={form.account_id}
+          onChange={(v) => setForm((f) => ({ ...f, account_id: v }))}
+          options={accounts.map((a) => ({ value: a.id, label: a.name }))}
+        />
+        <Combobox
+          label="Category"
+          value={form.category_id}
+          onChange={(v) => setForm((f) => ({ ...f, category_id: v }))}
+          emptyOption={{ value: '', label: '— None —' }}
+          options={categories
+            .filter((c) => c.kind === form.kind)
+            .map((c) => ({ value: c.id, label: `${c.icon ?? ''} ${c.name}`.trim() }))}
+        />
+        <Textarea
+          label="Note"
+          value={form.note}
+          onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+        />
+        {tags.length > 0 && (
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">Tags</label>
+            <TagPicker tags={tags} selected={tagIds} onToggle={toggleTag} />
           </div>
-          <Combobox
-            label="Account"
-            value={form.account_id}
-            onChange={(v) => setForm((f) => ({ ...f, account_id: v }))}
-            options={accounts.map((a) => ({ value: a.id, label: a.name }))}
-          />
-          <Combobox
-            label="Category"
-            value={form.category_id}
-            onChange={(v) => setForm((f) => ({ ...f, category_id: v }))}
-            emptyOption={{ value: '', label: '— None —' }}
-            options={categories
-              .filter((c) => c.kind === form.kind)
-              .map((c) => ({ value: c.id, label: `${c.icon ?? ''} ${c.name}`.trim() }))}
-          />
-          <Textarea
-            label="Note"
-            value={form.note}
-            onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-          />
-          {tags.length > 0 && (
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">Tags</label>
-              <TagPicker tags={tags} selected={tagIds} onToggle={toggleTag} />
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-2 pt-2">
-            <Button variant="danger" size="sm" onClick={handleDelete} disabled={submitting}>
-              Delete
+        )}
+        <div className="flex items-center justify-between gap-2 pt-2">
+          <Button variant="danger" size="sm" onClick={handleDelete} disabled={submitting}>
+            Delete
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
             </Button>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button onClick={handleSave} disabled={submitting}>
-                Save
-              </Button>
-            </div>
+            <Button onClick={handleSave} disabled={submitting}>
+              Save
+            </Button>
           </div>
         </div>
-      )}
+      </div>
 
       <details className="mt-4 border-t border-slate-800 pt-3">
         <summary className="cursor-pointer list-none text-xs font-medium text-slate-400 hover:text-slate-200">
@@ -649,101 +638,6 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
           <EntityHistory entity="transaction" entityId={existing.id} />
         </div>
       </details>
-    </Modal>
-  );
-}
-
-interface TransferModalProps {
-  open: boolean;
-  accounts: Account[];
-  onClose: () => void;
-}
-
-function TransferModal({ open, accounts, onClose }: TransferModalProps) {
-  const db = useDB();
-  const defaultCurrency = useDefaultCurrency();
-  const [fromId, setFromId] = useState('');
-  const [toId, setToId] = useState('');
-  const [amountInput, setAmountInput] = useState('');
-  const [date, setDate] = useState(toDateString());
-  const [note, setNote] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setFromId(accounts[0]?.id ?? '');
-    setToId(accounts[1]?.id ?? accounts[0]?.id ?? '');
-    setAmountInput('');
-    setDate(toDateString());
-    setNote('');
-  }, [open, accounts]);
-
-  const fromAcct = accounts.find((a) => a.id === fromId);
-  const currency = fromAcct?.currency ?? defaultCurrency;
-
-  const handleSubmit = async () => {
-    const amount = parseAmount(amountInput, currency);
-    if (!fromId || !toId || fromId === toId || !amount || amount <= 0) return;
-    setSubmitting(true);
-    try {
-      await createTransfer(db, {
-        from_account_id: fromId,
-        to_account_id: toId,
-        amount_minor: amount,
-        occurred_on: date,
-        note: note.trim() || null,
-      });
-      onClose();
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="New transfer">
-      <div className="space-y-3">
-        <Combobox
-          label="From"
-          value={fromId}
-          onChange={setFromId}
-          options={accounts.map((a) => ({ value: a.id, label: a.name }))}
-        />
-        <Combobox
-          label="To"
-          value={toId}
-          onChange={setToId}
-          options={accounts.filter((a) => a.id !== fromId).map((a) => ({ value: a.id, label: a.name }))}
-        />
-        <Input
-          label="Amount"
-          inputMode="decimal"
-          value={amountInput}
-          onChange={(e) => setAmountInput(e.target.value)}
-          placeholder="0.00"
-          autoFocus
-        />
-        <Input
-          label="Date"
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
-        <Input
-          label="Note"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Optional"
-        />
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={submitting || !fromId || !toId || fromId === toId || !amountInput}
-          >
-            Transfer
-          </Button>
-        </div>
-      </div>
     </Modal>
   );
 }

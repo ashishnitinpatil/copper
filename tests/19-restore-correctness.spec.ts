@@ -6,10 +6,9 @@ import { resetAndLoad, waitForDB, selectCombobox } from './helpers';
 // account + category merges, and a recurring rule) then proves a full backup →
 // restore reproduces every number exactly.
 //
-// The app has NO FX conversion (see src/lib/money.ts): a "cross-currency"
-// transfer moves the *same* integer minor amount into each leg's own currency
-// bucket. That's the app's real behaviour, and restore fidelity — not currency
-// maths — is what this test pins down. All figures below are minor units.
+// A cross-currency transfer records what left one account and what arrived in
+// the other, each in its own currency — the two legs hold different amounts,
+// and restore must keep both. All figures below are minor units.
 
 // ---- The single source of truth for the expected end state ----------------
 // Every value is derivable from the operations in `buildBook` below.
@@ -20,12 +19,12 @@ const EXPECTED = {
   // Per-account balances (opening + sum of that account's legs).
   cash: 320_000, //        0 + (−50k −25k +100k)  + 300k in  − 5k out
   bank: 2_190_000, // 2,000k − 300k − 10k + 500k(merged Savings)
-  wallet: 60_000, //     50k + 10k in
-  euro: 35_000, //       30k + 5k in
+  wallet: 50_120, //     50k + 120 in ($1.20 received for ₹100)
+  euro: 30_055, //       30k + 55 in (€0.55 received for ₹50)
   // Per-currency "global" totals (what getTotalsByCurrency reports, as-of today).
   inr: 2_510_000, // Cash + Bank
-  usd: 60_000, //    Wallet
-  eur: 35_000, //    Euro
+  usd: 50_120, //    Wallet
+  eur: 30_055, //    Euro
 };
 
 // One query returns the whole fingerprint as a single row of integers, keyed by
@@ -92,7 +91,10 @@ async function quickEntry(
   await page.waitForTimeout(600);
 }
 
-async function transfer(page: Page, opts: { from: string; to: string; amount: string }) {
+async function transfer(
+  page: Page,
+  opts: { from: string; to: string; amount: string; received?: string },
+) {
   await page.goto('/transactions');
   await waitForDB(page);
   await page.getByRole('button', { name: '↔ Transfer', exact: true }).click();
@@ -100,7 +102,12 @@ async function transfer(page: Page, opts: { from: string; to: string; amount: st
   const modal = page.locator('.fixed');
   await selectCombobox(modal, 'From', opts.from);
   await selectCombobox(modal, 'To', opts.to);
-  await modal.getByLabel('Amount', { exact: true }).fill(opts.amount);
+  if (opts.received) {
+    await modal.getByLabel(/^Amount sent/).fill(opts.amount);
+    await modal.getByLabel(/^Amount received/).fill(opts.received);
+  } else {
+    await modal.getByLabel('Amount', { exact: true }).fill(opts.amount);
+  }
   await page.getByRole('button', { name: 'Transfer', exact: true }).click();
   await page.waitForTimeout(500);
 }
@@ -120,10 +127,10 @@ async function buildBook(page: Page) {
   await quickEntry(page, { mode: 'Expense', digits: '250', category: /Transport/ });
   await quickEntry(page, { mode: 'Income', digits: '1000', category: /Salary/ });
 
-  // 3. Transfers: one same-currency, two cross-currency (same integer, no FX).
+  // 3. Transfers: one same-currency, two cross-currency (amount received differs).
   await transfer(page, { from: 'Bank', to: 'Cash', amount: '3000' }); // INR → INR
-  await transfer(page, { from: 'Bank', to: 'Wallet', amount: '100' }); // INR → USD
-  await transfer(page, { from: 'Cash', to: 'Euro', amount: '50' }); // INR → EUR
+  await transfer(page, { from: 'Bank', to: 'Wallet', amount: '100', received: '1.20' }); // INR → USD
+  await transfer(page, { from: 'Cash', to: 'Euro', amount: '50', received: '0.55' }); // INR → EUR
 
   // 4. Category merge — Transport folds into Food & Dining (balance-neutral).
   await page.goto('/categories');
@@ -206,8 +213,8 @@ test.describe('Restore — controlled correctness', () => {
     const main = page.locator('main');
     await expect(main.getByText('₹3,200.00').first()).toBeVisible(); // Cash
     await expect(main.getByText('₹21,900.00').first()).toBeVisible(); // Bank
-    await expect(main.getByText('$600.00').first()).toBeVisible(); // Wallet
-    await expect(main.getByText('€350.00').first()).toBeVisible(); // Euro
+    await expect(main.getByText('$501.20').first()).toBeVisible(); // Wallet
+    await expect(main.getByText('€300.55').first()).toBeVisible(); // Euro
     // Savings is gone.
     await expect(page.getByRole('button', { name: /Savings/ })).toHaveCount(0);
   });

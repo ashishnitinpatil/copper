@@ -362,9 +362,55 @@ export async function countTransactions(db: DB, filter: TransactionFilter = {}):
 export interface TransferInput {
   from_account_id: string;
   to_account_id: string;
+  /** Amount sent, in the from-account's currency. */
   amount_minor: number;
+  /** Amount received, in the to-account's currency. Defaults to the amount sent
+   *  — only differs when the two accounts hold different currencies. */
+  to_amount_minor?: number;
   occurred_on?: string;
   note?: string | null;
+}
+
+export interface TransferLegs {
+  /** The leg that left an account (negative amount). */
+  from: Transaction;
+  /** The leg that arrived (positive amount). */
+  to: Transaction;
+}
+
+/** Both legs of the transfer that `id` (either leg) belongs to. */
+export async function getTransfer(db: DB, id: string): Promise<TransferLegs | null> {
+  const [leg] = await db.execO<Transaction>('SELECT * FROM transactions WHERE id = ?', [id]);
+  if (!leg || leg.kind !== 'transfer' || !leg.transfer_peer_id) return null;
+  const [peer] = await db.execO<Transaction>('SELECT * FROM transactions WHERE id = ?', [
+    leg.transfer_peer_id,
+  ]);
+  if (!peer) return null;
+  return leg.amount_minor < 0 ? { from: leg, to: peer } : { from: peer, to: leg };
+}
+
+/** Change a transfer: both legs move together, logged as one change. */
+export async function updateTransfer(db: DB, id: string, input: TransferInput): Promise<void> {
+  const legs = await getTransfer(db, id);
+  if (!legs) throw new Error('Transfer not found');
+  const amount = Math.abs(input.amount_minor);
+  const toAmount = Math.abs(input.to_amount_minor ?? input.amount_minor);
+  const occurred = input.occurred_on ?? legs.from.occurred_on;
+  const beforeFrom = await snapshotEntity(db, 'transaction', legs.from.id);
+  const beforeTo = await snapshotEntity(db, 'transaction', legs.to.id);
+  await db.tx(async (tx) => {
+    await tx.exec(
+      'UPDATE transactions SET account_id = ?, amount_minor = ?, occurred_on = ?, note = ? WHERE id = ?',
+      [input.from_account_id, -amount, occurred, input.note ?? null, legs.from.id],
+    );
+    await tx.exec(
+      'UPDATE transactions SET account_id = ?, amount_minor = ?, occurred_on = ?, note = ? WHERE id = ?',
+      [input.to_account_id, toAmount, occurred, input.note ?? null, legs.to.id],
+    );
+  });
+  const batchId = newBatchId();
+  await logUpdate(db, 'transaction', legs.from.id, beforeFrom, { batchId, source: 'transfer' });
+  await logUpdate(db, 'transaction', legs.to.id, beforeTo, { batchId, source: 'transfer' });
 }
 
 export async function createTransfer(db: DB, input: TransferInput): Promise<[string, string]> {
@@ -373,6 +419,7 @@ export async function createTransfer(db: DB, input: TransferInput): Promise<[str
   const occurred = input.occurred_on ?? toDateString();
   const now = nowIso();
   const amount = Math.abs(input.amount_minor);
+  const toAmount = Math.abs(input.to_amount_minor ?? input.amount_minor);
 
   await db.tx(async (tx) => {
     await tx.exec(
@@ -383,7 +430,7 @@ export async function createTransfer(db: DB, input: TransferInput): Promise<[str
     await tx.exec(
       `INSERT INTO transactions (id, account_id, category_id, amount_minor, kind, transfer_peer_id, occurred_on, note, created_at)
        VALUES (?, ?, NULL, ?, 'transfer', ?, ?, ?, ?)`,
-      [toId, input.to_account_id, amount, fromId, occurred, input.note ?? null, now],
+      [toId, input.to_account_id, toAmount, fromId, occurred, input.note ?? null, now],
     );
   });
 
