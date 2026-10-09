@@ -456,23 +456,26 @@ function SyncSection() {
 
   const signedIn = !!auth.google;
   const pickerReady = isPickerConfigured();
-  const { getGoogleAccessToken } = auth;
+  // Only with a token that's still fresh. Refreshing one means a Google popup,
+  // which the browser blocks without a click — and the half-open request then
+  // swallows the next "Sync now". A sync refreshes the token, and this re-runs.
+  const freshToken =
+    auth.google && auth.google.expiresAt - 60_000 > Date.now() ? auth.google.accessToken : null;
   useEffect(() => {
     const bookId = sync.bookId;
-    if (!signedIn || !bookId) return;
+    if (!freshToken || !bookId) return;
     let cancelled = false;
-    (async () => {
-      const token = await getGoogleAccessToken();
-      if (!token) return;
-      const peek = await peekBook(token, bookId);
-      if (!cancelled) setOwnership({ ...peek, bookId });
-    })().catch(() => {
-      // Unknown ownership: the generic copy below still holds.
-    });
+    peekBook(freshToken, bookId)
+      .then((peek) => {
+        if (!cancelled) setOwnership({ ...peek, bookId });
+      })
+      .catch(() => {
+        // Unknown ownership: the generic copy below still holds.
+      });
     return () => {
       cancelled = true;
     };
-  }, [signedIn, sync.bookId, getGoogleAccessToken]);
+  }, [freshToken, sync.bookId]);
   const joined = ownership?.bookId === sync.bookId && !ownership.ownedByMe;
   const ownerName = ownership?.owner ?? 'its owner';
   const folderUrl = sync.appFolderId

@@ -4,6 +4,9 @@ import type { DB } from './wasm';
 
 type Loader<T> = (db: DB) => Promise<T>;
 
+// Long enough to absorb a burst of row events, short enough to feel instant.
+const UPDATE_COALESCE_MS = 50;
+
 interface QueryOptions {
   /**
    * Tables to subscribe to. When any of these tables fire an update event,
@@ -60,13 +63,23 @@ export function useQuery<T>(loader: Loader<T>, options: QueryOptions = {}): Quer
       };
     }
 
+    // cr-sqlite fires one update event per changed ROW. Coalesce a burst into a
+    // single re-run: an import, restore or sync pull writes tens of thousands of
+    // rows, and re-running every open query per row (on the same connection,
+    // between the writer's statements) made a 12k-row import effectively hang.
     const watched = new Set(options.deps);
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const off = db.onUpdate((_type, _dbName, tblName) => {
-      if (watched.has(tblName)) run();
+      if (!watched.has(tblName) || timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        if (!cancelled) run();
+      }, UPDATE_COALESCE_MS);
     });
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
       off();
     };
     // Re-run when the (memoized) loader identity changes — this is how param
