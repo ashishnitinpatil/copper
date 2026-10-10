@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { PageShell } from './PageShell';
 import { Card, EmptyState } from '@/components/ui/Card';
 import { InfoHint } from '@/components/ui/InfoHint';
@@ -93,7 +94,9 @@ export function Cashflow() {
   const futureTxns = futureTxnState.data ?? [];
 
   const nonCreditAccounts = useMemo(
-    () => accounts.filter((a) => a.type !== 'credit_card' && !a.archived_at),
+    // Same accounts as the Dashboard total: "not counted" ones (e.g. loans to
+    // or from family) would otherwise swing the forecast.
+    () => accounts.filter((a) => a.type !== 'credit_card' && !a.archived_at && a.include_in_total === 1),
     [accounts],
   );
 
@@ -193,6 +196,26 @@ export function Cashflow() {
 
     return entries;
   }, [nonCreditAccounts, balanceMap, rules, ccStatements, futureTxns, horizon, defaultCurrency, fxRates, rruleLib]);
+
+  // What the forecast leaves out, so its "Today" figure can be squared with the
+  // Dashboard total: cards whose bills can't be projected, and uncounted accounts.
+  const missing = useMemo(() => {
+    const live = accounts.filter((a) => !a.archived_at);
+    const billed = new Set(
+      ccStatements
+        .filter((s) => nonCreditAccounts.some((a) => a.id === s.account.pay_from_account_id))
+        .map((s) => s.account.id),
+    );
+    const balanceOf = (a: Account) => balanceMap.get(a.id) ?? a.opening_balance_minor;
+    const cards = live.filter(
+      (a) => a.type === 'credit_card' && a.include_in_total === 1 && !billed.has(a.id) && balanceOf(a) !== 0,
+    );
+    const cardTotal = cards.reduce(
+      (sum, a) => sum + convert(balanceOf(a), a.currency, defaultCurrency, defaultCurrency, fxRates),
+      0,
+    );
+    return { cards, cardTotal, notCounted: live.filter((a) => a.include_in_total !== 1) };
+  }, [accounts, ccStatements, nonCreditAccounts, balanceMap, defaultCurrency, fxRates]);
 
   const minBalance = forecast.length > 0 ? Math.min(...forecast.map((f) => f.balance)) : 0;
 
@@ -333,6 +356,36 @@ export function Cashflow() {
         ))}
       </div>
 
+      {(missing.cards.length > 0 || missing.notCounted.length > 0) && (
+        <div className="rounded-lg border border-info/40 bg-info/10 px-4 py-3 text-info">
+          <p className="text-sm font-semibold">Not in this forecast</p>
+          <ul className="mt-1.5 list-disc space-y-1.5 pl-5 text-xs">
+            {missing.cards.length > 0 && (
+              <li>
+                <span className="font-semibold tabular-nums">
+                  {formatMoney(missing.cardTotal, defaultCurrency)}
+                </span>{' '}
+                on {missing.cards.length === 1 ? 'credit card' : `${missing.cards.length} credit cards`} (
+                {nameList(missing.cards)}). A card&rsquo;s bill shows up here once it has a statement day and a
+                &ldquo;Pay bill from&rdquo; account.{' '}
+                <Link to="/accounts" className="font-medium underline">
+                  Set up in Accounts
+                </Link>
+              </li>
+            )}
+            {missing.notCounted.length > 0 && (
+              <li>
+                {nameList(missing.notCounted)}{' '}
+                {missing.notCounted.length === 1 ? 'isn’t' : 'aren’t'} counted in your total balance.{' '}
+                <Link to="/accounts" className="font-medium underline">
+                  Change in Accounts
+                </Link>
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
       {forecast.length <= 1 ? (
         <EmptyState
           title="Nothing to show yet"
@@ -345,8 +398,9 @@ export function Cashflow() {
           </h3>
           {minBalance < 0 && (
             <div className="mb-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
-              Balance goes negative on{' '}
-              {formatHumanDate(forecast.find((f) => f.balance < 0)!.date)}
+              {forecast[0].balance < 0
+                ? 'Balance is already negative today'
+                : `Balance goes negative on ${formatHumanDate(forecast.find((f) => f.balance < 0)!.date)}`}
             </div>
           )}
           <div className="divide-y divide-slate-800">
@@ -514,4 +568,10 @@ interface ForecastEntry {
   label: string;
   amount: number;
   balance: number;
+}
+
+function nameList(accounts: Account[], max = 3): string {
+  const names = accounts.map((a) => a.name);
+  if (names.length <= max) return names.join(', ');
+  return `${names.slice(0, max).join(', ')} and ${names.length - max} more`;
 }

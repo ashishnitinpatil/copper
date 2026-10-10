@@ -115,7 +115,7 @@ export async function runMonefyImport(
       const finalName = (overrides.names[acct.name] ?? acct.name).trim() || acct.name;
       const isMain =
         overrides.mainAccount === acct.name || (!overrides.mainAccount && sortOrder === 0) ? 1 : 0;
-      const includeInTotal = (overrides.includeInTotal[acct.name] ?? type !== 'loan') ? 1 : 0;
+      const includeInTotal = (overrides.includeInTotal[acct.name] ?? true) ? 1 : 0;
       const icon = ACCOUNT_TYPE_EMOJI[type];
       await tx.exec(
         `INSERT INTO accounts (

@@ -35,7 +35,7 @@ export async function getAccount(db: DB, id: string): Promise<Account | null> {
 export async function createAccount(db: DB, input: AccountInput): Promise<string> {
   const id = uuid();
   const now = nowIso();
-  const includeInTotal = input.include_in_total ?? defaultIncludeInTotal(input.type);
+  const includeInTotal = input.include_in_total ?? true;
   await db.exec(
     `INSERT INTO accounts (
       id, name, type, currency, opening_balance_minor, is_main, include_in_total,
@@ -69,7 +69,7 @@ export async function createAccount(db: DB, input: AccountInput): Promise<string
 
 export async function updateAccount(db: DB, id: string, input: AccountInput): Promise<void> {
   const before = await snapshotEntity(db, 'account', id);
-  const includeInTotal = input.include_in_total ?? defaultIncludeInTotal(input.type);
+  const includeInTotal = input.include_in_total ?? true;
   await db.exec(
     `UPDATE accounts SET
       name = ?, type = ?, currency = ?, opening_balance_minor = ?,
@@ -162,8 +162,4 @@ export async function getTotalsByCurrency(
      ORDER BY balance_minor DESC`,
     [asOf],
   );
-}
-
-function defaultIncludeInTotal(type: AccountType): boolean {
-  return type !== 'loan';
 }

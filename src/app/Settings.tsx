@@ -1876,7 +1876,8 @@ function ImportSection() {
       for (const a of parsed.accounts) {
         initialTypes[a.name] = a.type;
         initialNames[a.name] = applyStrip(stripText, a.name);
-        initialInclude[a.name] = a.type !== 'loan';
+        // Count every account; the person switches off the ones they don't own.
+        initialInclude[a.name] = true;
       }
       setTypeOverrides(initialTypes);
       setNameOverrides(initialNames);
@@ -2082,7 +2083,7 @@ function ImportSection() {
                         <td className="px-3 py-1.5 text-center">
                           <input
                             type="checkbox"
-                            checked={includeOverrides[a.name] ?? (typeOverrides[a.name] ?? a.type) !== 'loan'}
+                            checked={includeOverrides[a.name] ?? true}
                             onChange={(e) =>
                               setIncludeOverrides((prev) => ({ ...prev, [a.name]: e.target.checked }))
                             }
