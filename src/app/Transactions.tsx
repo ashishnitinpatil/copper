@@ -60,6 +60,8 @@ export function Transactions() {
 
   const [editing, setEditing] = useState<TransactionWithMeta | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
+  // Phones only: the filters fill the first screen, so they start folded away.
+  const [showFilters, setShowFilters] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showRecat, setShowRecat] = useState(false);
@@ -159,6 +161,14 @@ export function Transactions() {
   });
 
   const grouped = useMemo(() => groupByDate(txQuery.data ?? []), [txQuery.data]);
+  const activeFilters = [
+    filters.accountId,
+    filters.categoryId,
+    filters.tagId,
+    filters.kind,
+    filters.dateFrom,
+    filters.dateTo,
+  ].filter(Boolean).length;
 
   return (
     <PageShell
@@ -183,75 +193,87 @@ export function Transactions() {
     >
       <Card>
         <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-          <Combobox
-            label="Account"
-            value={filters.accountId}
-            onChange={(v) => setFilters((f) => ({ ...f, accountId: v }))}
-            emptyOption={{ value: '', label: 'All' }}
-            options={(accountsQuery.data ?? []).map((a) => ({ value: a.id, label: a.name }))}
-          />
-          <Combobox
-            label="Category"
-            value={filters.categoryId}
-            onChange={(v) => setFilters((f) => ({ ...f, categoryId: v }))}
-            emptyOption={{ value: '', label: 'All' }}
-            options={(categoriesQuery.data ?? []).map((c) => ({
-              value: c.id,
-              label: `${c.icon ?? ''} ${c.name}`.trim(),
-            }))}
-          />
-          <Combobox
-            label="Tag"
-            value={filters.tagId}
-            onChange={(v) => setFilters((f) => ({ ...f, tagId: v }))}
-            emptyOption={{ value: '', label: 'All' }}
-            options={(tagsQuery.data ?? []).map((t) => ({
-              value: t.id,
-              label: `${t.icon ?? ''} ${t.name}`.trim(),
-            }))}
-          />
-          <Select
-            label="Type"
-            value={filters.kind}
-            onChange={(e) => setFilters((f) => ({ ...f, kind: e.target.value as '' | TransactionKind }))}
-          >
-            <option value="">All</option>
-            <option value="expense">Expense</option>
-            <option value="income">Income</option>
-            <option value="transfer">Transfer</option>
-          </Select>
-          <Input
-            label="From"
-            type="date"
-            value={filters.dateFrom}
-            onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-          />
-          <Input
-            label="To"
-            type="date"
-            value={filters.dateTo}
-            onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-          />
-          <Input
-            label="Search"
-            labelHint={
-              <InfoHint label="How search works" title="Search tips" align="right">
-                <span className="mb-1.5 block">
-                  <span className="font-medium text-slate-300">Text</span> — notes, category &amp;
-                  account, and it shrugs off typos.{' '}
-                  <span className="text-slate-500">“strbcks” finds “Starbucks”.</span>
-                </span>
-                <span className="block">
-                  <span className="font-medium text-slate-300">Amount</span> — matches the precision
-                  you type. <span className="text-slate-500">“48” → 48.00–48.99, “48.99” exact.</span>
-                </span>
-              </InfoHint>
-            }
-            value={filters.search}
-            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-            placeholder="Note, category, or amount…"
-          />
+          <div className={showFilters ? 'contents' : 'hidden md:contents'}>
+            <Combobox
+              label="Account"
+              value={filters.accountId}
+              onChange={(v) => setFilters((f) => ({ ...f, accountId: v }))}
+              emptyOption={{ value: '', label: 'All' }}
+              options={(accountsQuery.data ?? []).map((a) => ({ value: a.id, label: a.name }))}
+            />
+            <Combobox
+              label="Category"
+              value={filters.categoryId}
+              onChange={(v) => setFilters((f) => ({ ...f, categoryId: v }))}
+              emptyOption={{ value: '', label: 'All' }}
+              options={(categoriesQuery.data ?? []).map((c) => ({
+                value: c.id,
+                label: `${c.icon ?? ''} ${c.name}`.trim(),
+              }))}
+            />
+            <Combobox
+              label="Tag"
+              value={filters.tagId}
+              onChange={(v) => setFilters((f) => ({ ...f, tagId: v }))}
+              emptyOption={{ value: '', label: 'All' }}
+              options={(tagsQuery.data ?? []).map((t) => ({
+                value: t.id,
+                label: `${t.icon ?? ''} ${t.name}`.trim(),
+              }))}
+            />
+            <Select
+              label="Type"
+              value={filters.kind}
+              onChange={(e) => setFilters((f) => ({ ...f, kind: e.target.value as '' | TransactionKind }))}
+            >
+              <option value="">All</option>
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+              <option value="transfer">Transfer</option>
+            </Select>
+            <Input
+              label="From"
+              type="date"
+              value={filters.dateFrom}
+              onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+            />
+            <Input
+              label="To"
+              type="date"
+              value={filters.dateTo}
+              onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+            />
+          </div>
+          <div className="order-first md:order-none">
+            <Input
+              label="Search"
+              labelHint={
+                <InfoHint label="How search works" title="Search tips" align="right">
+                  <span className="mb-1.5 block">
+                    <span className="font-medium text-slate-300">Text</span> — notes, category &amp;
+                    account, and it shrugs off typos.{' '}
+                    <span className="text-slate-500">“strbcks” finds “Starbucks”.</span>
+                  </span>
+                  <span className="block">
+                    <span className="font-medium text-slate-300">Amount</span> — matches the precision
+                    you type. <span className="text-slate-500">“48” → 48.00–48.99, “48.99” exact.</span>
+                  </span>
+                </InfoHint>
+              }
+              value={filters.search}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+              placeholder="Note, category, or amount…"
+            />
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowFilters((v) => !v)}
+          aria-expanded={showFilters}
+          className="mt-3 text-sm font-medium text-brand-400 hover:underline md:hidden"
+        >
+          {showFilters ? 'Hide filters' : activeFilters > 0 ? `Filters (${activeFilters} on)` : 'Filters'}
+        </button>
       </Card>
 
       {txQuery.data && txQuery.data.length === 0 && (

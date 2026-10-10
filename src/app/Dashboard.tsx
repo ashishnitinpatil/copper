@@ -24,6 +24,9 @@ import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useIsFirstPull } from '@/sync/SyncProgressBanner';
 import { useAppSettings } from './AppSettingsProvider';
 
+// Accounts shown as cards before the phone layout switches to compact rows.
+const COMPACT_AFTER = 6;
+
 function LocalOnlyWarning() {
   const { google } = useAuth();
   const [dismissed, setDismissed] = useState(
@@ -164,6 +167,7 @@ export function Dashboard() {
   }, [balancesState.data]);
 
   const recent = recentState.data ?? [];
+  const compact = accounts.length > COMPACT_AFTER;
   const budgets = budgetsState.data ?? [];
   const overBudgets = budgets.filter((b) => b.spent_minor > b.amount_minor);
 
@@ -216,41 +220,63 @@ export function Dashboard() {
       )}
       <TotalBalanceCard totals={totalsState.data ?? []} />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {accounts.map((a) => (
-          <Link
-            key={a.id}
-            to="/accounts"
-            className="group rounded-xl border border-slate-800 bg-slate-900/40 p-4 transition hover:-translate-y-0.5 hover:border-brand-500 hover:bg-slate-900/70"
-          >
-            <div className="flex items-center gap-2">
-              <AccountTypeIcon type={a.type as AccountType} className="h-4 w-4 text-slate-400" />
-              <div className="text-xs uppercase tracking-wide text-slate-500">
-                {a.type.replace('_', ' ')}
+      {/* A few accounts get a card each. Past COMPACT_AFTER, phones switch to one
+          row per account so the list doesn't push everything else off-screen;
+          wider screens keep the grid of cards. */}
+      {accounts.length > 0 && (
+        <div
+          className={
+            compact
+              ? 'divide-y divide-slate-800 rounded-xl border border-slate-800 bg-slate-900/40 sm:grid sm:grid-cols-2 sm:gap-4 sm:divide-y-0 sm:rounded-none sm:border-0 sm:bg-transparent lg:grid-cols-3'
+              : 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3'
+          }
+        >
+          {accounts.map((a) => (
+            <Link
+              key={a.id}
+              to="/accounts"
+              className={
+                compact
+                  ? 'group flex items-center justify-between gap-3 px-4 py-2.5 transition hover:bg-slate-900/70 sm:block sm:rounded-xl sm:border sm:border-slate-800 sm:bg-slate-900/40 sm:p-4 sm:hover:-translate-y-0.5 sm:hover:border-brand-500'
+                  : 'group rounded-xl border border-slate-800 bg-slate-900/40 p-4 transition hover:-translate-y-0.5 hover:border-brand-500 hover:bg-slate-900/70'
+              }
+            >
+              <div className={compact ? 'hidden items-center gap-2 sm:flex' : 'flex items-center gap-2'}>
+                <AccountTypeIcon type={a.type as AccountType} className="h-4 w-4 text-slate-400" />
+                <div className="text-xs uppercase tracking-wide text-slate-500">
+                  {a.type.replace('_', ' ')}
+                </div>
+                {a.include_in_total === 0 && (
+                  <span
+                    title="Not included in your total balance"
+                    className="ml-auto rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
+                  >
+                    not counted
+                  </span>
+                )}
               </div>
-              {a.include_in_total === 0 && (
-                <span
-                  title="Not included in your total balance"
-                  className="ml-auto rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
-                >
-                  not counted
-                </span>
-              )}
-            </div>
-            <div className="mt-1 text-sm font-medium text-slate-50">
-              {a.icon ? <span className="mr-1">{a.icon}</span> : null}
-              {a.name}
-            </div>
-            <Money
-              minor={balances.get(a.id) ?? a.opening_balance_minor}
-              currency={a.currency}
-              className={`mt-2 block font-display text-xl font-semibold tabular-nums ${
-                (balances.get(a.id) ?? 0) < 0 ? 'text-clay-400' : 'text-slate-100'
-              }`}
-            />
-          </Link>
-        ))}
-      </div>
+              <div className={compact ? 'min-w-0 sm:mt-1' : 'mt-1 min-w-0'}>
+                <div className="truncate text-sm font-medium text-slate-50">
+                  {a.icon ? <span className="mr-1">{a.icon}</span> : null}
+                  {a.name}
+                </div>
+                {compact && a.include_in_total === 0 && (
+                  <div className="text-[11px] text-slate-500 sm:hidden">not counted</div>
+                )}
+              </div>
+              <Money
+                minor={balances.get(a.id) ?? a.opening_balance_minor}
+                currency={a.currency}
+                className={`font-display font-semibold tabular-nums ${
+                  compact ? 'shrink-0 text-base sm:mt-2 sm:block sm:text-xl' : 'mt-2 block text-xl'
+                } ${
+                  (balances.get(a.id) ?? 0) < 0 ? 'text-clay-400' : 'text-slate-100'
+                }`}
+              />
+            </Link>
+          ))}
+        </div>
+      )}
 
       {overBudgets.length > 0 && (
         <Card>
