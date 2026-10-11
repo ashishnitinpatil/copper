@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { PageShell } from './PageShell';
 import { Card, EmptyState } from '@/components/ui/Card';
 import { InfoHint } from '@/components/ui/InfoHint';
+import { ConvertedMark } from '@/components/ConvertedMark';
 import { useQuery } from '@/db/useQuery';
 import { listAccounts, getAccountBalances, type AccountBalance } from '@/db/queries/accounts';
 import { listRecurringRules } from '@/db/queries/recurring';
@@ -220,6 +221,10 @@ export function Cashflow() {
   const minBalance = forecast.length > 0 ? Math.min(...forecast.map((f) => f.balance)) : 0;
 
   const liveAccounts = useMemo(() => accounts.filter((a) => !a.archived_at), [accounts]);
+  // The accounts Trend adds up (all counted ones, or the one picked).
+  const trendCurrencies = (
+    scope === 'all' ? liveAccounts.filter((a) => a.include_in_total === 1) : accounts.filter((a) => a.id === scope)
+  ).map((a) => a.currency);
 
   const trend = useMemo(() => {
     const deltas = deltasState.data;
@@ -393,8 +398,12 @@ export function Cashflow() {
         />
       ) : (
         <Card>
-          <h3 className="mb-3 text-sm font-semibold text-slate-300">
+          <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-slate-300">
             Estimated balance (next {horizon} days)
+            <ConvertedMark
+              currencies={[...nonCreditAccounts, ...ccStatements.map((st) => st.account)].map((a) => a.currency)}
+              target={defaultCurrency}
+            />
           </h3>
           {minBalance < 0 && (
             <div className="mb-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
@@ -488,7 +497,10 @@ export function Cashflow() {
           ) : (
             <>
               <Card>
-                <h3 className="mb-3 text-sm font-semibold text-slate-300">Balance over time</h3>
+                <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-slate-300">
+                  Balance over time
+                  <ConvertedMark currencies={trendCurrencies} target={defaultCurrency} />
+                </h3>
                 <BalanceTrendChart
                   data={trend.balanceData}
                   currency={defaultCurrency}
@@ -522,7 +534,10 @@ export function Cashflow() {
               </div>
 
               <Card>
-                <h3 className="mb-1 text-sm font-semibold text-slate-300">Income & expense</h3>
+                <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-slate-300">
+                  Income & expense
+                  <ConvertedMark currencies={trendCurrencies} target={defaultCurrency} />
+                </h3>
                 <p className="mb-3 text-xs text-slate-500">
                   Last {trend.avg.monthsUsed} month{trend.avg.monthsUsed === 1 ? '' : 's'} of actuals,
                   then {trendWindow} projected months at that average.

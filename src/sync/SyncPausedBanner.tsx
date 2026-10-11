@@ -29,7 +29,7 @@ export function SyncPausedBanner() {
       : sync.foundBookId
         ? 'Your Google account already has a book. Choose how this device joins it.'
         : waitingOnSignIn
-          ? 'Your latest changes are saved on this device but haven’t reached Google Drive yet — your Google sign-in has ended.'
+          ? 'Your latest changes are saved on this device but haven’t reached Google Drive yet — your Google sign-in has expired.'
           : null;
   if (!message) return null;
 

@@ -41,6 +41,8 @@ import { isPickerConfigured, type PickedFile } from '@/sync/googlePicker';
 import { BOOK_FILE_NAME } from '@/sync/bookFile';
 import { GoogleAccessNote } from '@/auth/GoogleAccessNote';
 import { useFreshToken } from '@/auth/useFreshToken';
+import { describeSource } from '@/components/ConvertedMark';
+import type { FxRate } from '@/lib/fx';
 import { TrustDeviceToggle } from '@/auth/TrustDeviceToggle';
 import { SpamHint } from '@/sync/SpamHint';
 import { rememberRetiringIdentity, stashJoinTarget } from '@/sync/joinFresh';
@@ -619,7 +621,7 @@ function SyncSection() {
       {signedIn && needsReconnect && (
         <div className="mb-3 flex items-start justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
           <span className="min-w-0">
-            Your Google sign-in has ended (they last about an hour), so changes are waiting on
+            Your Google sign-in has expired (they last about an hour), so changes are waiting on
             this device. Tap Reconnect — usually you just pick your account.
           </span>
           <button
@@ -1175,7 +1177,7 @@ function DefaultCurrencySection() {
 }
 
 function FxRatesSection() {
-  const { defaultCurrency, fxRates, setFxRate } = useAppSettings();
+  const { defaultCurrency, manualRates, rateInfo, setFxRate } = useAppSettings();
   const accountsState = useQuery<Account[]>(
     useCallback((d) => listAccounts(d, true), []),
     { deps: ['accounts'] },
@@ -1197,8 +1199,9 @@ function FxRatesSection() {
     <Card>
       <h3 className="mb-1 text-sm font-semibold text-slate-300">Exchange rates</h3>
       <p className="mb-3 text-xs text-slate-500">
-        Lets totals in Reports, Budgets and Cashflow mix currencies. Enter what 1 unit is worth in{' '}
-        {defaultCurrency}. You enter these yourself, and they stay on this device.
+        Used when Reports, Budgets, Tags and Cashflow add up amounts in different currencies (marked
+        with ≈). Copper works these out for you from your latest transfer between the two currencies,
+        or an approximate built-in rate. Type a rate only if you want to use your own.
       </p>
       <div className="space-y-2">
         {foreignCurrencies.map((code) => (
@@ -1206,7 +1209,8 @@ function FxRatesSection() {
             key={code}
             code={code}
             defaultCurrency={defaultCurrency}
-            value={fxRates[code]}
+            value={manualRates[code]}
+            automatic={rateInfo[code]}
             onSave={(v) => setFxRate(code, v)}
           />
         ))}
@@ -1220,12 +1224,17 @@ function FxRateRow({
   code,
   defaultCurrency,
   value,
+  automatic,
   onSave,
 }: {
   code: string;
   defaultCurrency: string;
+  /** The rate typed here, if any. */
   value: number | undefined;
-  onSave: (v: number) => void;
+  /** The rate in use and where it came from. */
+  automatic: FxRate | undefined;
+  /** A number to use it, null to go back to the automatic rate. */
+  onSave: (v: number | null) => void;
 }) {
   const [text, setText] = useState(value != null ? String(value) : '');
   useEffect(() => {
@@ -1233,12 +1242,16 @@ function FxRateRow({
   }, [value]);
 
   const commit = () => {
+    if (!text.trim()) {
+      if (value != null) onSave(null);
+      return;
+    }
     const n = Number(text);
     if (Number.isFinite(n) && n > 0 && n !== value) onSave(n);
   };
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span className="w-24 shrink-0 text-sm text-slate-300">1 {code} =</span>
       <Input
         inputMode="decimal"
@@ -1248,11 +1261,21 @@ function FxRateRow({
         onKeyDown={(e) => {
           if (e.key === 'Enter') commit();
         }}
-        placeholder="0.00"
+        placeholder={automatic ? automatic.rate.toLocaleString(undefined, { maximumSignificantDigits: 4 }) : '0.00'}
         className="max-w-[8rem]"
       />
       <span className="text-sm text-slate-400">{defaultCurrency}</span>
-      {value == null && <span className="text-xs text-warning">not set</span>}
+      {value != null ? (
+        <button
+          type="button"
+          className="text-xs font-medium text-brand-400 hover:underline"
+          onClick={() => onSave(null)}
+        >
+          Use automatic
+        </button>
+      ) : (
+        automatic && <span className="text-xs text-slate-500">Automatic: {describeSource(automatic.source)}</span>
+      )}
     </div>
   );
 }

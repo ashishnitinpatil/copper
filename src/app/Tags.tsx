@@ -24,6 +24,7 @@ import {
 } from '@/db/queries/tags';
 import type { TransactionWithMeta } from '@/db/queries/transactions';
 import { formatMoney, parseAmount, fromMinor, CURRENCY_OPTIONS } from '@/lib/money';
+import { ConvertedMark } from '@/components/ConvertedMark';
 import { formatHumanDate, formatRelativeDate } from '@/lib/dates';
 import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
 
@@ -149,6 +150,9 @@ function TagCard({ tag, onOpen }: { tag: TagWithSpend; onOpen: () => void }) {
       )}
       <div className="mt-3 flex items-baseline justify-between">
         <span className={`font-display text-2xl font-semibold tabular-nums ${over ? 'text-clay-400' : 'text-slate-50'}`}>
+          {tag.converted_from.length > 0 && (
+            <span title={`Includes amounts in ${tag.converted_from.join(' and ')}, converted`}>≈ </span>
+          )}
           {formatMoney(tag.expense_minor, tag.currency)}
         </span>
         {hasBudget ? (
@@ -227,7 +231,7 @@ function TagDetail({ tag, onBack, onEdit, formModal }: TagDetailProps) {
           Total spent
         </div>
         <div className={`mt-1 font-display text-4xl font-semibold tabular-nums sm:text-5xl ${over ? 'text-clay-400' : 'text-slate-50'}`}>
-          {formatMoney(tag.expense_minor, tag.currency)}
+          <ConvertedMark currencies={tag.converted_from} target={tag.currency} /> {formatMoney(tag.expense_minor, tag.currency)}
         </div>
         {hasBudget && (
           <>

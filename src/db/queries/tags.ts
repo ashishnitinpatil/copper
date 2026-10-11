@@ -21,6 +21,8 @@ export interface TagWithSpend extends Tag {
   expense_minor: number;
   income_minor: number;
   tx_count: number;
+  /** Currencies of tagged amounts converted into the tag's currency (usually none). */
+  converted_from: string[];
 }
 
 export interface TagCategorySpend {
@@ -192,13 +194,14 @@ export async function listTagsWithSpend(
      WHERE t.kind IN ('expense', 'income')
      GROUP BY tt.tag_id, t.kind, a.currency`,
   );
-  const byTag = new Map<string, { expense: number; income: number; count: number }>();
+  const byTag = new Map<string, { expense: number; income: number; count: number; from: Set<string> }>();
   const cur = new Map(tags.map((t) => [t.id, t.currency]));
   for (const r of rows) {
     const target = cur.get(r.tag_id);
     if (!target) continue; // archived/filtered tag
-    const agg = byTag.get(r.tag_id) ?? { expense: 0, income: 0, count: 0 };
+    const agg = byTag.get(r.tag_id) ?? { expense: 0, income: 0, count: 0, from: new Set<string>() };
     const conv = convert(r.total, r.currency, target, defaultCurrency, fxRates);
+    if (r.currency !== target) agg.from.add(r.currency);
     if (r.kind === 'expense') agg.expense += conv;
     else agg.income += conv;
     agg.count += r.cnt;
@@ -211,6 +214,7 @@ export async function listTagsWithSpend(
       expense_minor: agg?.expense ?? 0,
       income_minor: agg?.income ?? 0,
       tx_count: agg?.count ?? 0,
+      converted_from: agg ? [...agg.from] : [],
     };
   });
 }

@@ -15,6 +15,7 @@ import { fromMinor, parseAmount } from '@/lib/money';
 import { toDateString } from '@/lib/dates';
 import { useAppSettings, useConvert } from './AppSettingsProvider';
 import { EntityHistory } from './Activity';
+import { describeSource } from '@/components/ConvertedMark';
 
 export interface TransferDraft {
   fromId: string;
@@ -38,7 +39,7 @@ interface TransferModalProps {
 
 export function TransferModal({ open, accounts, onClose, transferId, draft, onCreated }: TransferModalProps) {
   const db = useDB();
-  const { defaultCurrency, fxRates } = useAppSettings();
+  const { defaultCurrency, fxRates, rateInfo } = useAppSettings();
   const convert = useConvert();
   const [fromId, setFromId] = useState('');
   const [toId, setToId] = useState('');
@@ -201,8 +202,11 @@ export function TransferModal({ open, accounts, onClose, transferId, draft, onCr
               />
               <p className="mt-1 text-xs text-slate-500">
                 {canEstimate
-                  ? 'Estimated from your exchange rates in Settings. Enter what actually arrived if it differs.'
-                  : `No exchange rate set for ${[currency, toCurrency].filter((c) => !hasRate(c)).join(' and ')}. Enter what arrived.`}
+                  ? `Estimated using ${[currency, toCurrency]
+                      .filter((c) => c !== defaultCurrency && rateInfo[c])
+                      .map((c) => describeSource(rateInfo[c].source))
+                      .join(' and ')}. Enter what actually arrived if it differs.`
+                  : `No exchange rate for ${[currency, toCurrency].filter((c) => !hasRate(c)).join(' and ')}. Enter what arrived.`}
               </p>
             </div>
           )}

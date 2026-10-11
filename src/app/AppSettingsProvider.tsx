@@ -3,6 +3,8 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -10,15 +12,31 @@ import { useDB } from '@/db/DBProvider';
 import type { DB } from '@/db/wasm';
 import { getSetting, setSetting, SETTINGS_KEYS } from '@/db/queries/settings';
 import { detectDefaultCurrency } from '@/lib/locale';
-import { parseFxRates, convert, type FxRates } from '@/lib/fx';
+import { toDateString } from '@/lib/dates';
+import {
+  BUILTIN_PER_USD,
+  parseFxRates,
+  convert,
+  resolveRates,
+  type FxRate,
+  type FxRates,
+  type TransferRateRow,
+} from '@/lib/fx';
+import { useQuery } from '@/db/useQuery';
 
 interface AppSettingsContextValue {
   onboarded: boolean;
   defaultCurrency: string;
+  /** Each currency's rate against the default — typed, from a transfer, or built in. */
   fxRates: FxRates;
+  /** The same rates with where each came from, for explaining converted figures. */
+  rateInfo: Record<string, FxRate>;
+  /** Only the rates typed in Settings. */
+  manualRates: FxRates;
   setOnboarded: (v: boolean) => Promise<void>;
   setDefaultCurrency: (code: string) => Promise<void>;
-  setFxRate: (code: string, rate: number) => Promise<void>;
+  /** Type a rate for a currency, or pass null to go back to the automatic one. */
+  setFxRate: (code: string, rate: number | null) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -29,7 +47,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [onboarded, setOnboardedState] = useState(false);
   const [defaultCurrency, setDefaultCurrencyState] = useState<string>('USD');
-  const [fxRates, setFxRatesState] = useState<FxRates>({});
+  const [manualRates, setManualRates] = useState<FxRates>({});
 
   const refresh = useCallback(async () => {
     const [flag, cur, rates] = await Promise.all([
@@ -42,7 +60,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     // picked a currency. Use the book's own before guessing from the browser
     // (an en-US browser in Dubai would otherwise label dirhams as dollars).
     setDefaultCurrencyState(cur || (await bookCurrency(db)) || detectDefaultCurrency());
-    setFxRatesState(parseFxRates(rates));
+    setManualRates(parseFxRates(rates));
   }, [db]);
 
   // With no currency chosen here, the book's currency can change as its
@@ -109,19 +127,74 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const setFxRate = useCallback(
-    async (code: string, rate: number) => {
-      const next = { ...fxRates, [code]: rate };
+    async (code: string, rate: number | null) => {
+      const next = { ...manualRates };
+      if (rate == null) delete next[code];
+      else next[code] = rate;
       await setSetting(db, SETTINGS_KEYS.FX_RATES, JSON.stringify(next));
-      setFxRatesState(next);
+      setManualRates(next);
     },
-    [db, fxRates],
+    [db, manualRates],
   );
+
+  // The person's own cross-currency transfers, newest first: the rate their bank
+  // actually gave them is the best guess for converting that currency.
+  const transferRows = useQuery<TransferRateRow[]>(
+    useCallback(
+      (d) =>
+        d.execO<TransferRateRow>(
+          `SELECT t1.occurred_on AS date, a1.currency AS fromCurrency, ABS(t1.amount_minor) AS fromMinor,
+                  a2.currency AS toCurrency, ABS(t2.amount_minor) AS toMinor
+           FROM transactions t1
+           JOIN transactions t2 ON t2.id = t1.transfer_peer_id
+           JOIN accounts a1 ON a1.id = t1.account_id
+           JOIN accounts a2 ON a2.id = t2.account_id
+           WHERE t1.kind = 'transfer' AND t1.amount_minor < 0 AND a1.currency <> a2.currency
+             AND t1.occurred_on <= ?
+           ORDER BY t1.occurred_on DESC, t1.created_at DESC
+           LIMIT 500`,
+          [toDateString()],
+        ),
+      [],
+    ),
+    { deps: ['transactions', 'accounts'] },
+  ).data;
+
+  const rateInfo = useMemo(
+    () =>
+      resolveRates(
+        defaultCurrency,
+        [...Object.keys(BUILTIN_PER_USD), ...Object.keys(manualRates)],
+        manualRates,
+        transferRows ?? [],
+      ),
+    [defaultCurrency, manualRates, transferRows],
+  );
+  // Keep the same object while the numbers are unchanged: screens re-query
+  // whenever fxRates changes, and an unrelated edit re-runs the transfer query.
+  const ratesRef = useRef<FxRates>({});
+  const fxRates = useMemo(() => {
+    const next: FxRates = {};
+    for (const [code, r] of Object.entries(rateInfo)) next[code] = r.rate;
+    if (JSON.stringify(next) !== JSON.stringify(ratesRef.current)) ratesRef.current = next;
+    return ratesRef.current;
+  }, [rateInfo]);
 
   if (!ready) return null;
 
   return (
     <AppSettingsContext.Provider
-      value={{ onboarded, defaultCurrency, fxRates, setOnboarded, setDefaultCurrency, setFxRate, refresh }}
+      value={{
+        onboarded,
+        defaultCurrency,
+        fxRates,
+        rateInfo,
+        manualRates,
+        setOnboarded,
+        setDefaultCurrency,
+        setFxRate,
+        refresh,
+      }}
     >
       {children}
     </AppSettingsContext.Provider>

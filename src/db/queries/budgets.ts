@@ -18,6 +18,8 @@ export interface BudgetWithSpent extends Budget {
   category_name: string;
   category_icon: string | null;
   spent_minor: number;
+  /** Currencies of spending converted into the budget's currency (usually none). */
+  converted_from: string[];
 }
 
 export async function listBudgets(db: DB, includeArchived = false): Promise<Budget[]> {
@@ -79,14 +81,16 @@ export async function getBudgetsWithSpent(
   return budgets.map((b) => {
     const ids = [b.category_id, ...getDescendantIds(categories, b.category_id)];
     let spent = 0;
+    const convertedFrom = new Set<string>();
     for (const cid of ids) {
       const byCurrency = spendByCategory.get(cid);
       if (!byCurrency) continue;
       for (const [currency, minor] of byCurrency) {
         spent += convert(minor, currency, b.currency, defaultCurrency, rates);
+        if (currency !== b.currency) convertedFrom.add(currency);
       }
     }
-    return { ...b, spent_minor: spent };
+    return { ...b, spent_minor: spent, converted_from: [...convertedFrom] };
   });
 }
 

@@ -18,6 +18,7 @@ import {
 import { listCategories } from '@/db/queries/categories';
 import type { Category } from '@/db/types';
 import { formatMoney, parseAmount, fromMinor, CURRENCY_OPTIONS } from '@/lib/money';
+import { ConvertedMark } from '@/components/ConvertedMark';
 import { convert } from '@/lib/fx';
 import { toDateString, startOfMonth } from '@/lib/dates';
 import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
@@ -73,7 +74,11 @@ export function Budgets() {
           className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-50 focus:border-brand-500 focus:outline-none"
         />
         {budgets.length > 0 && (
-          <div className="text-sm text-slate-400">
+          <div className="flex items-center gap-1 text-sm text-slate-400">
+            <ConvertedMark
+              currencies={budgets.flatMap((b) => [b.currency, ...b.converted_from])}
+              target={defaultCurrency}
+            />
             {formatMoney(totalSpent, defaultCurrency, { withSymbol: false })} /{' '}
             {formatMoney(totalBudgeted, defaultCurrency, { withSymbol: false })} spent
           </div>
@@ -127,6 +132,9 @@ function BudgetCard({ budget, onEdit }: { budget: BudgetWithSpent; onEdit: () =>
       </div>
       <div className="mt-3 flex items-baseline justify-between">
         <span className={`text-lg font-semibold tabular-nums ${over ? 'text-clay-400' : 'text-slate-50'}`}>
+          {budget.converted_from.length > 0 && (
+            <span title={`Includes spending in ${budget.converted_from.join(' and ')}, converted`}>≈ </span>
+          )}
           {formatMoney(budget.spent_minor, budget.currency)}
         </span>
         <span className="text-sm text-slate-500">

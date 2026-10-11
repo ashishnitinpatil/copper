@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { PageShell } from './PageShell';
 import { Card, EmptyState } from '@/components/ui/Card';
 import { InfoHint } from '@/components/ui/InfoHint';
+import { ConvertedMark } from '@/components/ConvertedMark';
 import { useQuery } from '@/db/useQuery';
 import type { DB } from '@/db/wasm';
 import { formatMoney } from '@/lib/money';
@@ -144,7 +145,8 @@ export function Reports() {
             />
             {grandTotal > 0 && (
               <div className="flex items-center gap-1.5 text-sm text-slate-400">
-                Total: {formatMoney(grandTotal, currency)}
+                Total: <ConvertedMark currencies={(catSpend.data ?? []).map((r) => r.currency)} target={currency} />
+                {formatMoney(grandTotal, currency)}
                 <InfoHint label="What the total counts" title="Expenses only" align="right">
                   This adds up spending by category — income and transfers between
                   your accounts aren’t included.
@@ -194,6 +196,12 @@ export function Reports() {
               <CashflowTrendChart data={monthly} currency={currency} />
             </Card>
             <Card>
+              {(monthlyData.data ?? []).some((r) => r.currency !== currency) && (
+                <p className="mb-2 flex items-center gap-1.5 text-xs text-slate-500">
+                  <ConvertedMark currencies={(monthlyData.data ?? []).map((r) => r.currency)} target={currency} />
+                  Amounts in other currencies are converted to {currency}.
+                </p>
+              )}
               <div className="-mx-1 overflow-x-auto">
               <table className="w-full min-w-[24rem] text-left text-sm">
                 <thead>

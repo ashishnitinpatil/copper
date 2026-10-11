@@ -70,8 +70,10 @@ test.describe('Transfers', () => {
     await selectCombobox(page.locator('.fixed'), 'From', 'Cash');
     await selectCombobox(page.locator('.fixed'), 'To', 'Dollar card');
     await page.locator('.fixed').getByLabel('Amount sent (INR)', { exact: true }).fill('1000');
-    // No INR/USD rate is set, so nothing is guessed — the person enters it.
-    await expect(page.locator('.fixed').getByLabel('Amount received (USD)', { exact: true })).toHaveValue('');
+    // With no transfer between these currencies yet, the estimate uses the
+    // built-in rate (1 USD ≈ 88 INR) and says so; the person enters what arrived.
+    await expect(page.locator('.fixed').getByLabel('Amount received (USD)', { exact: true })).toHaveValue('11.36');
+    await expect(page.locator('.fixed').getByText(/approximate built-in rate/)).toBeVisible();
     await page.locator('.fixed').getByLabel('Amount received (USD)', { exact: true }).fill('12');
     await page.getByRole('button', { name: 'Transfer', exact: true }).click();
     await page.waitForTimeout(500);

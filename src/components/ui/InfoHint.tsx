@@ -12,6 +12,8 @@ interface InfoHintProps {
    * the right edge of the screen so the popover opens leftward. Default "left".
    */
   align?: 'left' | 'right';
+  /** Text shown instead of the "?" icon (e.g. "≈" beside a converted figure). */
+  trigger?: string;
 }
 
 /**
@@ -19,15 +21,19 @@ interface InfoHintProps {
  * Icon-only by default so it stays out of the way; the popover is pure CSS
  * (group-hover / group-focus-within) and inherits the active theme's tokens.
  */
-export function InfoHint({ label, title, children, align = 'left' }: InfoHintProps) {
+export function InfoHint({ label, title, children, align = 'left', trigger }: InfoHintProps) {
   return (
     <span className="group relative inline-flex">
       <button
         type="button"
         aria-label={label}
-        className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-600 text-[10px] font-semibold leading-none text-slate-400 transition-colors hover:border-brand-400 hover:text-brand-300 focus:border-brand-400 focus:text-brand-300 focus:outline-none"
+        className={
+          trigger
+            ? 'cursor-help border-b border-dotted border-current leading-none text-inherit transition-colors hover:text-brand-300 focus:text-brand-300 focus:outline-none'
+            : 'flex h-4 w-4 items-center justify-center rounded-full border border-slate-600 text-[10px] font-semibold leading-none text-slate-400 transition-colors hover:border-brand-400 hover:text-brand-300 focus:border-brand-400 focus:text-brand-300 focus:outline-none'
+        }
       >
-        ?
+        {trigger ?? '?'}
       </button>
       <span
         role="tooltip"
