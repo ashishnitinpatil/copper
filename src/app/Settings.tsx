@@ -461,6 +461,15 @@ function SyncSection() {
   // swallows the next "Sync now". A sync refreshes the token, and this re-runs.
   const freshToken =
     auth.google && auth.google.expiresAt - 60_000 > Date.now() ? auth.google.accessToken : null;
+  // Re-render when the sign-in runs out, so the status doesn't keep saying
+  // "Idle" until the next background sync notices.
+  const [, setExpiredTick] = useState(0);
+  useEffect(() => {
+    if (!freshToken || !auth.google) return;
+    const ms = auth.google.expiresAt - 60_000 - Date.now();
+    const id = setTimeout(() => setExpiredTick((n) => n + 1), Math.max(0, ms) + 500);
+    return () => clearTimeout(id);
+  }, [freshToken, auth.google]);
   useEffect(() => {
     const bookId = sync.bookId;
     if (!freshToken || !bookId) return;
@@ -484,8 +493,12 @@ function SyncSection() {
   const busy = sync.status === 'syncing';
   const link = sync.bookId ? inviteLink(sync.bookId) : null;
 
-  const needsReconnect = signedIn && sync.status === 'signed-out';
+  // Background syncs never reopen an expired sign-in (that takes a click), so
+  // an expired one means changes wait here until the person taps.
+  const needsReconnect =
+    signedIn && (sync.status === 'signed-out' || (sync.status === 'idle' && !freshToken));
   const statusLabel = (() => {
+    if (needsReconnect) return 'Reconnect needed';
     switch (sync.status) {
       case 'syncing':
         return 'Syncing…';
@@ -501,6 +514,7 @@ function SyncSection() {
   })();
 
   const statusTone = (() => {
+    if (needsReconnect) return 'text-warning';
     switch (sync.status) {
       case 'syncing':
         return 'text-info';
@@ -614,8 +628,8 @@ function SyncSection() {
       {signedIn && needsReconnect && (
         <div className="mb-3 flex items-start justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
           <span className="min-w-0">
-            Will reconnect to Google on the next sync — usually instant and silent. If it doesn't,
-            use Reconnect to sign in again.
+            Your Google sign-in has ended (they last about an hour), so changes are waiting on
+            this device. Tap Reconnect — usually you just pick your account.
           </span>
           <button
             type="button"
@@ -1833,6 +1847,7 @@ function ImportSection() {
   const [mainAccount, setMainAccount] = useState<string>('');
   const [parseError, setParseError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
   const reset = () => {
@@ -1891,6 +1906,7 @@ function ImportSection() {
   const runImport = async () => {
     if (!plan) return;
     setImporting(true);
+    setProgress(null);
     try {
       const overrides: ImportOverrides = {
         accountTypes: typeOverrides,
@@ -1902,7 +1918,7 @@ function ImportSection() {
       // Back the shared book up before any imported row can reach it — set before
       // the import starts, since a sync could otherwise run mid-import.
       await markSafetyBackup(db, 'before import');
-      const res = await runMonefyImport(db, plan, overrides);
+      const res = await runMonefyImport(db, plan, overrides, (done, total) => setProgress({ done, total }));
       await settings.refresh();
       setResult(
         `Imported ${res.accountsCreated} accounts, ${res.categoriesCreated} categories, ${res.transactionsCreated} transactions, ${res.transfersCreated} transfers.`,
@@ -2105,6 +2121,29 @@ function ImportSection() {
             {parseError && (
               <div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
                 {parseError}
+              </div>
+            )}
+
+            {importing && (
+              <div role="status" className="space-y-1.5">
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="text-slate-200">
+                    {!progress
+                      ? wipeFirst
+                        ? 'Clearing your current data…'
+                        : 'Starting…'
+                      : progress.done < progress.total
+                        ? `Importing ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()} entries…`
+                        : 'Finishing up…'}
+                  </span>
+                  <span className="text-xs text-slate-500">Keep this tab open</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-brand-500 transition-[width]"
+                    style={{ width: `${progress ? Math.round((progress.done / progress.total) * 100) : 2}%` }}
+                  />
+                </div>
               </div>
             )}
 

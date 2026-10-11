@@ -62,4 +62,28 @@ test.describe('Transactions', () => {
     await expect(page.locator('main li').getByText('Transport').first()).toBeVisible();
     expect(await page.locator('main li').getByText('Food & Dining').count()).toBe(0);
   });
+
+  test('scheduled entries fold into Upcoming and stay out of Recent', async ({ page }) => {
+    const future = new Date();
+    future.setDate(future.getDate() + 10);
+    const iso = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`;
+    await page.getByRole('link', { name: 'Add', exact: true }).first().click();
+    await waitForDB(page);
+    await page.locator('main input[type="date"]').fill(iso);
+    await addExpense(page, '300', /Transport/);
+
+    await page.getByRole('link', { name: 'Transactions', exact: true }).first().click();
+    await waitForDB(page);
+    await expect(page.getByText(/1 scheduled · next/)).toBeVisible();
+    // Folded: today's entries lead, the scheduled one is hidden until opened.
+    await expect(page.locator('main').getByText('₹500.00').first()).toBeVisible();
+    await expect(page.locator('main').getByText(/₹300\.00/).first()).toBeHidden();
+    await page.getByText('Upcoming', { exact: true }).click();
+    await expect(page.locator('main').getByText(/₹300\.00/).first()).toBeVisible();
+
+    await page.getByRole('link', { name: 'Dashboard', exact: true }).first().click();
+    await waitForDB(page);
+    await expect(page.locator('main').getByText('₹500.00').first()).toBeVisible();
+    await expect(page.locator('main').getByText(/₹300\.00/)).toHaveCount(0);
+  });
 });

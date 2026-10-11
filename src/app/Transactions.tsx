@@ -169,6 +169,91 @@ export function Transactions() {
     filters.dateFrom,
     filters.dateTo,
   ].filter(Boolean).length;
+  const today = toDateString();
+  const past = grouped.filter(([date]) => date <= today);
+  // Soonest first: "what's coming next" reads top-down.
+  const upcoming = grouped.filter(([date]) => date > today).reverse();
+  const upcomingCount = upcoming.reduce((n, [, items]) => n + items.length, 0);
+
+  // A day's heading and its entries; used for both past and upcoming days.
+  const renderDay = ([date, items]: [string, TransactionWithMeta[]]) => {
+    const dayTotal = items.reduce((sum, t) => sum + t.amount_minor, 0);
+    return (
+      <div key={date}>
+        <div className="mb-2 flex items-baseline justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{formatRelativeDate(date)}</h3>
+          <span className={`text-xs tabular-nums ${dayTotal < 0 ? 'text-clay-400' : 'text-mint-400'}`}>
+            {formatMoney(dayTotal, items[0].account_currency, { signed: true })}
+          </span>
+        </div>
+        <Card className="!p-0">
+          <ul className="divide-y divide-slate-800">
+            {items.map((t) => {
+              const txTags = tagsByTx.get(t.id) ?? [];
+              const isSel = selected.has(t.id);
+              return (
+                <li key={t.id}>
+                  <button
+                    onClick={() => (selectMode ? toggleSelected(t.id) : setEditing(t))}
+                    className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-800/40 ${
+                      isSel ? 'bg-brand-500/10' : ''
+                    }`}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      {selectMode && (
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                            isSel ? 'border-brand-400 bg-brand-500 text-white' : 'border-slate-600'
+                          }`}
+                        >
+                          {isSel && <Check className="h-3.5 w-3.5" />}
+                        </span>
+                      )}
+                      {t.kind === 'transfer' ? (
+                        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-800 text-slate-400">
+                          ↔
+                        </span>
+                      ) : (
+                        <CategoryCoin
+                          name={t.category_name ?? 'Uncategorised'}
+                          color={t.category_color}
+                          icon={t.category_icon}
+                          size="sm"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-slate-50">
+                          {t.category_name ?? (t.kind === 'transfer' ? 'Transfer' : 'Uncategorised')}
+                        </div>
+                        <div className="truncate text-xs text-slate-500">
+                          {t.account_name}
+                          {t.note ? ` · ${t.note}` : ''}
+                        </div>
+                        {txTags.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {txTags.map((tg) => (
+                              <TagChip key={tg.id} tag={tg} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div
+                      className={`shrink-0 text-sm font-semibold tabular-nums ${
+                        t.amount_minor < 0 ? 'text-clay-400' : 'text-mint-400'
+                      }`}
+                    >
+                      {formatMoney(t.amount_minor, t.account_currency, { signed: true })}
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      </div>
+    );
+  };
 
   return (
     <PageShell
@@ -280,86 +365,23 @@ export function Transactions() {
         <EmptyState title="No transactions match" description="Adjust filters or add some entries." />
       )}
 
-      <div className="space-y-6">
-        {grouped.map(([date, items]) => {
-          const dayTotal = items.reduce((sum, t) => sum + t.amount_minor, 0);
-          return (
-            <div key={date}>
-              <div className="mb-2 flex items-baseline justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{formatRelativeDate(date)}</h3>
-                <span className={`text-xs tabular-nums ${dayTotal < 0 ? 'text-clay-400' : 'text-mint-400'}`}>
-                  {formatMoney(dayTotal, items[0].account_currency, { signed: true })}
-                </span>
-              </div>
-              <Card className="!p-0">
-                <ul className="divide-y divide-slate-800">
-                  {items.map((t) => {
-                    const txTags = tagsByTx.get(t.id) ?? [];
-                    const isSel = selected.has(t.id);
-                    return (
-                      <li key={t.id}>
-                        <button
-                          onClick={() => (selectMode ? toggleSelected(t.id) : setEditing(t))}
-                          className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-800/40 ${
-                            isSel ? 'bg-brand-500/10' : ''
-                          }`}
-                        >
-                          <div className="flex min-w-0 items-center gap-3">
-                            {selectMode && (
-                              <span
-                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
-                                  isSel ? 'border-brand-400 bg-brand-500 text-white' : 'border-slate-600'
-                                }`}
-                              >
-                                {isSel && <Check className="h-3.5 w-3.5" />}
-                              </span>
-                            )}
-                            {t.kind === 'transfer' ? (
-                              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-800 text-slate-400">
-                                ↔
-                              </span>
-                            ) : (
-                              <CategoryCoin
-                                name={t.category_name ?? 'Uncategorised'}
-                                color={t.category_color}
-                                icon={t.category_icon}
-                                size="sm"
-                              />
-                            )}
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium text-slate-50">
-                                {t.category_name ?? (t.kind === 'transfer' ? 'Transfer' : 'Uncategorised')}
-                              </div>
-                              <div className="truncate text-xs text-slate-500">
-                                {t.account_name}
-                                {t.note ? ` · ${t.note}` : ''}
-                              </div>
-                              {txTags.length > 0 && (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {txTags.map((tg) => (
-                                    <TagChip key={tg.id} tag={tg} />
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div
-                            className={`shrink-0 text-sm font-semibold tabular-nums ${
-                              t.amount_minor < 0 ? 'text-clay-400' : 'text-mint-400'
-                            }`}
-                          >
-                            {formatMoney(t.amount_minor, t.account_currency, { signed: true })}
-                          </div>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </Card>
-            </div>
-          );
-        })}
-      </div>
+      {upcoming.length > 0 && (
+        // Scheduled entries (e.g. future loan EMIs) stay folded so the list opens
+        // on what actually happened. Open by default when nothing else matches.
+        <details open={past.length === 0} className="group rounded-xl border border-slate-800 bg-slate-900/40">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+            <span className="text-sm font-medium text-slate-200">Upcoming</span>
+            <span className="text-xs text-slate-500">
+              {upcomingCount} scheduled · next {formatRelativeDate(upcoming[0][0])}{' '}
+              <span className="font-medium text-brand-400 group-open:hidden">Show</span>
+              <span className="hidden font-medium text-brand-400 group-open:inline">Hide</span>
+            </span>
+          </summary>
+          <div className="space-y-6 border-t border-slate-800 p-4">{upcoming.map(renderDay)}</div>
+        </details>
+      )}
+
+      <div className="space-y-6">{past.map(renderDay)}</div>
 
       {selectMode && (
         <div className="fixed inset-x-3 bottom-24 z-40 mx-auto flex max-w-3xl flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-slate-700 bg-slate-900 px-4 py-2.5 shadow-2xl lg:bottom-8">

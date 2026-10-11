@@ -148,7 +148,8 @@ export function Dashboard() {
     { deps: ['accounts', 'transactions'] },
   );
   const recentState = useQuery<TransactionWithMeta[]>(
-    useCallback((d) => listTransactions(d, { limit: 8 }), []),
+    // Up to today: scheduled future entries (e.g. loan EMIs) aren't "recent".
+    useCallback((d) => listTransactions(d, { limit: 8, dateTo: toDateString() }), []),
     { deps: ['transactions'] },
   );
   const budgetsState = useQuery<BudgetWithSpent[]>(

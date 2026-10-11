@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useDB } from '@/db/DBProvider';
+import type { DB } from '@/db/wasm';
 import { getSetting, setSetting, SETTINGS_KEYS } from '@/db/queries/settings';
 import { detectDefaultCurrency } from '@/lib/locale';
 import { parseFxRates, convert, type FxRates } from '@/lib/fx';
@@ -37,9 +38,31 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       getSetting(db, SETTINGS_KEYS.FX_RATES),
     ]);
     setOnboardedState(flag === 'true');
-    setDefaultCurrencyState(cur || detectDefaultCurrency());
+    // Settings live on each device; a device that joined someone's book never
+    // picked a currency. Use the book's own before guessing from the browser
+    // (an en-US browser in Dubai would otherwise label dirhams as dollars).
+    setDefaultCurrencyState(cur || (await bookCurrency(db)) || detectDefaultCurrency());
     setFxRatesState(parseFxRates(rates));
   }, [db]);
+
+  // With no currency chosen here, the book's currency can change as its
+  // accounts arrive (a first sync), so follow it.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const off = db.onUpdate((_type, _dbName, tblName) => {
+      if (tblName !== 'accounts' || timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void getSetting(db, SETTINGS_KEYS.DEFAULT_CURRENCY).then((cur) => {
+          if (!cur) void refresh();
+        });
+      }, 200);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      off();
+    };
+  }, [db, refresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,4 +150,13 @@ export function useConvert(): (amountMinor: number, from: string, to?: string) =
       convert(amountMinor, from, to, defaultCurrency, fxRates),
     [defaultCurrency, fxRates],
   );
+}
+
+/** The main account's currency, else the one most accounts use; null for an empty book. */
+async function bookCurrency(db: DB): Promise<string | null> {
+  const rows = await db.execO<{ currency: string }>(
+    `SELECT currency FROM accounts WHERE archived_at IS NULL
+     GROUP BY currency ORDER BY MAX(is_main) DESC, COUNT(*) DESC LIMIT 1`,
+  );
+  return rows[0]?.currency ?? null;
 }

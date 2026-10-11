@@ -85,8 +85,16 @@ export async function runMonefyImport(
   db: DB,
   plan: ImportPlan,
   overrides: ImportOverrides,
+  /** Reports how many of the plan's entries are written so far (about every 100). */
+  onProgress?: (done: number, total: number) => void,
 ): Promise<ImportResult> {
   const now = nowIso();
+  const total = plan.transactions.length + plan.transfers.length;
+  let done = 0;
+  const step = () => {
+    done++;
+    if (done % 100 === 0 || done === total) onProgress?.(done, total);
+  };
   const accountIds = new Map<string, string>();
   const categoryIds = new Map<string, string>();
   // Every row created by this import shares one batch + source, so the audit
@@ -183,6 +191,7 @@ export async function runMonefyImport(
     }
 
     for (const t of plan.transactions) {
+      step();
       const accountId = accountIds.get(t.account);
       const categoryId = categoryIds.get(t.category);
       if (!accountId || !categoryId) continue;
@@ -216,6 +225,7 @@ export async function runMonefyImport(
     }
 
     for (const tr of plan.transfers) {
+      step();
       const fromId = accountIds.get(tr.fromAccount);
       const toId = accountIds.get(tr.toAccount);
       if (!fromId || !toId) continue;
