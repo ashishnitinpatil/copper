@@ -14,6 +14,7 @@ import { retireDevice } from '@/db/changeLog';
 import {
   syncNow,
   getSyncStatus,
+  hasUnsyncedChanges,
   listKnownPeers,
   joinSharedBook,
   BookFoundError,
@@ -64,6 +65,8 @@ interface SyncContextValue {
   /** This account's own "Copper Expense Tracker" folder. */
   appFolderId: string | null;
   peers: KnownPeer[];
+  /** This device has changes the shared book doesn't have yet. */
+  unsynced: boolean;
   triggerSync: (reason?: string) => Promise<void>;
   // Switch to a partner's shared book (picked in the Picker). "merge" unions
   // both ledgers; "replace" overwrites the book with this device's data. Both
@@ -103,6 +106,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [bookId, setBookId] = useState<string | null>(null);
   const [appFolderId, setAppFolderId] = useState<string | null>(null);
   const [peers, setPeers] = useState<KnownPeer[]>([]);
+  const [unsynced, setUnsynced] = useState(false);
   const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
   const [backupRetention, setBackupRetentionState] = useState<number>(DEFAULT_BACKUP_RETENTION);
   const [backupIntervalDays, setBackupIntervalState] = useState<number>(DEFAULT_BACKUP_INTERVAL_DAYS);
@@ -125,6 +129,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setBookId(s.bookId);
     setAppFolderId(s.appFolderId);
     setPeers(p);
+    setUnsynced(await hasUnsyncedChanges(db));
     setLastBackupAt(backupAt);
     setBackupRetentionState(retention);
     setBackupIntervalState(interval);
@@ -133,6 +138,23 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshStatus();
   }, [refreshStatus]);
+
+  // Edits mark the device as holding unsent changes (cleared by the next sync,
+  // which refreshes status). One check per burst of row events.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const off = db.onUpdate(() => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void hasUnsyncedChanges(db).then(setUnsynced);
+      }, 500);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      off();
+    };
+  }, [db]);
 
   const triggerSync = useCallback(
     async (reason?: string) => {
@@ -345,6 +367,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         bookId,
         appFolderId,
         peers,
+        unsynced,
         triggerSync,
         joinBook,
         dismissError,

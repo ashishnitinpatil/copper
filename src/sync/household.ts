@@ -301,6 +301,13 @@ export interface SyncStatusInfo {
   appFolderId: string | null;
 }
 
+/** True when this device holds changes the shared book doesn't have yet. */
+export async function hasUnsyncedChanges(db: DB): Promise<boolean> {
+  if (!(await getSetting(db, SYNC_KEYS.BOOK_FILE_ID))) return false;
+  const syncedDbv = Number((await getSetting(db, SYNC_KEYS.SYNCED_DB_VERSION)) ?? -1);
+  return (await getLocalDbVersion(db)) !== syncedDbv;
+}
+
 export async function getSyncStatus(db: DB): Promise<SyncStatusInfo> {
   const [lastSyncAt, bookId, appFolderId] = await Promise.all([
     getSetting(db, SYNC_KEYS.LAST_SYNC_AT),

@@ -40,6 +40,7 @@ import { useSync } from '@/sync/SyncProvider';
 import { isPickerConfigured, type PickedFile } from '@/sync/googlePicker';
 import { BOOK_FILE_NAME } from '@/sync/bookFile';
 import { GoogleAccessNote } from '@/auth/GoogleAccessNote';
+import { useFreshToken } from '@/auth/useFreshToken';
 import { TrustDeviceToggle } from '@/auth/TrustDeviceToggle';
 import { SpamHint } from '@/sync/SpamHint';
 import { rememberRetiringIdentity, stashJoinTarget } from '@/sync/joinFresh';
@@ -459,17 +460,7 @@ function SyncSection() {
   // Only with a token that's still fresh. Refreshing one means a Google popup,
   // which the browser blocks without a click — and the half-open request then
   // swallows the next "Sync now". A sync refreshes the token, and this re-runs.
-  const freshToken =
-    auth.google && auth.google.expiresAt - 60_000 > Date.now() ? auth.google.accessToken : null;
-  // Re-render when the sign-in runs out, so the status doesn't keep saying
-  // "Idle" until the next background sync notices.
-  const [, setExpiredTick] = useState(0);
-  useEffect(() => {
-    if (!freshToken || !auth.google) return;
-    const ms = auth.google.expiresAt - 60_000 - Date.now();
-    const id = setTimeout(() => setExpiredTick((n) => n + 1), Math.max(0, ms) + 500);
-    return () => clearTimeout(id);
-  }, [freshToken, auth.google]);
+  const freshToken = useFreshToken();
   useEffect(() => {
     const bookId = sync.bookId;
     if (!freshToken || !bookId) return;
