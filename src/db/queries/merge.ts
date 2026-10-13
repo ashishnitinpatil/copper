@@ -1,6 +1,6 @@
 import type { DB } from '../wasm';
 import type { Account, Budget, Category, RecurringRule, Transaction } from '../types';
-import { logDelete, logUpdate, newBatchId, snapshotEntity, type LogOptions } from '../changeLog';
+import { logUpdate, newBatchId, recordChange, snapshotEntity, type LogOptions } from '../changeLog';
 import type { RecurringTemplate } from './recurring';
 import { getAccountBalances } from './accounts';
 import { toDateString } from '@/lib/dates';
@@ -92,7 +92,7 @@ export async function mergeCategory(db: DB, sourceId: string, targetId: string):
   await repointRecurringTemplates(db, 'category_id', sourceId, targetId, opts);
 
   await db.exec('DELETE FROM categories WHERE id = ?', [sourceId]);
-  await logDelete(db, 'category', asRow(source), opts);
+  await recordChange(db, 'category', sourceId, 'delete', { before: asRow(source), merged_into: targetId }, opts);
 }
 
 export async function mergeAccount(db: DB, sourceId: string, targetId: string): Promise<void> {
@@ -158,5 +158,5 @@ export async function mergeAccount(db: DB, sourceId: string, targetId: string): 
   await logUpdate(db, 'account', targetId, targetBefore, opts);
 
   await db.exec('DELETE FROM accounts WHERE id = ?', [sourceId]);
-  await logDelete(db, 'account', asRow(source), opts);
+  await recordChange(db, 'account', sourceId, 'delete', { before: asRow(source), merged_into: targetId }, opts);
 }

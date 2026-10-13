@@ -115,7 +115,7 @@ export type ChangeOp = 'insert' | 'update' | 'delete';
 /** Parsed shape of `change_log.diff` (stored as JSON text). */
 export type ChangeDiff =
   | { after: Record<string, unknown> }
-  | { before: Record<string, unknown> }
+  | { before: Record<string, unknown>; merged_into?: string }
   | { changes: Record<string, { old: unknown; new: unknown }> };
 
 export interface ChangeLogEntry {
@@ -134,6 +134,8 @@ export interface ChangeLogEntry {
 export interface Device {
   site_id: string;
   name: string;
+  /** First name of the Google account signed in on this device ('' if never). */
+  person: string;
   last_seen: string;
   /** Set once a reset replaced this identity (see retireDevice). */
   retired_at: string;

@@ -10,7 +10,7 @@ import {
 import { useDB } from '@/db/DBProvider';
 import { useAuth } from '@/auth/AuthProvider';
 import { useAppSettings } from '@/app/AppSettingsProvider';
-import { retireDevice } from '@/db/changeLog';
+import { retireDevice, setLocalDevicePerson } from '@/db/changeLog';
 import {
   syncNow,
   getSyncStatus,
@@ -138,6 +138,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshStatus();
   }, [refreshStatus]);
+
+  // Name this device after whoever signed in, so the Activity log on every
+  // device can say "Ashish added…" instead of naming a device.
+  const person = auth.google?.identity.name?.trim().split(/\s+/)[0] ?? '';
+  useEffect(() => {
+    if (person) void setLocalDevicePerson(db, person);
+  }, [db, person]);
 
   // Edits mark the device as holding unsent changes (cleared by the next sync,
   // which refreshes status). One check per burst of row events.

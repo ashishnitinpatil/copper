@@ -214,35 +214,152 @@ export async function setLocalDeviceName(db: DB, name: string): Promise<void> {
 
 export interface ActivityEntry extends ChangeLogEntry {
   device_name: string | null;
-  /** The record's *current* name, resolved live (null if it has none or was deleted). */
-  entity_name: string | null;
-  /** Current note, for transactions (null otherwise). */
-  entity_note: string | null;
+  /** First name of whoever was signed in on the originating device ('' / null if unknown). */
+  device_person: string | null;
+  /** The record as it is now (or as it was when deleted), to describe edits in context. */
+  current: Row | null;
 }
 
-// Resolve the live device name and the record's current label. The entity_id is
-// polymorphic, so each name-bearing table is joined on a guard matching `entity`;
-// COALESCE picks whichever matched. A deleted record yields null here, and the UI
-// falls back to the name captured in the diff snapshot.
-const ACTIVITY_SELECT = `
-  SELECT cl.*, d.name AS device_name,
-         COALESCE(a.name, c.name, tg.name) AS entity_name,
-         t.note AS entity_note
-  FROM change_log cl
-  LEFT JOIN devices d ON d.site_id = cl.site_id
-  LEFT JOIN accounts a ON cl.entity = 'account' AND a.id = cl.entity_id
-  LEFT JOIN categories c ON cl.entity = 'category' AND c.id = cl.entity_id
-  LEFT JOIN tags tg ON cl.entity = 'tag' AND tg.id = cl.entity_id
-  LEFT JOIN transactions t ON cl.entity = 'transaction' AND t.id = cl.entity_id`;
+/**
+ * One line of the feed: a single change, or every row of one bulk operation
+ * (an import, a merge, both legs of a transfer). Big batches carry only their
+ * first rows in `entries`; `counts` always covers the whole batch.
+ */
+export interface ActivityGroup {
+  key: string;
+  batch_id: string | null;
+  source: string | null;
+  at: string;
+  site_id: string;
+  device_name: string | null;
+  device_person: string | null;
+  total: number;
+  counts: { entity: ChangeEntity; op: ChangeOp; n: number }[];
+  entries: ActivityEntry[];
+}
 
-/** Recent activity across the whole book, newest first, with device + record names. */
-export async function listActivity(db: DB, limit = 200, offset = 0): Promise<ActivityEntry[]> {
-  return db.execO<ActivityEntry>(
-    `${ACTIVITY_SELECT}
-     ORDER BY cl.at DESC, cl.id DESC
-     LIMIT ? OFFSET ?`,
-    [limit, offset],
+const ENTRY_SELECT = `
+  SELECT cl.*, d.name AS device_name, d.person AS device_person
+  FROM change_log cl
+  LEFT JOIN devices d ON d.site_id = cl.site_id`;
+
+/** Rows of a batch loaded for display; the rest are only counted. */
+const BATCH_PREVIEW = 50;
+
+/** Attach each entry's live record (one query per table, not per row). */
+async function attachCurrent(db: DB, rows: Omit<ActivityEntry, 'current'>[]): Promise<ActivityEntry[]> {
+  const ids = new Map<ChangeEntity, Set<string>>();
+  for (const r of rows) {
+    if (!TABLE[r.entity]) continue;
+    if (!ids.has(r.entity)) ids.set(r.entity, new Set());
+    ids.get(r.entity)!.add(r.entity_id);
+  }
+  const live = new Map<string, Row>();
+  for (const [entity, set] of ids) {
+    const list = [...set];
+    for (let i = 0; i < list.length; i += 500) {
+      const chunk = list.slice(i, i + 500);
+      const found = await db.execO<Row>(
+        `SELECT * FROM ${TABLE[entity]} WHERE id IN (${chunk.map(() => '?').join(',')})`,
+        chunk,
+      );
+      for (const f of found) live.set(`${entity}:${String(f.id)}`, f);
+      // Deleted since: its last-known state is the delete entry's snapshot.
+      const missing = chunk.filter((id) => !live.has(`${entity}:${id}`));
+      if (missing.length === 0) continue;
+      const gone = await db.execO<{ entity_id: string; diff: string }>(
+        `SELECT entity_id, diff FROM change_log
+         WHERE op = 'delete' AND entity = ? AND entity_id IN (${missing.map(() => '?').join(',')})`,
+        [entity, ...missing],
+      );
+      for (const g of gone) {
+        try {
+          const before = (JSON.parse(g.diff) as { before?: Row }).before;
+          if (before) live.set(`${entity}:${g.entity_id}`, before);
+        } catch {
+          // An unreadable snapshot just leaves the entry without context.
+        }
+      }
+    }
+  }
+  return rows.map((r) => ({ ...r, current: live.get(`${r.entity}:${r.entity_id}`) ?? null }));
+}
+
+/**
+ * Recent activity, newest first, one item per action: a bulk operation counts
+ * once however many rows it wrote, so a 12,000-row import doesn't push
+ * everything else off the page.
+ */
+export async function listActivityGroups(
+  db: DB,
+  limit = 100,
+): Promise<{ groups: ActivityGroup[]; hasMore: boolean }> {
+  const heads = await db.execO<{ gkey: string; batch_id: string | null; at: string; total: number }>(
+    `SELECT COALESCE(batch_id, id) AS gkey, batch_id, MAX(at) AS at, COUNT(*) AS total
+     FROM change_log
+     GROUP BY gkey
+     ORDER BY at DESC, gkey DESC
+     LIMIT ?`,
+    [limit + 1],
   );
+  const hasMore = heads.length > limit;
+  const page = heads.slice(0, limit);
+  const singles = page.filter((h) => !h.batch_id).map((h) => h.gkey);
+  const batches = page.filter((h) => h.batch_id).map((h) => h.gkey);
+
+  const raw: Omit<ActivityEntry, 'current'>[] = [];
+  const counts = new Map<string, ActivityGroup['counts']>();
+  for (let i = 0; i < singles.length; i += 500) {
+    const chunk = singles.slice(i, i + 500);
+    raw.push(
+      ...(await db.execO<Omit<ActivityEntry, 'current'>>(
+        `${ENTRY_SELECT} WHERE cl.id IN (${chunk.map(() => '?').join(',')})`,
+        chunk,
+      )),
+    );
+  }
+  for (const batchId of batches) {
+    raw.push(
+      ...(await db.execO<Omit<ActivityEntry, 'current'>>(
+        `${ENTRY_SELECT} WHERE cl.batch_id = ? ORDER BY cl.at, cl.id LIMIT ${BATCH_PREVIEW}`,
+        [batchId],
+      )),
+    );
+    counts.set(
+      batchId,
+      await db.execO<{ entity: ChangeEntity; op: ChangeOp; n: number }>(
+        'SELECT entity, op, COUNT(*) AS n FROM change_log WHERE batch_id = ? GROUP BY entity, op',
+        [batchId],
+      ),
+    );
+  }
+  const entries = await attachCurrent(db, raw);
+
+  const byKey = new Map<string, ActivityEntry[]>();
+  for (const e of entries) {
+    const k = e.batch_id ?? e.id;
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k)!.push(e);
+  }
+  const groups: ActivityGroup[] = [];
+  for (const h of page) {
+    const list = (byKey.get(h.gkey) ?? []).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+    const head = list[0];
+    if (!head) continue;
+    groups.push({
+      key: h.gkey,
+      batch_id: h.batch_id,
+      source: head.source,
+      at: h.at,
+      site_id: head.site_id,
+      device_name: head.device_name,
+      device_person: head.device_person,
+      total: h.total,
+      counts: counts.get(h.gkey) ?? [{ entity: head.entity, op: head.op, n: 1 }],
+      entries: list,
+    });
+  }
+  return { groups, hasMore };
 }
 
 /** The full history of a single record, newest first. */
@@ -251,17 +368,26 @@ export async function listEntityHistory(
   entity: ChangeEntity,
   entityId: string,
 ): Promise<ActivityEntry[]> {
-  return db.execO<ActivityEntry>(
-    `${ACTIVITY_SELECT}
+  const rows = await db.execO<Omit<ActivityEntry, 'current'>>(
+    `${ENTRY_SELECT}
      WHERE cl.entity = ? AND cl.entity_id = ?
      ORDER BY cl.at DESC, cl.id DESC`,
     [entity, entityId],
   );
+  return attachCurrent(db, rows);
 }
 
-export async function countActivity(db: DB): Promise<number> {
-  const rows = await db.execO<{ c: number }>('SELECT COUNT(*) AS c FROM change_log');
-  return rows[0]?.c ?? 0;
+/**
+ * Remember who is signed in on this device, so other devices' logs can name
+ * them. Only writes when it changed: every write to this synced table makes the
+ * next sync re-upload the book.
+ */
+export async function setLocalDevicePerson(db: DB, person: string): Promise<void> {
+  await db.exec('UPDATE devices SET person = ? WHERE site_id = ? AND person <> ?', [
+    person,
+    db.siteid,
+    person,
+  ]);
 }
 
 /** Wipe the entire audit trail (manual "clear log" — no automatic trimming). */

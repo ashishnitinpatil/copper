@@ -6,138 +6,135 @@ import { Modal } from '@/components/ui/Modal';
 import { useDB, useSiteId } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
 import {
-  listActivity,
+  listActivityGroups,
   listEntityHistory,
-  countActivity,
   clearActivity,
+  defaultDeviceName,
   type ActivityEntry,
+  type ActivityGroup,
 } from '@/db/changeLog';
-import type { ChangeDiff, ChangeEntity, ChangeOp } from '@/db/types';
+import { listAccounts } from '@/db/queries/accounts';
+import { listCategories } from '@/db/queries/categories';
+import { listTags } from '@/db/queries/tags';
+import type { ChangeEntity } from '@/db/types';
+import { useAppSettings } from './AppSettingsProvider';
+import {
+  describeEntry,
+  describeGroup,
+  plural,
+  type Description,
+  type Lookups,
+} from '@/features/activity/describe';
+import { toDateString } from '@/lib/dates';
 
-const ENTITY_LABEL: Record<ChangeEntity, string> = {
-  transaction: 'Transaction',
-  account: 'Account',
-  category: 'Category',
-  tag: 'Tag',
-  budget: 'Budget',
-  recurring: 'Recurring rule',
-};
+const PAGE_SIZE = 100;
 
-const OP_VERB: Record<ChangeOp, string> = {
-  insert: 'Added',
-  update: 'Edited',
-  delete: 'Deleted',
-};
+// Sources whose rows are worth listing under the summary line. An import's
+// thousands of rows and a transfer's two legs are fully said by the summary.
+const EXPANDABLE = new Set(['bulk-delete', 'bulk-category', 'tags', 'category-merge', 'account-merge']);
 
-// Op marker tone — themed status tokens so they hold up on light themes too.
-const OP_TONE: Record<ChangeOp, string> = {
-  insert: 'bg-success/15 text-success ring-success/30',
-  update: 'bg-info/15 text-info ring-info/30',
-  delete: 'bg-danger/15 text-danger ring-danger/30',
-};
-
-const SOURCE_LABEL: Record<string, string> = {
-  'monefy-import': 'Imported from Monefy',
-  'bulk-delete': 'Deleted in bulk',
-  'bulk-category': 'Recategorised in bulk',
-  transfer: 'Transfer',
-  tags: 'Tag change',
-  'category-merge': 'Merged categories',
-  'account-merge': 'Merged accounts',
-};
-
-function parseDiff(raw: string): ChangeDiff | null {
-  try {
-    return JSON.parse(raw) as ChangeDiff;
-  } catch {
-    return null;
-  }
+/** Names for ids in the log — archived records included, so old entries still read right. */
+function useLookups(): Lookups | null {
+  const { defaultCurrency } = useAppSettings();
+  const state = useQuery(
+    useCallback(
+      (d) => Promise.all([listAccounts(d, true), listCategories(d, true), listTags(d, true)]),
+      [],
+    ),
+    { deps: ['accounts', 'categories', 'tags'] },
+  );
+  return useMemo(() => {
+    if (!state.data) return null;
+    const [accounts, categories, tags] = state.data;
+    return {
+      accounts: new Map(accounts.map((a) => [a.id, { name: a.name, currency: a.currency }])),
+      categories: new Map(categories.map((c) => [c.id, c.name])),
+      tags: new Map(tags.map((t) => [t.id, t.name])),
+      defaultCurrency,
+    };
+  }, [state.data, defaultCurrency]);
 }
 
-/** A short, human label for one record. */
-function describeEntry(entry: ActivityEntry): string {
-  const base = ENTITY_LABEL[entry.entity];
-  // Prefer the record's live name/note (resolved at query time) — it reflects
-  // the current state and covers edits that didn't touch the name field.
-  const live = entry.entity_name ?? (entry.entity === 'transaction' ? entry.entity_note : null);
-  if (typeof live === 'string' && live.trim()) return `${base} · ${live.trim()}`;
-
-  // The record is gone (deleted) or never had a name — fall back to the snapshot
-  // captured in the diff, so even deleted records stay identifiable.
-  const diff = parseDiff(entry.diff);
-  if (diff && 'changes' in diff) {
-    const renamed = diff.changes.name?.new;
-    return typeof renamed === 'string' && renamed ? `${base} · ${renamed}` : base;
-  }
-  const snap = diff && 'after' in diff ? diff.after : diff && 'before' in diff ? diff.before : null;
-  if (!snap) return base;
-  const fromSnap = entry.entity === 'transaction' ? snap.note : snap.name;
-  return typeof fromSnap === 'string' && fromSnap.trim() ? `${base} · ${fromSnap.trim()}` : base;
+interface Who {
+  site_id: string;
+  device_name: string | null;
+  device_person: string | null;
 }
 
-function fmtValue(v: unknown): string {
-  if (v === null || v === undefined) return '∅';
-  if (typeof v === 'string') return v === '' ? '(empty)' : v;
-  if (typeof v === 'object') return JSON.stringify(v);
-  return String(v);
+/**
+ * "You" for changes from this device or from another device signed in as the
+ * same person; otherwise their first name, falling back to the device's name
+ * for devices that haven't recorded who uses them.
+ */
+function useActor() {
+  const localSiteId = useSiteId();
+  const state = useQuery(
+    useCallback(
+      (d) =>
+        d
+          .execO<{ person: string }>('SELECT person FROM devices WHERE site_id = ?', [d.siteid])
+          .then((r) => r[0]?.person ?? ''),
+      [],
+    ),
+    { deps: ['devices'] },
+  );
+  const me = state.data ?? '';
+  return useCallback(
+    (w: Who) => {
+      if (w.site_id === localSiteId || (me && w.device_person === me)) return 'You';
+      return w.device_person || w.device_name || defaultDeviceName(w.site_id);
+    },
+    [localSiteId, me],
+  );
 }
 
-function timeLabel(iso: string): string {
+function dayLabel(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  const day = toDateString(d);
+  const today = new Date();
+  if (day === toDateString(today)) return 'Today';
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (day === toDateString(yesterday)) return 'Yesterday';
+  return d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(d.getFullYear() === today.getFullYear() ? {} : { year: 'numeric' }),
+  });
 }
 
-interface Group {
-  key: string;
-  batchId: string | null;
-  entries: ActivityEntry[];
-}
-
-/** Collapse rows sharing a batch id into one group, preserving first-seen order. */
-function groupEntries(entries: ActivityEntry[]): Group[] {
-  const groups: Group[] = [];
-  const byBatch = new Map<string, Group>();
-  for (const e of entries) {
-    if (e.batch_id) {
-      const existing = byBatch.get(e.batch_id);
-      if (existing) {
-        existing.entries.push(e);
-        continue;
-      }
-      const g: Group = { key: `b:${e.batch_id}`, batchId: e.batch_id, entries: [e] };
-      byBatch.set(e.batch_id, g);
-      groups.push(g);
-    } else {
-      groups.push({ key: `e:${e.id}`, batchId: null, entries: [e] });
-    }
-  }
-  return groups;
-}
-
-const PAGE_SIZE = 200;
+const timeLabel = (iso: string) =>
+  new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
 export function Activity() {
   const db = useDB();
-  const localSiteId = useSiteId();
+  const lookups = useLookups();
+  const actor = useActor();
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
 
-  const state = useQuery<{ entries: ActivityEntry[]; total: number }>(
-    useCallback(
-      (d) =>
-        Promise.all([listActivity(d, limit), countActivity(d)]).then(([entries, total]) => ({
-          entries,
-          total,
-        })),
-      [limit],
-    ),
-    // 'devices' too, so renaming a device re-labels its rows without a reload.
+  const state = useQuery(
+    useCallback((d) => listActivityGroups(d, limit), [limit]),
+    // 'devices' too, so a rename or a new sign-in re-labels rows without a reload.
     { deps: ['change_log', 'devices'] },
   );
-  const entries = state.data?.entries ?? [];
-  const total = state.data?.total ?? 0;
-  const groups = useMemo(() => groupEntries(entries), [entries]);
+  const groups = state.data?.groups ?? [];
+  const hasMore = state.data?.hasMore ?? false;
+
+  // Device names only help when changes come from more than one device.
+  const showDevice = useMemo(() => new Set(groups.map((g) => g.site_id)).size > 1, [groups]);
+
+  const days = useMemo(() => {
+    const out: { label: string; groups: ActivityGroup[] }[] = [];
+    for (const g of groups) {
+      const label = dayLabel(g.at);
+      if (out[out.length - 1]?.label !== label) out.push({ label, groups: [] });
+      out[out.length - 1].groups.push(g);
+    }
+    return out;
+  }, [groups]);
 
   const doClear = async () => {
     setClearing(true);
@@ -152,66 +149,74 @@ export function Activity() {
   return (
     <PageShell
       title="Activity"
-      subtitle="Every change to your data — who made it, when, and exactly what moved"
+      subtitle="Who added, changed or deleted what, newest first"
       actions={
-        entries.length > 0 ? (
+        groups.length > 0 ? (
           <Button variant="ghost" size="sm" onClick={() => setClearOpen(true)}>
-            Clear log
+            Clear history
           </Button>
         ) : null
       }
     >
-      <Card>
-        {state.loading && entries.length === 0 ? (
+      {(state.loading && groups.length === 0) || !lookups ? (
+        <Card>
           <div className="py-8 text-center text-sm text-slate-500">Loading…</div>
-        ) : groups.length === 0 ? (
-          <EmptyState
-            title="No activity yet"
-            description="Changes you make — adding a transaction, editing an account — will show up here, attributed to the device that made them."
-          />
-        ) : (
-          <>
-            <ol className="space-y-1">
-              {groups.map((g) =>
-                g.batchId ? (
-                  <GroupRow key={g.key} group={g} localSiteId={localSiteId} />
-                ) : (
-                  <EntryRow key={g.key} entry={g.entries[0]} localSiteId={localSiteId} />
-                ),
-              )}
-            </ol>
-            <div className="mt-4 flex items-center justify-between border-t border-slate-800 pt-3 text-xs text-slate-500">
-              <span>
-                Showing {entries.length.toLocaleString()} of {total.toLocaleString()} changes
-              </span>
-              {entries.length < total && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setLimit((n) => n + PAGE_SIZE)}
-                  disabled={state.loading}
-                >
-                  {state.loading ? 'Loading…' : 'Load more'}
-                </Button>
-              )}
+        </Card>
+      ) : groups.length === 0 ? (
+        <EmptyState
+          title="Nothing here yet"
+          description="When you or anyone sharing this book adds, edits or deletes something, it shows up here."
+        />
+      ) : (
+        <>
+          {days.map((day) => (
+            <section key={day.label}>
+              <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {day.label}
+              </h2>
+              <Card className="p-2 sm:p-3">
+                <ol className="divide-y divide-slate-800/70">
+                  {day.groups.map((g) => (
+                    <GroupRow
+                      key={g.key}
+                      group={g}
+                      lookups={lookups}
+                      who={actor(g)}
+                      showDevice={showDevice}
+                    />
+                  ))}
+                </ol>
+              </Card>
+            </section>
+          ))}
+          {hasMore && (
+            <div className="flex justify-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setLimit((n) => n + PAGE_SIZE)}
+                disabled={state.loading}
+              >
+                {state.loading ? 'Loading…' : 'Show older'}
+              </Button>
             </div>
-          </>
-        )}
-      </Card>
+          )}
+        </>
+      )}
 
-      <Modal open={clearOpen} onClose={() => !clearing && setClearOpen(false)} title="Clear activity log">
+      <Modal open={clearOpen} onClose={() => !clearing && setClearOpen(false)} title="Clear history">
         <div className="space-y-4">
           <p className="text-sm text-slate-300">
-            This permanently removes the entire change history. Your accounts, transactions and other
-            data are <span className="font-medium text-slate-100">not</span> affected — only the audit
-            trail is erased. This can't be undone.
+            This erases the list of past changes for{' '}
+            <span className="font-medium text-slate-100">everyone sharing this book</span>. Your
+            accounts and transactions stay exactly as they are. This can't be undone.
           </p>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setClearOpen(false)} disabled={clearing}>
               Cancel
             </Button>
             <Button variant="danger" onClick={doClear} disabled={clearing}>
-              {clearing ? 'Clearing…' : 'Clear log'}
+              {clearing ? 'Clearing…' : 'Clear history'}
             </Button>
           </div>
         </div>
@@ -221,157 +226,125 @@ export function Activity() {
 }
 
 /**
- * The change history of a single record, newest first. Reuses the feed's row
- * rendering so a transaction's timeline looks identical to the global Activity
- * page. Drop it into any edit view: `<EntityHistory entity="transaction" .../>`.
+ * The change history of a single record, newest first, in the same words as
+ * the Activity page. Drop it into any edit view.
  */
 export function EntityHistory({ entity, entityId }: { entity: ChangeEntity; entityId: string }) {
-  const localSiteId = useSiteId();
+  const lookups = useLookups();
+  const actor = useActor();
   const state = useQuery<ActivityEntry[]>(
     useCallback((d) => listEntityHistory(d, entity, entityId), [entity, entityId]),
     { deps: ['change_log', 'devices'] },
   );
   const entries = state.data ?? [];
 
-  if (state.loading && entries.length === 0) {
+  if ((state.loading && entries.length === 0) || !lookups) {
     return <p className="text-xs text-slate-500">Loading history…</p>;
   }
   if (entries.length === 0) {
-    return (
-      <p className="text-xs text-slate-500">
-        No recorded history yet — changes are logged from here on.
-      </p>
-    );
+    return <p className="text-xs text-slate-500">No changes recorded yet.</p>;
   }
   return (
-    <ol className="space-y-1">
+    <ol className="space-y-2">
       {entries.map((e) => (
-        <EntryRow key={e.id} entry={e} localSiteId={localSiteId} />
+        <li key={e.id}>
+          <Sentence who={actor(e)} d={describeEntry(lookups, e)} />
+          <p className="mt-0.5 text-xs text-slate-500">
+            {dayLabel(e.at)}, {timeLabel(e.at)}
+          </p>
+        </li>
       ))}
     </ol>
   );
 }
 
-function Marker({ op }: { op: ChangeOp }) {
+function Avatar({ who }: { who: string }) {
+  const you = who === 'You';
   return (
     <span
-      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 ${OP_TONE[op]}`}
       aria-hidden
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+        you ? 'bg-brand-500/15 text-brand-300' : 'bg-info/15 text-info'
+      }`}
     >
-      {op === 'insert' ? '+' : op === 'delete' ? '−' : '✎'}
+      {who.charAt(0).toUpperCase()}
     </span>
   );
 }
 
-function DeviceTime({ entry, localSiteId }: { entry: ActivityEntry; localSiteId: string }) {
-  const isLocal = entry.site_id === localSiteId;
-  const name = entry.device_name ?? `Device-${entry.site_id.slice(0, 4).toUpperCase()}`;
+function Sentence({ who, d }: { who: string | null; d: Description }) {
   return (
-    <div className="mt-0.5 text-xs text-slate-500">
-      <span className={isLocal ? 'text-slate-400' : ''}>{name}</span>
-      {isLocal && <span className="text-slate-600"> (this device)</span>}
-      <span className="mx-1.5 text-slate-700">·</span>
-      {timeLabel(entry.at)}
-    </div>
+    <>
+      <p className="text-sm text-slate-300">
+        {who && <span className="font-medium text-slate-100">{who} </span>}
+        {who ? d.text : d.text.charAt(0).toUpperCase() + d.text.slice(1)}
+      </p>
+      {d.detail && <p className="mt-0.5 truncate text-xs text-slate-500">{d.detail}</p>}
+      {d.changes.length > 0 && (
+        <ul className="mt-1 space-y-0.5 text-xs">
+          {d.changes.map((c) => (
+            <li key={c.label} className="text-slate-500">
+              <span className="text-slate-400">{c.label}:</span>{' '}
+              {c.from ? (
+                <>
+                  <span className="line-through decoration-slate-600">{c.from}</span>
+                  <span className="mx-1 text-slate-600">→</span>
+                  <span className="text-slate-200">{c.to}</span>
+                </>
+              ) : (
+                <span className="text-slate-200">{c.to}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
-function EntryRow({ entry, localSiteId }: { entry: ActivityEntry; localSiteId: string }) {
+function GroupRow({
+  group,
+  lookups,
+  who,
+  showDevice,
+}: {
+  group: ActivityGroup;
+  lookups: Lookups;
+  who: string;
+  showDevice: boolean;
+}) {
+  const d = group.batch_id ? describeGroup(lookups, group) : describeEntry(lookups, group.entries[0]);
+  const expandable = group.batch_id && group.source && EXPANDABLE.has(group.source);
+  const hidden = group.total - group.entries.length;
+  const localSiteId = useSiteId();
+  const device =
+    group.site_id === localSiteId ? 'this device' : group.device_name || defaultDeviceName(group.site_id);
+
   return (
-    <li className="rounded-lg px-2 py-2 hover:bg-slate-900/50">
-      <div className="flex gap-3">
-        <Marker op={entry.op} />
-        <div className="min-w-0 flex-1">
-          <div className="text-sm text-slate-200">
-            <span className="font-medium">{OP_VERB[entry.op]}</span>{' '}
-            <span className="text-slate-400">{describeEntry(entry)}</span>
-          </div>
-          <DeviceTime entry={entry} localSiteId={localSiteId} />
-          <DiffDetail entry={entry} />
-        </div>
+    <li className="flex gap-3 px-1 py-3 sm:px-2">
+      <Avatar who={who} />
+      <div className="min-w-0 flex-1">
+        <Sentence who={who} d={d} />
+        <p className="mt-1 text-xs text-slate-600">
+          {timeLabel(group.at)}
+          {showDevice && device !== who && <> · on {device}</>}
+        </p>
+        {expandable && (
+          <details className="mt-1.5">
+            <summary className="cursor-pointer list-none text-xs text-slate-500 hover:text-slate-300">
+              Show the {plural(group.total, 'change')}
+            </summary>
+            <ol className="mt-2 space-y-2 border-l border-slate-800 pl-3">
+              {group.entries.map((e) => (
+                <li key={e.id}>
+                  <Sentence who={null} d={describeEntry(lookups, e)} />
+                </li>
+              ))}
+              {hidden > 0 && <li className="text-xs text-slate-600">…and {hidden.toLocaleString()} more</li>}
+            </ol>
+          </details>
+        )}
       </div>
     </li>
-  );
-}
-
-function groupTitle(group: Group): string {
-  const source = group.entries[0]?.source ?? null;
-  const label = source ? (SOURCE_LABEL[source] ?? source) : 'Bulk change';
-  if (source === 'transfer') return label;
-  return `${label} · ${group.entries.length} records`;
-}
-
-function GroupRow({ group, localSiteId }: { group: Group; localSiteId: string }) {
-  const head = group.entries[0];
-  return (
-    <li className="rounded-lg px-2 py-2 hover:bg-slate-900/50">
-      <details>
-        <summary className="flex cursor-pointer list-none items-start gap-3">
-          <Marker op={head.op} />
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-slate-200">{groupTitle(group)}</div>
-            <DeviceTime entry={head} localSiteId={localSiteId} />
-          </div>
-          <span className="mt-1 text-xs text-slate-500">Show</span>
-        </summary>
-        <ol className="mt-2 space-y-1 border-l border-slate-800 pl-4">
-          {group.entries.slice(0, 200).map((e) => (
-            <li key={e.id} className="py-1">
-              <div className="text-xs text-slate-300">
-                {OP_VERB[e.op]} <span className="text-slate-500">{describeEntry(e)}</span>
-              </div>
-              <DiffDetail entry={e} compact />
-            </li>
-          ))}
-          {group.entries.length > 200 && (
-            <li className="py-1 text-xs text-slate-600">
-              …and {group.entries.length - 200} more (showing the first 200)
-            </li>
-          )}
-        </ol>
-      </details>
-    </li>
-  );
-}
-
-function DiffDetail({ entry, compact = false }: { entry: ActivityEntry; compact?: boolean }) {
-  const diff = parseDiff(entry.diff);
-  if (!diff) return null;
-
-  let rows: { field: string; old?: unknown; new?: unknown; value?: unknown }[] = [];
-  if ('changes' in diff) {
-    rows = Object.entries(diff.changes).map(([field, v]) => ({ field, old: v.old, new: v.new }));
-  } else {
-    const snap = 'after' in diff ? diff.after : diff.before;
-    rows = Object.entries(snap).map(([field, value]) => ({ field, value }));
-  }
-  if (rows.length === 0) return null;
-
-  const isChange = 'changes' in diff;
-
-  return (
-    <details className={compact ? 'mt-0.5' : 'mt-1'}>
-      <summary className="cursor-pointer list-none text-xs text-slate-600 hover:text-slate-400">
-        {isChange ? `${rows.length} field${rows.length === 1 ? '' : 's'} changed` : 'Details'}
-      </summary>
-      <table className="mt-1 w-full max-w-xl text-left text-xs tabular-nums">
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.field} className="align-top">
-              <td className="py-0.5 pr-3 font-mono text-slate-500">{r.field}</td>
-              {isChange ? (
-                <td className="py-0.5 font-mono break-all">
-                  <span className="text-danger/80">{fmtValue(r.old)}</span>
-                  <span className="mx-1 text-slate-600">→</span>
-                  <span className="text-success/90">{fmtValue(r.new)}</span>
-                </td>
-              ) : (
-                <td className="py-0.5 font-mono break-all text-slate-400">{fmtValue(r.value)}</td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </details>
   );
 }

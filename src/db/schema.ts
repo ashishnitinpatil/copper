@@ -152,17 +152,24 @@ CREATE TABLE IF NOT EXISTS change_log (
 CREATE INDEX IF NOT EXISTS idx_changelog_entity ON change_log(entity, entity_id);
 CREATE INDEX IF NOT EXISTS idx_changelog_at ON change_log(at);
 CREATE INDEX IF NOT EXISTS idx_changelog_batch ON change_log(batch_id);
+-- The Activity page summarises a batch by counting its rows and previews its
+-- first few; these keep both off the (large) diff column.
+CREATE INDEX IF NOT EXISTS idx_changelog_batch_kind ON change_log(batch_id, entity, op);
+CREATE INDEX IF NOT EXISTS idx_changelog_batch_at ON change_log(batch_id, at);
 
 -- Registry of every device that has touched the book, so the audit trail can
 -- show a friendly name instead of a raw site id. \`name\` is user-editable and
 -- syncs; \`last_seen\` is refreshed each boot. \`retired_at\` is set when a reset
 -- gave the device a new identity: the old row stays so past activity keeps its
--- name, but it no longer counts as one of the book's devices.
+-- name, but it no longer counts as one of the book's devices. \`person\` is the
+-- first name of the Google account last signed in on it, so the log can say
+-- "Ashish added…" rather than naming a device.
 CREATE TABLE IF NOT EXISTS devices (
   site_id    TEXT NOT NULL PRIMARY KEY DEFAULT '',
   name       TEXT NOT NULL DEFAULT '',
   last_seen  TEXT NOT NULL DEFAULT '',
-  retired_at TEXT NOT NULL DEFAULT ''
+  retired_at TEXT NOT NULL DEFAULT '',
+  person     TEXT NOT NULL DEFAULT ''
 );
 
 SELECT crsql_as_crr('accounts');

@@ -68,9 +68,13 @@ test.describe('Activity log', () => {
     await waitForDB(page);
 
     await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
-    await expect(page.getByText('Added').first()).toBeVisible();
-    await expect(page.getByText('Edited').first()).toBeVisible();
-    await expect(page.getByText('Deleted').first()).toBeVisible();
-    await expect(page.getByText(/Showing \d+ of \d+ changes/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
+    const feed = page.locator('main ol');
+    await expect(feed.getByText(/You added an expense of .500\.00 in Food & Dining/)).toBeVisible();
+    await expect(feed.getByText(/You edited an expense of .600\.00 in Food & Dining/)).toBeVisible();
+    await expect(feed.getByRole('listitem').filter({ hasText: /^Amount:\s*.500\.00\s*→\s*.600\.00$/ })).toBeVisible();
+    await expect(feed.getByText(/You deleted an expense of .600\.00 in Food & Dining/)).toBeVisible();
+    // No raw column names leak into the feed.
+    await expect(feed.getByText('amount_minor')).toHaveCount(0);
   });
 });
