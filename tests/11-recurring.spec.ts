@@ -5,8 +5,8 @@ import { resetAndLoad, waitForDB, selectCombobox } from './helpers';
 // are custom Comboboxes; the search input is portalled to <body>, so selectCombobox
 // finds it page-level.
 async function createRule(page: import('@playwright/test').Page, opts: { category: string; amount: string }) {
-  await page.getByRole('button', { name: '+ New rule' }).click();
-  await expect(page.getByRole('heading', { name: 'New recurring rule' })).toBeVisible();
+  await page.getByRole('button', { name: '+ New recurring entry' }).click();
+  await expect(page.getByRole('heading', { name: 'New recurring entry' })).toBeVisible();
 
   const modal = page.locator('.fixed');
   await selectCombobox(modal, 'Account', 'Cash');
@@ -14,7 +14,7 @@ async function createRule(page: import('@playwright/test').Page, opts: { categor
   await modal.getByLabel('Amount').fill(opts.amount);
   // Frequency defaults to Monthly; start date defaults to today.
   await page.getByRole('button', { name: 'Create', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'New recurring rule' })).not.toBeVisible();
+  await expect(page.getByRole('heading', { name: 'New recurring entry' })).not.toBeVisible();
 }
 
 test.describe('Recurring rules', () => {

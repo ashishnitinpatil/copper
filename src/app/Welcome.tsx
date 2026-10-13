@@ -89,7 +89,7 @@ export function Welcome() {
     (async () => {
       try {
         const token = await auth.getGoogleAccessToken();
-        if (!token) throw new Error('No Google access');
+        if (!token) throw new Error('Your Google sign-in has expired. Sign in again and retry.');
         const found = await findBook(token);
         if (!found) return setLookup('none');
         await book.choose(undefined, { id: found.id, name: found.name });
@@ -139,7 +139,7 @@ export function Welcome() {
     try {
       parsed = JSON.parse(text);
     } catch {
-      setRestoreError("That file isn't valid JSON — pick a backup file exported from this app.");
+      setRestoreError("That doesn't look like a Copper backup. Choose a file saved with Download backup in Settings.");
       return;
     }
     if (isEncryptedBackup(parsed)) {
@@ -223,7 +223,7 @@ export function Welcome() {
     <div className="flex min-h-full items-center justify-center bg-slate-950 p-4">
       <div className="w-full max-w-md space-y-4">
         <div className="text-center">
-          <div className="text-3xl">💰</div>
+          <img src="/icon.svg" alt="" aria-hidden className="mx-auto h-10 w-10" />
           <h1 className="mt-2 text-2xl font-semibold text-slate-50">Welcome</h1>
           <p className="mt-1 text-sm text-slate-400">
             {mode === 'choose'
@@ -237,7 +237,7 @@ export function Welcome() {
                 : mode === 'restore'
               ? 'Bring your data over from a backup file.'
               : mode === 'join'
-                ? 'Load the shared ledger a partner already set up.'
+                ? 'Load the shared book a partner already set up.'
                 : step === 1
                   ? 'Pick the currency you use day to day.'
                   : 'Add your first account to start tracking.'}
@@ -454,7 +454,7 @@ export function Welcome() {
               ) : book.picked ? (
                 <>
                   <p className="text-sm text-slate-300">
-                    Start fresh from this book? This device will load the shared ledger and sync
+                    Start fresh from this book? This device will load the shared book and sync
                     with it from now on.
                   </p>
                   <BookIdentity
@@ -472,7 +472,7 @@ export function Welcome() {
                     <span className="font-medium text-slate-100">{auth.google.identity.email}</span>.
                     {inviteBookId
                       ? ' Open the book your partner invited you to, then confirm it in the Google window.'
-                      : ' Choose the book your partner shared (“Copper-Expense-Tracker-shared-book”) to load their ledger onto this device.'}
+                      : ' Choose the book your partner shared (“Copper-Expense-Tracker-shared-book”) to load it onto this device.'}
                   </p>
                   <Button
                     variant="secondary"

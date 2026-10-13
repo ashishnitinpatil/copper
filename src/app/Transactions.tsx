@@ -361,9 +361,29 @@ export function Transactions() {
         </button>
       </Card>
 
-      {txQuery.data && txQuery.data.length === 0 && (
-        <EmptyState title="No transactions match" description="Adjust filters or add some entries." />
-      )}
+      {txQuery.data && txQuery.data.length === 0 &&
+        (activeFilters > 0 || filters.search ? (
+          <EmptyState
+            title="No matches"
+            description="Nothing fits these filters."
+            action={
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  setFilters({ accountId: '', categoryId: '', tagId: '', kind: '', dateFrom: '', dateTo: '', search: '' })
+                }
+              >
+                Clear filters
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="No transactions yet"
+            description="Your expenses and income will show up here."
+            action={<Button onClick={() => navigate('/add')}>Add a transaction</Button>}
+          />
+        ))}
 
       {upcoming.length > 0 && (
         // Scheduled entries (e.g. future loan EMIs) stay folded so the list opens

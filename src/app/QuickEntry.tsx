@@ -308,7 +308,6 @@ export function QuickEntry() {
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-slate-300">Tap the account to transfer to</div>
-              <div className="text-xs text-slate-500">{transferTargets.length} shown</div>
             </div>
             {transferTargets.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-500">
@@ -353,7 +352,6 @@ export function QuickEntry() {
               <div className="text-sm font-medium text-slate-300">
                 Tap an {mode} category to save
               </div>
-              <div className="text-xs text-slate-500">{filteredCategories.length} shown</div>
             </div>
 
             {filteredCategories.length === 0 ? (

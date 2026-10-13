@@ -156,7 +156,7 @@ export function Reports() {
           </div>
 
           {categories.length === 0 ? (
-            <EmptyState title="No expenses this month" description="Add transactions to see category breakdown." />
+            <EmptyState title="No spending this month yet" description="Add an expense and you'll see where your money goes, category by category." />
           ) : (
             <Card className="space-y-3">
               {categories.map((c) => {
@@ -189,7 +189,7 @@ export function Reports() {
       {tab === 'monthly' && (
         <>
           {monthly.length === 0 ? (
-            <EmptyState title="No data yet" description="Add transactions to see monthly trends." />
+            <EmptyState title="Nothing to chart yet" description="Once you've added some expenses and income, you'll see how each month compares." />
           ) : (
             <>
             <Card>

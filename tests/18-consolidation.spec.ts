@@ -34,7 +34,7 @@ test.describe('Consolidation — merge', () => {
     await expect(page.locator('main li').getByText('Food & Dining')).toHaveCount(2);
 
     // The merge is recorded as one batched change-log group.
-    await navigateTo(page, 'SQL');
+    await page.goto('/sql');
     await page
       .locator('textarea')
       .fill("SELECT COUNT(*) AS n FROM change_log WHERE source = 'category-merge'");

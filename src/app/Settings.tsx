@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   LogIn,
   RefreshCw,
@@ -95,7 +95,7 @@ const NAV_ITEMS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: 'import', label: 'Import', Icon: Upload },
   { id: 'restore', label: 'Restore', Icon: RotateCcw },
   { id: 'device', label: 'This device', Icon: Smartphone },
-  { id: 'reset', label: 'Reset', Icon: Trash2 },
+  { id: 'reset', label: 'Erase', Icon: Trash2 },
 ];
 
 export function Settings() {
@@ -108,7 +108,7 @@ export function Settings() {
   }, [hash]);
 
   return (
-    <PageShell title="Settings" subtitle="Sync, recurring rules and backup">
+    <PageShell title="Settings" subtitle="Sync, recurring entries and backup">
       <SettingsNav />
 
       <Section id="signin"><AuthSection /></Section>
@@ -124,6 +124,12 @@ export function Settings() {
       <Section id="restore"><RestoreSection /></Section>
       <Section id="device"><ThisDeviceSection siteId={siteId} /></Section>
       <Section id="reset"><ResetDeviceSection /></Section>
+      <p className="text-center text-xs text-slate-600">
+        For power users:{' '}
+        <Link to="/sql" className="underline hover:text-slate-400">
+          SQL console
+        </Link>
+      </p>
       {/* Trailing room so jumping to a late section can bring its heading up
           near the sticky nav instead of stopping short at the page bottom. */}
       <div aria-hidden className="h-[40vh]" />
@@ -277,9 +283,6 @@ function ThisDeviceSection({ siteId }: { siteId: string }) {
           {saved ? 'Saved' : 'Save'}
         </Button>
       </div>
-      <div className="mt-3 text-xs text-slate-500">
-        Device ID: <code className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">{siteId}</code>
-      </div>
 
       {others.length > 0 && (
         <div className="mt-4 border-t border-slate-800 pt-3">
@@ -287,7 +290,10 @@ function ThisDeviceSection({ siteId }: { siteId: string }) {
           <ul className="space-y-1">
             {others.map((d) => (
               <li key={d.site_id} className="flex items-center justify-between text-xs text-slate-500">
-                <span className="text-slate-300">{d.name}</span>
+                <span className="text-slate-300">
+                  {d.name}
+                  {d.person && <span className="text-slate-500"> · {d.person}</span>}
+                </span>
                 <span>last seen {formatHumanDate(d.last_seen.slice(0, 10))}</span>
               </li>
             ))}
@@ -302,6 +308,7 @@ function ResetDeviceSection() {
   const db = useDB();
   const auth = useAuth();
   const sync = useSync();
+  const synced = !!(sync.bookId && auth.google);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -309,27 +316,30 @@ function ResetDeviceSection() {
     <Card>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="mb-1 text-sm font-semibold text-slate-300">Reset this device</h3>
+          <h3 className="mb-1 text-sm font-semibold text-slate-300">Erase this device</h3>
           <div className="text-xs text-slate-500">
-            Erase everything stored on this device and start fresh. If you're signed in to sync, your
-            data re-downloads from Google Drive afterwards.
+            {synced
+              ? 'Removes Copper’s data from this device only, then loads your book again from Google Drive. Other devices aren’t affected.'
+              : 'Removes all of Copper’s data from this device and starts over.'}
           </div>
         </div>
         <Button variant="danger" className="shrink-0" onClick={() => setOpen(true)}>
-          Reset…
+          Erase…
         </Button>
       </div>
 
-      <Modal open={open} onClose={() => !busy && setOpen(false)} title="Reset this device">
+      <Modal open={open} onClose={() => !busy && setOpen(false)} title="Erase this device">
         <div className="space-y-4">
           <p className="text-sm text-slate-300">
-            This deletes everything stored on this device — accounts, transactions and settings —
-            and reloads.{' '}
-            <span className="font-medium text-slate-100">It can't be undone.</span>
+            This removes your accounts, transactions and settings from this device and reloads the app.
+            {synced && ' Your book then loads again from Google Drive; other devices aren’t affected.'}
           </p>
           <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-            If you haven't turned on sync or saved a backup, this data is gone for good. Export a
-            backup first if you're not sure.
+            {synced
+              ? sync.unsynced
+                ? 'Some changes on this device haven’t reached Google Drive yet and will be lost. Sync first if you want to keep them.'
+                : 'Everything here is already in Google Drive, so nothing is lost.'
+              : 'Sync is off, so this is your only copy. Download a backup first if you might want it back. This can’t be undone.'}
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
@@ -347,7 +357,7 @@ function ResetDeviceSection() {
               }}
               disabled={busy}
             >
-              {busy ? 'Resetting…' : 'Erase and reset'}
+              {busy ? 'Erasing…' : 'Erase this device'}
             </Button>
           </div>
         </div>
@@ -432,7 +442,9 @@ function SyncSection() {
   );
   const deviceNames = useMemo(() => {
     const m = new Map<string, string>();
-    for (const d of devicesState.data ?? []) if (d.name) m.set(d.site_id.toLowerCase(), d.name);
+    for (const d of devicesState.data ?? []) {
+      if (d.name) m.set(d.site_id.toLowerCase(), d.person ? `${d.name} · ${d.person}` : d.name);
+    }
     return m;
   }, [devicesState.data]);
   const [reconnecting, setReconnecting] = useState(false);
@@ -552,12 +564,12 @@ function SyncSection() {
     setInviteError(null);
     try {
       const token = await auth.getGoogleAccessToken();
-      if (!token) throw new Error('Reconnect to Google first, then try again.');
+      if (!token) throw new Error('Your Google sign-in has expired. Tap Reconnect, then try again.');
       await shareFileWithEmail(token, sync.bookId, email, false);
       setInvitedEmail(email);
       setInviteEmail('');
     } catch (e) {
-      setInviteError(e instanceof Error ? e.message : 'Could not share the book.');
+      setInviteError(e instanceof Error ? e.message : 'Couldn’t share the book. Check the email is a Google account and try again.');
     } finally {
       setInviting(false);
     }
@@ -613,8 +625,8 @@ function SyncSection() {
       {!signedIn && (
         <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
           Sync is off, so your data lives only on this device. If you clear your browser data or
-          lose this device, it's gone. Sign in with Google above to keep a copy in Drive — or
-          export a backup regularly from the section above.
+          lose this device, it's gone. Sign in with Google above to keep a copy in Drive, or
+          download a backup now and then (under Export, further down).
         </div>
       )}
 
@@ -737,7 +749,7 @@ function SyncSection() {
                   className="self-start rounded border border-danger/50 px-2 py-1 font-medium text-danger hover:bg-danger/20"
                   onClick={() => setConfirmFresh(true)}
                 >
-                  Start fresh from shared book…
+                  Load the shared book again…
                 </button>
               )}
             </div>
@@ -757,15 +769,7 @@ function SyncSection() {
                   const name = deviceNames.get(p.siteIdHex.toLowerCase());
                   return (
                     <li key={p.siteIdHex} className="flex items-center gap-2 py-1.5">
-                      {name ? (
-                        <span className="truncate text-slate-300" title={p.siteIdHex}>
-                          {name}
-                        </span>
-                      ) : (
-                        <code className="truncate rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                          {p.siteIdHex.slice(0, 12)}…{p.siteIdHex.slice(-4)}
-                        </code>
-                      )}
+                      <span className="truncate text-slate-300">{name ?? 'Unnamed device'}</span>
                     </li>
                   );
                 })}
@@ -867,14 +871,14 @@ function SyncSection() {
         </div>
       )}
 
-      <Modal open={confirmFresh} onClose={() => setConfirmFresh(false)} title="Start fresh from shared book">
+      <Modal open={confirmFresh} onClose={() => setConfirmFresh(false)} title="Load the shared book again">
         <div className="space-y-4">
           <p className="text-sm text-slate-300">
-            This erases the data on this device and loads the shared book in its place.
+            This clears Copper on this device and loads the shared book in its place.
           </p>
           <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-            Changes made on this device since it last synced are lost. Export a backup first if you
-            want to keep them.
+            Changes made on this device since it last synced are lost. Download a backup first if
+            you want to keep them.
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setConfirmFresh(false)}>
@@ -887,7 +891,7 @@ function SyncSection() {
                 requestLocalReset();
               }}
             >
-              Erase and load shared book
+              Load shared book
             </Button>
           </div>
         </div>
@@ -931,7 +935,7 @@ function SyncSection() {
 
           {joinMode === 'fresh' && (
             <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-              This erases everything on this device and can't be undone. Export a backup first if you
+              This erases everything on this device and can't be undone. Download a backup first if you
               have data you might want.
             </div>
           )}
@@ -954,21 +958,21 @@ function SyncSection() {
                 onClick={() => setShowAdvanced(true)}
                 className="text-xs text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-300"
               >
-                Advanced: overwrite the shared book with this device's data
+                Advanced: replace the shared book with this device's data
               </button>
             ) : (
               <div className="space-y-2">
                 <JoinModeOption
                   active={joinMode === 'replace'}
                   onSelect={() => setJoinMode('replace')}
-                  title="Overwrite the shared book"
-                  desc="Replace the book's contents with this device's copy. Only for when this device holds the version you want everyone to end up with."
+                  title="Replace the shared book"
+                  desc="Everyone ends up with exactly what's on this device. Only for when this device holds the version you all want."
                 />
                 {joinMode === 'replace' && (
                   <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
-                    Any other device using this book will lose changes it hasn't synced yet and must
-                    Start fresh afterward, or the duplicates come back. A backup of the book is saved
-                    first, so you can restore it from Backups if this was a mistake.
+                    Your partner's devices lose any changes they haven't synced yet, and will ask to
+                    load the book again. A backup of the book is saved to your Drive first, so you can
+                    undo this with Restore from Drive.
                   </div>
                 )}
               </div>
@@ -994,8 +998,8 @@ function SyncSection() {
                 ? 'Erase & join'
                 : joinMode === 'replace'
                   ? connecting
-                    ? 'Overwriting…'
-                    : 'Overwrite & join'
+                    ? 'Replacing…'
+                    : 'Replace shared book'
                   : connecting
                     ? 'Merging…'
                     : 'Merge & join'}
@@ -1340,7 +1344,7 @@ function ExportSection() {
           JSON.stringify(backup),
           'application/json',
         );
-        setNote(`Backup downloaded — ${total} items saved.`);
+        setNote(`Backup downloaded (${total.toLocaleString()} entries). Look for it in your Downloads.`);
       }
     } catch (e) {
       setNote((e as Error).message);
@@ -1372,7 +1376,7 @@ function ExportSection() {
       const total = Object.values(backup.tables).reduce((n, rows) => n + rows.length, 0);
       const envelope = await encryptBackup(JSON.stringify(backup), password);
       downloadText(exportFileName('backup', 'encrypted.json'), envelope, 'application/json');
-      setNote(`Encrypted backup downloaded — ${total} items saved.`);
+      setNote(`Password-protected backup downloaded (${total.toLocaleString()} entries). Look for it in your Downloads.`);
       closeEncrypt();
     } catch (e) {
       setEncryptError((e as Error).message);
@@ -1387,19 +1391,19 @@ function ExportSection() {
         <div>
           <h3 className="mb-1 text-sm font-semibold text-slate-300">Export</h3>
           <div className="text-xs text-slate-500">
-            Download your data. The spreadsheet lists every transaction; the backup is a complete
-            copy of everything, for safekeeping. An encrypted backup locks that copy with a password.
+            A spreadsheet of your transactions, or a backup file you can restore later. Add a password
+            to keep the backup private.
           </div>
         </div>
         <div className="flex flex-wrap gap-2 sm:shrink-0 sm:justify-end">
           <Button variant="secondary" disabled={busy !== null} onClick={() => run('csv')}>
-            {busy === 'csv' ? 'Exporting…' : 'Spreadsheet (CSV)'}
+            {busy === 'csv' ? 'Downloading…' : 'Download spreadsheet'}
           </Button>
           <Button variant="secondary" disabled={busy !== null} onClick={() => run('backup')}>
-            {busy === 'backup' ? 'Exporting…' : 'Full backup'}
+            {busy === 'backup' ? 'Downloading…' : 'Download backup'}
           </Button>
           <Button variant="secondary" disabled={busy !== null} onClick={() => setEncryptOpen(true)}>
-            Encrypted backup
+            Backup with password
           </Button>
         </div>
       </div>
@@ -1464,7 +1468,7 @@ function ExportSection() {
         </div>
       )}
 
-      <Modal open={encryptOpen} onClose={() => busy !== 'encrypted' && closeEncrypt()} title="Encrypted backup">
+      <Modal open={encryptOpen} onClose={() => busy !== 'encrypted' && closeEncrypt()} title="Backup with password">
         <div className="space-y-4">
           <p className="text-sm text-slate-300">
             Choose a password. You’ll need it to restore this file — there’s no way to recover it if
@@ -1581,7 +1585,7 @@ function RestoreSection() {
     try {
       parsed = JSON.parse(text);
     } catch {
-      setError("That file isn't valid JSON — pick a backup file exported from this app.");
+      setError("That doesn't look like a Copper backup. Choose a file saved with Download backup in Settings.");
       return;
     }
     if (isEncryptedBackup(parsed)) {
@@ -1686,12 +1690,12 @@ function RestoreSection() {
         {pending && (
           <div className="space-y-4">
             <p className="text-sm text-slate-300">
-              Restore <span className="font-medium text-slate-100">{pending.name}</span>? This deletes
-              all current data and replaces it with{' '}
+              Restore <span className="font-medium text-slate-100">{pending.name}</span>? Everything
+              in Copper now is replaced by the{' '}
               <span className="font-medium text-slate-100">
-                {pending.rows.toLocaleString()} items across {pending.tables} tables
+                {pending.rows.toLocaleString()} entries
               </span>{' '}
-              from the backup. This can't be undone.
+              in this backup.{!sync.bookId && " This can't be undone."}
             </p>
             {!busy && pending.rows > LARGE_RESTORE_ROWS && (
               <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
@@ -1703,7 +1707,8 @@ function RestoreSection() {
               <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
                 This device syncs to a shared book, so the restored data replaces the book for
                 {sync.peers.length > 0 ? ' everyone using it' : ' all your devices'} on the next sync. A
-                backup of the book is saved first, so you can undo this from Backups.
+                backup of the book is saved to your Drive first, so you can undo this with Restore from
+                Drive.
               </div>
             )}
             {busy && phase && (
@@ -1801,7 +1806,7 @@ function RestoreSection() {
             setError(null);
           }
         }}
-        title="Encrypted backup"
+        title="Password-protected backup"
       >
         {encrypted && (
           <div className="space-y-4">
@@ -1850,6 +1855,7 @@ function RestoreSection() {
 function ImportSection() {
   const db = useDB();
   const settings = useAppSettings();
+  const sync = useSync();
   const [open, setOpen] = useState(false);
   const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -2039,20 +2045,26 @@ function ImportSection() {
                   Apply to all
                 </Button>
               </div>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={wipeFirst}
-                  onChange={(e) => setWipeFirst(e.target.checked)}
-                  className="h-4 w-4 accent-brand-500"
-                />
-                Delete all current data first
-                <InfoHint label="What this does" title="Replace or add">
-                  On (recommended for a re-import) wipes everything first. Off adds the
-                  imported accounts and categories as new — it won’t merge into ones you
-                  already have, so same-named entries become duplicates.
-                </InfoHint>
-              </label>
+              <div>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={wipeFirst}
+                    onChange={(e) => setWipeFirst(e.target.checked)}
+                    className="h-4 w-4 accent-brand-500"
+                  />
+                  Replace what&rsquo;s in Copper now
+                </label>
+                <p
+                  className={`mt-1 pl-6 text-xs ${wipeFirst ? 'text-warning' : 'text-slate-500'}`}
+                >
+                  {!wipeFirst
+                    ? 'The file’s accounts and categories are added next to yours. Ones with the same name will appear twice.'
+                    : sync.bookId
+                      ? 'Everything in your book is deleted first, on every device that shares it. A backup is saved to your Google Drive before anything changes.'
+                      : 'Everything on this device is deleted first. Download a backup above if you might want it back.'}
+                </p>
+              </div>
             </div>
 
             <div>
@@ -2163,10 +2175,10 @@ function ImportSection() {
 
             <div className="flex items-center justify-end gap-2">
               <Button variant="ghost" onClick={reset} disabled={importing}>
-                Choose different file
+                Pick another file
               </Button>
-              <Button onClick={runImport} disabled={importing}>
-                {importing ? 'Importing…' : 'Import'}
+              <Button variant={wipeFirst ? 'danger' : 'primary'} onClick={runImport} disabled={importing}>
+                {importing ? 'Importing…' : wipeFirst ? 'Replace and import' : 'Import'}
               </Button>
             </div>
           </div>
@@ -2219,16 +2231,16 @@ function RecurringRulesSection() {
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-300">Recurring rules</h3>
+        <h3 className="text-sm font-semibold text-slate-300">Recurring entries</h3>
         <Button size="sm" onClick={() => setCreating(true)}>
-          + New rule
+          + New recurring entry
         </Button>
       </div>
 
       {active.length === 0 && (
         <EmptyState
-          title="No recurring rules"
-          description="Set up auto-repeating transactions like rent or subscriptions."
+          title="No recurring entries yet"
+          description="Add things that repeat, like rent, salary or subscriptions. Copper adds them on their dates and shows them in Cashflow."
         />
       )}
 
@@ -2295,7 +2307,7 @@ function RecurringRulesSection() {
 const FREQUENCY_OPTIONS = [
   { label: 'Daily', rrule: 'FREQ=DAILY;INTERVAL=1' },
   { label: 'Weekly', rrule: 'FREQ=WEEKLY;INTERVAL=1' },
-  { label: 'Biweekly', rrule: 'FREQ=WEEKLY;INTERVAL=2' },
+  { label: 'Every 2 weeks', rrule: 'FREQ=WEEKLY;INTERVAL=2' },
   { label: 'Monthly', rrule: 'FREQ=MONTHLY;INTERVAL=1' },
   { label: 'Quarterly', rrule: 'FREQ=MONTHLY;INTERVAL=3' },
   { label: 'Yearly', rrule: 'FREQ=YEARLY;INTERVAL=1' },
@@ -2359,7 +2371,7 @@ function RecurringFormModal({ open, onClose, accounts, categories }: RecurringFo
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="New recurring rule">
+    <Modal open={open} onClose={onClose} title="New recurring entry">
       <div className="space-y-3">
         <div className="flex gap-1 rounded-lg bg-slate-800 p-1">
           {(['expense', 'income'] as const).map((m) => (

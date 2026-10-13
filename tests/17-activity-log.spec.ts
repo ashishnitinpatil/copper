@@ -30,7 +30,7 @@ test.describe('Activity log', () => {
   });
 
   test('writes a change_log row for each create/update/delete', async ({ page }) => {
-    await page.getByRole('link', { name: 'SQL', exact: true }).first().click();
+    await page.goto('/sql');
     await waitForDB(page);
 
     await page
@@ -45,7 +45,7 @@ test.describe('Activity log', () => {
   });
 
   test('records the originating device on each entry', async ({ page }) => {
-    await page.getByRole('link', { name: 'SQL', exact: true }).first().click();
+    await page.goto('/sql');
     await waitForDB(page);
 
     // site_id is non-null and a device registry row exists for it.

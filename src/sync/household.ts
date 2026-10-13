@@ -71,15 +71,15 @@ export class BookFoundError extends Error {
 }
 
 // The shared book was overwritten by another device (someone joined it with
-// "Overwrite the shared book") since this device last synced. Merging now would
+// "Replace the shared book") since this device last synced. Merging now would
 // bring every replaced row back as a duplicate, so sync stops until this device
 // Starts fresh from the book.
 export class BookReplacedError extends Error {
   constructor() {
     super(
-      'Your shared book was replaced from another device (someone joined it with “Overwrite the shared book”). ' +
-        'Sync is paused here so your old copy doesn’t add duplicates. Start fresh from the ' +
-        'shared book to load it — changes made on this device since its last sync will be lost.',
+      'The shared book was replaced from another device. Sync is paused here so your old copy ' +
+        'doesn’t bring duplicates back. Load the shared book again to keep syncing — changes made ' +
+        'on this device since its last sync will be lost.',
     );
     this.name = 'BookReplacedError';
   }
@@ -188,7 +188,7 @@ export async function syncNow(
   onProgress?: SyncProgressFn,
 ): Promise<SyncResult> {
   const token = await getAccessToken();
-  if (!token) throw new Error('Not signed in to Google');
+  if (!token) throw new Error('Sign in with Google and try again.');
   const siteHex = await getLocalSiteIdHex(db);
 
   let bookId = await resolveBook(db, token);

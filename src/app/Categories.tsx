@@ -340,7 +340,7 @@ function CategoryFormModal({
           <MergeInto
             key={existing.id}
             noun="category"
-            extras="budgets, sub-categories and recurring rules"
+            extras="budgets, sub-categories and recurring entries"
             sourceName={existing.name}
             impact={mergeImpact}
             options={parentOptions.map((o) => ({ value: o.id, label: o.label }))}

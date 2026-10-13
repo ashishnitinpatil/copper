@@ -329,14 +329,14 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // changes, then copy the book into Backups.
   const backupNow = useCallback(async () => {
     const token = await auth.getGoogleAccessToken();
-    if (!token) throw new Error('Reconnect to Google first, then try again.');
+    if (!token) throw new Error('Your Google sign-in has expired. Tap Reconnect, then try again.');
     // Never run two syncs at once (two could each create a book on first sync).
     while (running.current) await running.current;
     inFlight.current = true;
     try {
       await syncNow(db, async () => token);
       const { bookId: bid } = await getSyncStatus(db);
-      if (!bid) throw new Error('Sync once before backing up.');
+      if (!bid) throw new Error('Tap Sync now first, then back up.');
       await backupBook(db, token, bid, 'manual');
     } finally {
       inFlight.current = false;
@@ -346,14 +346,14 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   const listBackups = useCallback(async () => {
     const token = await auth.getGoogleAccessToken();
-    if (!token) throw new Error('Reconnect to Google first, then try again.');
+    if (!token) throw new Error('Your Google sign-in has expired. Tap Reconnect, then try again.');
     return listDriveSnapshots(db, token);
   }, [db, auth]);
 
   const fetchBackup = useCallback(
     async (snap: DriveSnapshot) => {
       const token = await auth.getGoogleAccessToken();
-      if (!token) throw new Error('Reconnect to Google first, then try again.');
+      if (!token) throw new Error('Your Google sign-in has expired. Tap Reconnect, then try again.');
       return readDriveBackup(db, token, snap);
     },
     [db, auth],

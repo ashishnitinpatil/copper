@@ -39,7 +39,7 @@ export function SyncProgressBanner() {
     >
       <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
         <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-brand-400" />
-        {settingUp ? 'Setting up your ledger' : 'Syncing changes'}
+        {settingUp ? 'Setting up your book' : 'Syncing changes'}
       </div>
       <p className="mt-0.5 text-xs text-slate-400">
         {settingUp

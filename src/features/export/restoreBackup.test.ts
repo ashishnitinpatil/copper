@@ -86,7 +86,7 @@ describe('parseBackup', () => {
   });
 
   it('rejects non-JSON', () => {
-    expect(() => parseBackup('not json {')).toThrow(/valid JSON/i);
+    expect(() => parseBackup('not json {')).toThrow(/doesn't look like a Copper backup/i);
   });
 
   it('rejects a foreign format', () => {

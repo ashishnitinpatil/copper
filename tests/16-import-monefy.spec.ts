@@ -15,13 +15,14 @@ test.describe('Monefy CSV import', () => {
     // The file input is hidden behind the drop-zone label; set it directly.
     await page.locator('input[type="file"][accept*="csv"]').setInputFiles(SAMPLE_CSV);
 
-    // Step 2 shows a summary + account mapping; "Delete all current data first" is
-    // checked by default. Wait for it, then import.
-    await expect(page.getByText('Delete all current data first')).toBeVisible();
+    // Step 2 shows a summary + account mapping; "Replace what's in Copper now" is
+    // checked by default and says what it deletes. Wait for it, then import.
+    await expect(page.getByText('Replace what’s in Copper now')).toBeVisible();
+    await expect(page.getByText(/Everything on this device is deleted first/)).toBeVisible();
     // Scope to the modal — a top-level "Import" nav tab also matches by name.
     await page
       .getByLabel('Import from Monefy')
-      .getByRole('button', { name: 'Import', exact: true })
+      .getByRole('button', { name: 'Replace and import', exact: true })
       .click();
 
     // Success summary confirms the import landed.

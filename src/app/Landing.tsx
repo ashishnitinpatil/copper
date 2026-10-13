@@ -27,7 +27,7 @@ const FEATURES: Feature[] = [
   {
     icon: ShieldCheck,
     title: 'Local-first & private',
-    desc: 'Your ledger lives in your browser. Nothing is sent to a server we run — because there isn’t one.',
+    desc: 'Your data lives in your browser. Nothing is sent to a server we run — because there isn’t one.',
     tag: 'on-device',
   },
   {
@@ -192,7 +192,7 @@ export function Landing() {
             Made for two
           </p>
           <h2 className="mt-4 font-display text-4xl font-semibold leading-[1.08] text-[#F6EDE3] sm:text-5xl">
-            One ledger, kept by two.
+            One book, kept by two.
           </h2>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-[#C9B19A]">
             Copper began as a way to track money together. You and your partner each sign
@@ -239,7 +239,7 @@ export function Landing() {
           </p>
           <p className="mt-4 text-base leading-relaxed text-[#5C4B3B]">
             That partnership is in how Copper was <em>built</em> — not in who sees
-            your money. No AI, and no one else, ever reads your ledger.
+            your money. No AI, and no one else, ever reads your book.
           </p>
         </div>
       </section>

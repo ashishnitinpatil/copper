@@ -34,7 +34,7 @@ test.describe('App bootstrap', () => {
     await resetAndLoad(page, '/dashboard');
     await waitForDB(page);
 
-    for (const label of ['Transactions', 'Accounts', 'Budgets', 'Reports', 'SQL', 'Settings']) {
+    for (const label of ['Transactions', 'Accounts', 'Budgets', 'Reports', 'Activity', 'Settings']) {
       await page.getByRole('link', { name: label, exact: true }).first().click();
       await page.waitForTimeout(200);
       await expect(page.locator('h1').first()).toBeVisible();

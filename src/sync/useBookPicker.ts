@@ -22,7 +22,7 @@ export function useBookPicker() {
     try {
       const token = await auth.getGoogleAccessToken();
       if (!token) {
-        setError('Reconnect to Google first, then try again.');
+        setError('Your Google sign-in has expired. Tap Reconnect, then try again.');
         return;
       }
       const file = devFile ?? (await pickSharedBook(token, fileId));
@@ -33,7 +33,7 @@ export function useBookPicker() {
       try {
         // Re-fetch: the Picker can sit open past the token it was opened with.
         const fresh = await auth.getGoogleAccessToken();
-        if (!fresh) throw new Error('No Google access');
+        if (!fresh) throw new Error('Your Google sign-in has expired. Sign in again and retry.');
         setPeek(await peekBook(fresh, file.id));
       } catch (e) {
         console.warn('Could not open the picked book:', e);

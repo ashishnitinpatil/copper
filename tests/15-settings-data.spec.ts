@@ -38,7 +38,7 @@ test.describe('Settings — appearance & data', () => {
     await page.goto('/settings');
     await waitForDB(page);
     const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Full backup' }).click();
+    await page.getByRole('button', { name: 'Download backup' }).click();
     const download = await downloadPromise;
     const backupPath = testInfo.outputPath('backup.json');
     await download.saveAs(backupPath);

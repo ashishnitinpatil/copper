@@ -14,7 +14,7 @@ export function parseBackup(text: string): BackupFile {
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error("That file isn't valid JSON — pick a backup file exported from this app.");
+    throw new Error("That doesn't look like a Copper backup. Choose a file saved with Download backup in Settings.");
   }
   if (!json || typeof json !== 'object') {
     throw new Error('Unrecognised backup file.');

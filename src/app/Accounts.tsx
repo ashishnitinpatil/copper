@@ -384,7 +384,7 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
           <MergeInto
             key={existing.id}
             noun="account"
-            extras="transfers, linked cards and recurring rules"
+            extras="transfers, linked cards and recurring entries"
             sourceName={existing.name}
             impact={mergeImpact}
             options={mergeOptions}

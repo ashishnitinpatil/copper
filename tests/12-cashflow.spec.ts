@@ -25,7 +25,7 @@ test.describe('Cashflow', () => {
     await waitForDB(page);
 
     // A forecast needs at least one future cash event; create a monthly rule.
-    await page.getByRole('button', { name: '+ New rule' }).click();
+    await page.getByRole('button', { name: '+ New recurring entry' }).click();
     const modal = page.locator('.fixed');
     await selectCombobox(modal, 'Account', 'Cash');
     await selectCombobox(modal, 'Category', 'Groceries');
@@ -35,7 +35,7 @@ test.describe('Cashflow', () => {
     // days out (date-dependent), which would leave the forecast empty.
     await modal.getByLabel('Frequency').selectOption({ label: 'Weekly' });
     await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'New recurring rule' })).not.toBeVisible();
+    await expect(page.getByRole('heading', { name: 'New recurring entry' })).not.toBeVisible();
 
     await page.getByRole('link', { name: 'Cashflow', exact: true }).first().click();
     await waitForDB(page);
@@ -62,14 +62,14 @@ test.describe('Cashflow', () => {
     // The forecast needs one future event to render.
     await page.getByRole('link', { name: 'Settings', exact: true }).first().click();
     await waitForDB(page);
-    await page.getByRole('button', { name: '+ New rule' }).click();
+    await page.getByRole('button', { name: '+ New recurring entry' }).click();
     const modal = page.locator('.fixed');
     await selectCombobox(modal, 'Account', 'Cash');
     await selectCombobox(modal, 'Category', 'Groceries');
     await modal.getByLabel('Amount').fill('1200');
     await modal.getByLabel('Frequency').selectOption({ label: 'Weekly' });
     await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'New recurring rule' })).not.toBeVisible();
+    await expect(page.getByRole('heading', { name: 'New recurring entry' })).not.toBeVisible();
 
     await page.getByRole('link', { name: 'Cashflow', exact: true }).first().click();
     await waitForDB(page);

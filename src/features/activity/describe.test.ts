@@ -188,7 +188,7 @@ describe('accounts, categories, budgets', () => {
         },
       }),
     );
-    expect(plain(d.text)).toBe('set up a repeating expense of ₹300.00 in Food & Dining (monthly)');
+    expect(plain(d.text)).toBe('set up a recurring expense of ₹300.00 in Food & Dining (monthly)');
   });
 });
 

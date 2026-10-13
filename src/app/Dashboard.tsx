@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Wallet, TrendingUp, TrendingDown, Minus, AlertTriangle, ArrowRight, X, Check } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, AlertTriangle, ArrowRight, X, Check } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
 import { PageShell } from './PageShell';
 import { Card, EmptyState } from '@/components/ui/Card';
@@ -45,7 +45,7 @@ function LocalOnlyWarning() {
       <div className="min-w-0 flex-1 text-sm">
         <span className="font-medium">Your data is only on this device.</span>{' '}
         Clearing your browser or losing this device would erase it, with no way to get it back. Turn
-        on sync to keep a copy in Google Drive — or export a backup file regularly.
+        on sync to keep a copy in Google Drive, or download a backup now and then.
         <div className="mt-2">
           <Link
             to="/settings"
@@ -187,7 +187,7 @@ export function Dashboard() {
     {
       done: !!google,
       label: 'Keep your data safe',
-      desc: 'Turn on Drive sync, or export a backup file.',
+      desc: 'Turn on Drive sync, or download a backup.',
       to: '/settings',
       cta: 'Set up',
     },
@@ -424,7 +424,8 @@ function TotalBalanceCard({ totals }: { totals: CurrencyTotal[] }) {
       </div>
       <div className={`mt-3 grid gap-4 ${totals.length > 1 ? 'sm:grid-cols-2 lg:grid-cols-3' : ''}`}>
         {totals.map((t) => {
-          const TrendIcon = t.balance_minor > 0 ? TrendingUp : t.balance_minor < 0 ? TrendingDown : Minus;
+          // No icon at zero: a flat dash beside $0.00 reads as a minus sign.
+          const TrendIcon = t.balance_minor > 0 ? TrendingUp : t.balance_minor < 0 ? TrendingDown : null;
           const color =
             t.balance_minor > 0
               ? 'text-mint-400'
@@ -434,7 +435,7 @@ function TotalBalanceCard({ totals }: { totals: CurrencyTotal[] }) {
           return (
             <div key={t.currency}>
               <div className={`flex items-center gap-2 ${color}`}>
-                <TrendIcon className="h-5 w-5 shrink-0" />
+                {TrendIcon && <TrendIcon className="h-5 w-5 shrink-0" />}
                 <Money
                   minor={t.balance_minor}
                   currency={t.currency}

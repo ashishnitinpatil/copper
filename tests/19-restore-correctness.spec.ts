@@ -51,7 +51,7 @@ const SNAPSHOT_SQL = `SELECT
 
 /** Run the read-only fingerprint query in the SQL console and read the row back. */
 async function snapshot(page: Page): Promise<Record<string, number>> {
-  await page.getByRole('link', { name: 'SQL', exact: true }).first().click();
+  await page.goto('/sql');
   await page.waitForTimeout(300);
   await page.locator('textarea').fill(SNAPSHOT_SQL);
   await page.getByRole('button', { name: /Run/ }).click();
@@ -159,15 +159,15 @@ async function buildBook(page: Page) {
   //    materialising a transaction (which would perturb the balances).
   await page.goto('/settings');
   await waitForDB(page);
-  await page.getByRole('button', { name: '+ New rule' }).click();
-  await expect(page.getByRole('heading', { name: 'New recurring rule' })).toBeVisible();
+  await page.getByRole('button', { name: '+ New recurring entry' }).click();
+  await expect(page.getByRole('heading', { name: 'New recurring entry' })).toBeVisible();
   const ruleModal = page.locator('.fixed');
   await selectCombobox(ruleModal, 'Account', 'Cash');
   await selectCombobox(ruleModal, 'Category', 'Subscriptions');
   await ruleModal.getByLabel('Amount').fill('99');
   await ruleModal.getByRole('textbox', { name: 'Start date' }).fill('2099-01-01');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'New recurring rule' })).not.toBeVisible();
+  await expect(page.getByRole('heading', { name: 'New recurring entry' })).not.toBeVisible();
 }
 
 test.describe('Restore — controlled correctness', () => {
@@ -188,7 +188,7 @@ test.describe('Restore — controlled correctness', () => {
     await page.goto('/settings');
     await waitForDB(page);
     const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Full backup' }).click();
+    await page.getByRole('button', { name: 'Download backup' }).click();
     const backupPath = testInfo.outputPath('controlled-backup.json');
     await (await downloadPromise).saveAs(backupPath);
 

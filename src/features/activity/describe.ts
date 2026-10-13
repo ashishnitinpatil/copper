@@ -350,7 +350,7 @@ function describeRecurring(L: Lookups, entry: DescribableEntry): Description {
   const kind = tpl.kind === 'income' ? 'income' : 'expense';
   const cat = categoryName(L, tpl.category_id);
   const amount = tpl.amount_minor === undefined ? '' : ` of ${money(tpl.amount_minor, currencyOf(L, tpl.account_id))}`;
-  const phrase = `the repeating ${kind}${amount}${cat ? ` in ${cat}` : ''} (${repeatLabel(row.rrule)})`;
+  const phrase = `the recurring ${kind}${amount}${cat ? ` in ${cat}` : ''} (${repeatLabel(row.rrule)})`;
   if (entry.op === 'insert') return { text: `set up ${phrase.replace(/^the /, 'a ')}`, detail: null, changes: [] };
   if (entry.op === 'delete') return { text: `removed ${phrase}`, detail: null, changes: [] };
   const changes = changesOf(parseDiff(entry.diff));

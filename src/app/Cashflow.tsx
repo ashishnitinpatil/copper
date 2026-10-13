@@ -297,12 +297,12 @@ export function Cashflow() {
         </div>
         <InfoHint label="Forecast vs Trend" title="Two ways to project">
           <span className="mb-1.5 block">
-            <span className="font-medium text-slate-300">Forecast</span> — projects from your
-            explicit recurring rules only.
+            <span className="font-medium text-slate-300">Forecast</span> — your balance today plus
+            your recurring entries, like rent and salary.
           </span>
           <span className="block">
-            <span className="font-medium text-slate-300">Trend</span> — a flat average of recent full
-            months, excluding transfers and the current partial month.
+            <span className="font-medium text-slate-300">Trend</span> — what an average month looks
+            like lately, leaving out transfers and this unfinished month.
           </span>
         </InfoHint>
       </div>
@@ -391,10 +391,15 @@ export function Cashflow() {
         </div>
       )}
 
-      {forecast.length <= 1 ? (
+      {forecast.length === 0 ? (
         <EmptyState
           title="Nothing to show yet"
-          description="Add bank/cash accounts and recurring rules to see your estimated balance."
+          description="Add a bank or cash account to see where your balance is heading."
+          action={
+            <Link to="/accounts" className="text-sm font-medium text-brand-300 underline">
+              Go to Accounts
+            </Link>
+          }
         />
       ) : (
         <Card>
@@ -411,6 +416,15 @@ export function Cashflow() {
                 ? 'Balance is already negative today'
                 : `Balance goes negative on ${formatHumanDate(forecast.find((f) => f.balance < 0)!.date)}`}
             </div>
+          )}
+          {forecast.length === 1 && (
+            <p className="mb-3 text-xs text-slate-500">
+              Nothing is scheduled in the next {horizon} days, so your balance stays as it is today.
+              Add recurring entries like rent, salary or subscriptions to see them coming.{' '}
+              <Link to="/settings#recurring" className="font-medium text-brand-300 underline">
+                Add a recurring entry
+              </Link>
+            </p>
           )}
           <div className="divide-y divide-slate-800">
             {forecast.map((entry, i) => (
