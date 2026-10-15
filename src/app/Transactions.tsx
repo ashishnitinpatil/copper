@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { DateField } from '@/components/ui/DateField';
+import { AccountGlyph, accountOptions } from '@/components/accountOptions';
+import { RecurringList } from './Recurring';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, Plus } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
@@ -68,6 +71,8 @@ export function Transactions() {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get('view') === 'recurring' ? 'recurring' : 'all';
   const db = useDB();
   const accountsQuery = useQuery(useCallback((db) => listAccounts(db, false), []), { deps: ['accounts'] });
   const categoriesQuery = useQuery(useCallback((db) => listCategories(db, false), []), {
@@ -225,9 +230,12 @@ export function Transactions() {
                         <div className="text-sm font-medium text-slate-50">
                           {t.category_name ?? (t.kind === 'transfer' ? 'Transfer' : 'Uncategorised')}
                         </div>
-                        <div className="truncate text-xs text-slate-500">
-                          {t.account_name}
-                          {t.note ? ` · ${t.note}` : ''}
+                        <div className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
+                          <AccountGlyph account={{ icon: t.account_icon, type: t.account_type }} size="xs" />
+                          <span className="truncate">
+                            {t.account_name}
+                            {t.note ? ` · ${t.note}` : ''}
+                          </span>
                         </div>
                         {txTags.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
@@ -255,6 +263,39 @@ export function Transactions() {
     );
   };
 
+  const viewTabs = (
+    <div role="tablist" aria-label="Show" className="flex gap-1 rounded-lg bg-slate-900 p-1 sm:w-fit">
+      {(
+        [
+          ['all', 'All transactions'],
+          ['recurring', 'Recurring'],
+        ] as const
+      ).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          role="tab"
+          aria-selected={view === id}
+          onClick={() => setSearchParams(id === 'all' ? {} : { view: id }, { replace: true })}
+          className={`flex-1 rounded-md px-4 py-1.5 text-sm font-medium transition sm:flex-none ${
+            view === id ? 'bg-brand-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (view === 'recurring') {
+    return (
+      <PageShell title="Transactions" subtitle="Rent, salary, subscriptions — anything that repeats">
+        {viewTabs}
+        <RecurringList />
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell
       title="Transactions"
@@ -276,6 +317,7 @@ export function Transactions() {
         </div>
       }
     >
+      {viewTabs}
       <Card>
         <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
           <div className={showFilters ? 'contents' : 'hidden md:contents'}>
@@ -284,7 +326,7 @@ export function Transactions() {
               value={filters.accountId}
               onChange={(v) => setFilters((f) => ({ ...f, accountId: v }))}
               emptyOption={{ value: '', label: 'All' }}
-              options={(accountsQuery.data ?? []).map((a) => ({ value: a.id, label: a.name }))}
+              options={accountOptions(accountsQuery.data ?? [])}
             />
             <Combobox
               label="Category"
@@ -316,17 +358,17 @@ export function Transactions() {
               <option value="income">Income</option>
               <option value="transfer">Transfer</option>
             </Select>
-            <Input
+            <DateField
               label="From"
-              type="date"
+              optional
               value={filters.dateFrom}
-              onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+              onChange={(v) => setFilters((f) => ({ ...f, dateFrom: v }))}
             />
-            <Input
+            <DateField
               label="To"
-              type="date"
+              optional
               value={filters.dateTo}
-              onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+              onChange={(v) => setFilters((f) => ({ ...f, dateTo: v }))}
             />
           </div>
           <div className="order-first md:order-none">
@@ -345,6 +387,7 @@ export function Transactions() {
                   </span>
                 </InfoHint>
               }
+              data-shortcut="search"
               value={filters.search}
               onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
               placeholder="Note, category, or amount…"
@@ -646,18 +689,17 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
             <option value="expense">Expense</option>
             <option value="income">Income</option>
           </Select>
-          <Input
+          <DateField
             label="Date"
-            type="date"
             value={form.occurred_on}
-            onChange={(e) => setForm((f) => ({ ...f, occurred_on: e.target.value }))}
+            onChange={(v) => setForm((f) => ({ ...f, occurred_on: v }))}
           />
         </div>
         <Combobox
           label="Account"
           value={form.account_id}
           onChange={(v) => setForm((f) => ({ ...f, account_id: v }))}
-          options={accounts.map((a) => ({ value: a.id, label: a.name }))}
+          options={accountOptions(accounts)}
         />
         <Combobox
           label="Category"

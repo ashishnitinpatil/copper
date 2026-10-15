@@ -421,7 +421,7 @@ export function Cashflow() {
             <p className="mb-3 text-xs text-slate-500">
               Nothing is scheduled in the next {horizon} days, so your balance stays as it is today.
               Add recurring entries like rent, salary or subscriptions to see them coming.{' '}
-              <Link to="/settings#recurring" className="font-medium text-brand-300 underline">
+              <Link to="/transactions?view=recurring" className="font-medium text-brand-300 underline">
                 Add a recurring entry
               </Link>
             </p>

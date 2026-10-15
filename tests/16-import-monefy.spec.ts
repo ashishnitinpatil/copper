@@ -6,7 +6,7 @@ const SAMPLE_CSV = fileURLToPath(new URL('./fixtures/monefy-sample.csv', import.
 
 test.describe('Monefy CSV import', () => {
   test('imports accounts, categories and transactions from a Monefy export', async ({ page }) => {
-    await resetAndLoad(page, '/settings');
+    await resetAndLoad(page, '/settings#data');
     await waitForDB(page);
 
     await page.getByRole('button', { name: 'Import Monefy CSV' }).click();

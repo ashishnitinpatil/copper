@@ -1,5 +1,5 @@
 import type { DB } from '../wasm';
-import type { Transaction, TransactionKind } from '../types';
+import type { AccountType, Transaction, TransactionKind } from '../types';
 import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
 import { logCreate, logUpdate, logDelete, newBatchId, snapshotEntity } from '../changeLog';
@@ -19,6 +19,8 @@ export interface TransactionInput {
 export interface TransactionWithMeta extends Transaction {
   account_name: string;
   account_currency: string;
+  account_type: AccountType;
+  account_icon: string | null;
   category_name: string | null;
   category_icon: string | null;
   category_color: string | null;
@@ -215,7 +217,7 @@ export async function listTransactions(
   const offset = filter.offset ?? 0;
 
   const sql = `
-    SELECT t.*, a.name AS account_name, a.currency AS account_currency,
+    SELECT t.*, a.name AS account_name, a.currency AS account_currency, a.type AS account_type, a.icon AS account_icon,
            c.name AS category_name, c.icon AS category_icon, c.color AS category_color
     FROM transactions t
     JOIN accounts a ON a.id = t.account_id
@@ -289,7 +291,7 @@ export async function searchTransactions(
 
   // Pull the filtered candidates (capped for safety) and rank them in JS.
   const candidates = await db.execO<TransactionWithMeta>(
-    `SELECT t.*, a.name AS account_name, a.currency AS account_currency,
+    `SELECT t.*, a.name AS account_name, a.currency AS account_currency, a.type AS account_type, a.icon AS account_icon,
             c.name AS category_name, c.icon AS category_icon, c.color AS category_color
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id

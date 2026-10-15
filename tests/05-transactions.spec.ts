@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAndLoad, waitForDB } from './helpers';
+import { resetAndLoad, waitForDB, pickDate } from './helpers';
 
 async function addExpense(page: import('@playwright/test').Page, amount: string, category: RegExp) {
   for (const ch of amount) {
@@ -69,7 +69,7 @@ test.describe('Transactions', () => {
     const iso = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`;
     await page.getByRole('link', { name: 'Add', exact: true }).first().click();
     await waitForDB(page);
-    await page.locator('main input[type="date"]').fill(iso);
+    await pickDate(page.getByRole('button', { name: /^Date:/ }), iso);
     await addExpense(page, '300', /Transport/);
 
     await page.getByRole('link', { name: 'Transactions', exact: true }).first().click();

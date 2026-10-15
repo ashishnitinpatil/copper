@@ -21,7 +21,7 @@ interface Exec {
   exec(sql: string, params?: unknown[]): Promise<unknown>;
 }
 
-const TABLE: Record<ChangeEntity, string> = {
+export const ENTITY_TABLE: Record<ChangeEntity, string> = {
   transaction: 'transactions',
   account: 'accounts',
   category: 'categories',
@@ -50,7 +50,7 @@ export async function snapshotEntity(
   entity: ChangeEntity,
   id: string,
 ): Promise<Row | null> {
-  const rows = await db.execO<Row>(`SELECT * FROM ${TABLE[entity]} WHERE id = ?`, [id]);
+  const rows = await db.execO<Row>(`SELECT * FROM ${ENTITY_TABLE[entity]} WHERE id = ?`, [id]);
   return rows[0] ?? null;
 }
 
@@ -250,7 +250,7 @@ const BATCH_PREVIEW = 50;
 async function attachCurrent(db: DB, rows: Omit<ActivityEntry, 'current'>[]): Promise<ActivityEntry[]> {
   const ids = new Map<ChangeEntity, Set<string>>();
   for (const r of rows) {
-    if (!TABLE[r.entity]) continue;
+    if (!ENTITY_TABLE[r.entity]) continue;
     if (!ids.has(r.entity)) ids.set(r.entity, new Set());
     ids.get(r.entity)!.add(r.entity_id);
   }
@@ -260,7 +260,7 @@ async function attachCurrent(db: DB, rows: Omit<ActivityEntry, 'current'>[]): Pr
     for (let i = 0; i < list.length; i += 500) {
       const chunk = list.slice(i, i + 500);
       const found = await db.execO<Row>(
-        `SELECT * FROM ${TABLE[entity]} WHERE id IN (${chunk.map(() => '?').join(',')})`,
+        `SELECT * FROM ${ENTITY_TABLE[entity]} WHERE id IN (${chunk.map(() => '?').join(',')})`,
         chunk,
       );
       for (const f of found) live.set(`${entity}:${String(f.id)}`, f);

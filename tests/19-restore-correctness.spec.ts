@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetAndLoad, waitForDB, selectCombobox } from './helpers';
+import { resetAndLoad, waitForDB, selectCombobox, pickDate } from './helpers';
 
 // A controlled, hand-computed book that exercises every balance-affecting shape
 // (opening balances, expenses, income, same- and cross-currency transfers,
@@ -83,7 +83,7 @@ async function quickEntry(
 ) {
   await page.goto('/add');
   await waitForDB(page);
-  if (opts.mode === 'Income') await page.getByRole('button', { name: 'Income', exact: true }).click();
+  if (opts.mode === 'Income') await page.getByRole('tab', { name: 'Income' }).click();
   for (const d of opts.digits) {
     await page.getByRole('button', { name: d, exact: true }).click();
   }
@@ -157,15 +157,22 @@ async function buildBook(page: Page) {
 
   // 6. A recurring rule, future-dated so it round-trips as a row without ever
   //    materialising a transaction (which would perturb the balances).
-  await page.goto('/settings');
+  await page.goto('/transactions?view=recurring');
   await waitForDB(page);
   await page.getByRole('button', { name: '+ New recurring entry' }).click();
   await expect(page.getByRole('heading', { name: 'New recurring entry' })).toBeVisible();
   const ruleModal = page.locator('.fixed');
-  await selectCombobox(ruleModal, 'Account', 'Cash');
+  await selectCombobox(ruleModal, 'Paid from', 'Cash');
   await selectCombobox(ruleModal, 'Category', 'Subscriptions');
   await ruleModal.getByLabel('Amount').fill('99');
-  await ruleModal.getByRole('textbox', { name: 'Start date' }).fill('2099-01-01');
+  // Next month: future, so it never adds a transaction during the test.
+  const next = new Date();
+  next.setDate(1);
+  next.setMonth(next.getMonth() + 1);
+  await pickDate(
+    ruleModal.getByRole('button', { name: /^Date:/ }),
+    `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-15`,
+  );
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'New recurring entry' })).not.toBeVisible();
 }
@@ -185,7 +192,7 @@ test.describe('Restore — controlled correctness', () => {
     expect(before).toMatchObject(EXPECTED);
 
     // Export a full backup.
-    await page.goto('/settings');
+    await page.goto('/settings#data');
     await waitForDB(page);
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download backup' }).click();

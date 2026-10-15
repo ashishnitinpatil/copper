@@ -15,10 +15,10 @@ import {
 } from '@/db/queries/accounts';
 import { listTransactions, type TransactionWithMeta } from '@/db/queries/transactions';
 import { getBudgetsWithSpent, type BudgetWithSpent } from '@/db/queries/budgets';
-import type { Account, AccountType } from '@/db/types';
+import type { Account } from '@/db/types';
 import { formatMoney } from '@/lib/money';
 import { startOfMonth, toDateString, formatRelativeDate } from '@/lib/dates';
-import { AccountTypeIcon } from '@/components/ui/AccountTypeIcon';
+import { AccountGlyph } from '@/components/accountOptions';
 import { Money } from '@/components/ui/Money';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useIsFirstPull } from '@/sync/SyncProgressBanner';
@@ -243,7 +243,6 @@ export function Dashboard() {
               }
             >
               <div className={compact ? 'hidden items-center gap-2 sm:flex' : 'flex items-center gap-2'}>
-                <AccountTypeIcon type={a.type as AccountType} className="h-4 w-4 text-slate-400" />
                 <div className="text-xs uppercase tracking-wide text-slate-500">
                   {a.type.replace('_', ' ')}
                 </div>
@@ -257,9 +256,9 @@ export function Dashboard() {
                 )}
               </div>
               <div className={compact ? 'min-w-0 sm:mt-1' : 'mt-1 min-w-0'}>
-                <div className="truncate text-sm font-medium text-slate-50">
-                  {a.icon ? <span className="mr-1">{a.icon}</span> : null}
-                  {a.name}
+                <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-50">
+                  <AccountGlyph account={a} />
+                  <span className="truncate">{a.name}</span>
                 </div>
                 {compact && a.include_in_total === 0 && (
                   <div className="text-[11px] text-slate-500 sm:hidden">not counted</div>
@@ -335,9 +334,13 @@ export function Dashboard() {
                     <div className="truncate text-sm text-slate-100">
                       {tx.kind === 'transfer' ? 'Transfer' : tx.category_name ?? 'Uncategorized'}
                     </div>
-                    <div className="truncate text-xs text-slate-500">
-                      {formatRelativeDate(tx.occurred_on)} · {tx.account_name}
-                      {tx.note ? ` · ${tx.note}` : ''}
+                    <div className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
+                      <span className="shrink-0">{formatRelativeDate(tx.occurred_on)} ·</span>
+                      <AccountGlyph account={{ icon: tx.account_icon, type: tx.account_type }} size="xs" />
+                      <span className="truncate">
+                        {tx.account_name}
+                        {tx.note ? ` · ${tx.note}` : ''}
+                      </span>
                     </div>
                   </div>
                 </div>

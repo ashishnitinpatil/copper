@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { DateField } from '@/components/ui/DateField';
+import { accountOptions } from '@/components/accountOptions';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Combobox } from '@/components/ui/Combobox';
@@ -169,7 +171,7 @@ export function TransferModal({ open, accounts, onClose, transferId, draft, onCr
               // A received figure typed for the old pair of accounts no longer applies.
               setReceivedTouched(false);
             }}
-            options={accounts.map((a) => ({ value: a.id, label: a.name }))}
+            options={accountOptions(accounts)}
           />
           <Combobox
             label="To"
@@ -178,7 +180,7 @@ export function TransferModal({ open, accounts, onClose, transferId, draft, onCr
               setToId(id);
               setReceivedTouched(false);
             }}
-            options={accounts.filter((a) => a.id !== fromId).map((a) => ({ value: a.id, label: a.name }))}
+            options={accountOptions(accounts.filter((a) => a.id !== fromId))}
           />
           <Input
             label={crossCurrency ? `Amount sent (${currency})` : 'Amount'}
@@ -210,7 +212,7 @@ export function TransferModal({ open, accounts, onClose, transferId, draft, onCr
               </p>
             </div>
           )}
-          <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateField label="Date" value={date} onChange={setDate} />
           <Input label="Note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
           <div className="flex items-center justify-between gap-2 pt-2">
             {editing ? (

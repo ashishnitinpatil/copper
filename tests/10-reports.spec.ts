@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAndLoad, waitForDB } from './helpers';
+import { resetAndLoad, waitForDB, pickDate } from './helpers';
 
 async function addExpense(page: import('@playwright/test').Page, amount: string, category: RegExp) {
   for (const ch of amount) {
@@ -22,7 +22,33 @@ test.describe('Reports', () => {
 
     await expect(page.getByText('Food & Dining').first()).toBeVisible();
     await expect(page.getByText('Transport').first()).toBeVisible();
-    await expect(page.getByText(/Total:/).first()).toBeVisible();
+    // The donut's middle shows the month's total spending.
+    await expect(page.getByRole('img', { name: 'Spending by category' })).toBeVisible();
+    await expect(page.getByText('₹500.00').first()).toBeVisible();
+  });
+
+  test('step back a month, then pick custom dates', async ({ page }) => {
+    await resetAndLoad(page, '/add');
+    await waitForDB(page);
+    await addExpense(page, '300', /Food & Dining/);
+    await page.getByRole('link', { name: 'Reports', exact: true }).first().click();
+    await waitForDB(page);
+    await expect(page.getByText('₹300.00').first()).toBeVisible();
+
+    // Last month has nothing; next month can't be picked from this month.
+    await expect(page.getByRole('button', { name: 'Next month' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Previous month' }).click();
+    await expect(page.getByText('No spending this month')).toBeVisible();
+
+    // A custom range that covers today brings the expense back.
+    await page.getByRole('button', { name: 'Custom dates' }).click();
+    const today = new Date();
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    await pickDate(page.getByRole('button', { name: /^Date:/ }).last(), iso(today));
+    await expect(page.getByText('₹300.00').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Back to months' }).click();
+    await expect(page.getByRole('button', { name: 'Previous month' })).toBeVisible();
   });
 
   test('monthly trend tab works', async ({ page }) => {
@@ -40,5 +66,28 @@ test.describe('Reports', () => {
     await expect(page.getByText('Expenses').first()).toBeVisible();
     await expect(page.getByText('Income').first()).toBeVisible();
     await expect(page.getByText('Net').first()).toBeVisible();
+  });
+
+  test('months with only scheduled entries stay folded until asked for', async ({ page }) => {
+    await resetAndLoad(page, '/add');
+    await waitForDB(page);
+    await addExpense(page, '100', /Other/);
+    // A second expense dated two months ahead (like a scheduled EMI).
+    const d = new Date();
+    const ahead = new Date(d.getFullYear(), d.getMonth() + 2, 10);
+    const iso = `${ahead.getFullYear()}-${String(ahead.getMonth() + 1).padStart(2, '0')}-10`;
+    await pickDate(page.getByRole('button', { name: /^Date:/ }), iso);
+    await addExpense(page, '777', /Other/);
+
+    await page.getByRole('link', { name: 'Reports', exact: true }).first().click();
+    await waitForDB(page);
+    await page.getByRole('button', { name: 'Monthly trend' }).click();
+
+    const table = page.locator('table');
+    await expect(table).toContainText('₹100.00');
+    await expect(table).not.toContainText('₹777.00');
+    await page.getByRole('button', { name: /Upcoming months/ }).click();
+    await expect(table).toContainText('₹777.00');
+    await expect(page.getByText(/only entries already scheduled/)).toBeVisible();
   });
 });

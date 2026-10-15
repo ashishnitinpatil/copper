@@ -21,19 +21,19 @@ test.describe('Cashflow', () => {
   });
 
   test('a recurring rule produces a forecast projection', async ({ page }) => {
-    await resetAndLoad(page, '/settings');
+    await resetAndLoad(page, '/transactions?view=recurring');
     await waitForDB(page);
 
     // A forecast needs at least one future cash event; create a monthly rule.
     await page.getByRole('button', { name: '+ New recurring entry' }).click();
     const modal = page.locator('.fixed');
-    await selectCombobox(modal, 'Account', 'Cash');
+    await selectCombobox(modal, 'Paid from', 'Cash');
     await selectCombobox(modal, 'Category', 'Groceries');
     await modal.getByLabel('Amount').fill('1200');
     // Weekly (not the default Monthly) so an occurrence always lands inside the
     // 30-day forecast window — a monthly rule's first future occurrence can be 31
     // days out (date-dependent), which would leave the forecast empty.
-    await modal.getByLabel('Frequency').selectOption({ label: 'Weekly' });
+    await modal.getByLabel('Repeats').selectOption({ label: 'Weekly' });
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'New recurring entry' })).not.toBeVisible();
 
@@ -60,22 +60,24 @@ test.describe('Cashflow', () => {
     await page.waitForTimeout(500);
 
     // The forecast needs one future event to render.
-    await page.getByRole('link', { name: 'Settings', exact: true }).first().click();
+    await page.goto('/transactions?view=recurring');
     await waitForDB(page);
     await page.getByRole('button', { name: '+ New recurring entry' }).click();
     const modal = page.locator('.fixed');
-    await selectCombobox(modal, 'Account', 'Cash');
+    await selectCombobox(modal, 'Paid from', 'Cash');
     await selectCombobox(modal, 'Category', 'Groceries');
     await modal.getByLabel('Amount').fill('1200');
-    await modal.getByLabel('Frequency').selectOption({ label: 'Weekly' });
+    await modal.getByLabel('Repeats').selectOption({ label: 'Weekly' });
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'New recurring entry' })).not.toBeVisible();
 
     await page.getByRole('link', { name: 'Cashflow', exact: true }).first().click();
     await waitForDB(page);
     const today = page.locator('main div.flex.items-center.justify-between', { hasText: 'Today' }).last();
-    await expect(today).toContainText('₹0.00');
-    // Cash starts at zero, so the first payment is what tips it negative.
-    await expect(page.getByText(/Balance goes negative on/)).toBeVisible();
+    // The weekly entry starting today is already added, so Cash is down ₹1,200 —
+    // and the ₹5,000 loan, kept out of the total, isn't in that figure.
+    await expect(today).toContainText(/[-−]₹1,200\.00/);
+    await expect(today).not.toContainText('6,200');
+    await expect(page.getByText('Balance is already negative today')).toBeVisible();
   });
 });

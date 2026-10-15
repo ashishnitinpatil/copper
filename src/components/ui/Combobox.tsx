@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
@@ -14,6 +15,10 @@ import { ChevronDown, Check } from 'lucide-react';
 export interface ComboboxOption {
   value: string;
   label: string;
+  /** Shown before the label, in the field and the list (e.g. an account's icon). */
+  icon?: ReactNode;
+  /** Muted text on the right of the row (e.g. an account's balance). */
+  hint?: string;
 }
 
 interface ComboboxProps {
@@ -26,6 +31,11 @@ interface ComboboxProps {
   disabled?: boolean;
   id?: string;
   className?: string;
+  /** Large field with a small caption inside, for the one choice a screen hinges on. */
+  size?: 'md' | 'lg';
+  caption?: string;
+  /** Accessible name when there's no visible label. */
+  ariaLabel?: string;
 }
 
 const FIELD_BASE =
@@ -41,6 +51,9 @@ export function Combobox({
   disabled,
   id,
   className,
+  size = 'md',
+  caption,
+  ariaLabel,
 }: ComboboxProps) {
   const autoId = useId();
   const fieldId = id ?? autoId;
@@ -171,12 +184,40 @@ export function Combobox({
           id={fieldId}
           disabled={disabled}
           onClick={() => !disabled && setOpen((o) => !o)}
-          className={`${FIELD_BASE} flex items-center justify-between gap-2 text-left`}
+          aria-label={ariaLabel}
+          className={
+            size === 'lg'
+              ? 'flex w-full items-center gap-3 rounded-xl border border-brand-500/40 bg-brand-500/10 px-3 py-2.5 text-left transition hover:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/40 disabled:opacity-60'
+              : `${FIELD_BASE} flex items-center justify-between gap-2 text-left`
+          }
         >
-          <span className={`truncate ${selected ? '' : 'text-slate-500'}`}>
-            {selected?.label ?? placeholder}
-          </span>
-          <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+          {size === 'lg' ? (
+            <>
+              {selected?.icon && <span className="shrink-0">{selected.icon}</span>}
+              <span className="min-w-0 flex-1">
+                {caption && (
+                  <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">
+                    {caption}
+                  </span>
+                )}
+                <span className={`block truncate text-base font-semibold ${selected ? 'text-slate-50' : 'text-slate-500'}`}>
+                  {selected?.label ?? placeholder}
+                </span>
+              </span>
+              {selected?.hint && (
+                <span className="shrink-0 text-xs tabular-nums text-slate-400">{selected.hint}</span>
+              )}
+              <ChevronDown className="h-4 w-4 shrink-0 text-brand-400" />
+            </>
+          ) : (
+            <>
+              <span className={`flex min-w-0 items-center gap-2 ${selected ? '' : 'text-slate-500'}`}>
+                {selected?.icon && <span className="shrink-0">{selected.icon}</span>}
+                <span className="truncate">{selected?.label ?? placeholder}</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+            </>
+          )}
         </button>
         {open &&
           pos &&
@@ -217,8 +258,14 @@ export function Combobox({
                           i === highlight ? 'bg-slate-800 text-slate-50' : 'text-slate-200'
                         }`}
                       >
-                        <span className="truncate">{o.label}</span>
-                        {value === o.value && <Check className="h-3.5 w-3.5 shrink-0 text-brand-400" />}
+                        <span className="flex min-w-0 items-center gap-2">
+                          {o.icon && <span className="shrink-0">{o.icon}</span>}
+                          <span className="truncate">{o.label}</span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          {o.hint && <span className="text-xs tabular-nums text-slate-500">{o.hint}</span>}
+                          {value === o.value && <Check className="h-3.5 w-3.5 text-brand-400" />}
+                        </span>
                       </button>
                     </li>
                   ))

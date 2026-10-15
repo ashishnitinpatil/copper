@@ -66,6 +66,21 @@ export async function selectCombobox(scope: Page | Locator, label: string, optio
   await search.press('Enter');
 }
 
+/**
+ * Pick a date (YYYY-MM-DD) in a DateField: open it, step months until the day
+ * shows, then click it. `field` is the field's button (e.g. getByLabel('Date')).
+ */
+export async function pickDate(field: Locator, iso: string) {
+  const page = field.page();
+  await field.click();
+  const target = page.locator(`[role="dialog"][aria-label="Choose a date"] [data-date="${iso}"]`);
+  for (let i = 0; i < 36 && !(await target.isVisible()); i++) {
+    const shown = await page.locator('[role="dialog"][aria-label="Choose a date"] [data-date]').nth(15).getAttribute('data-date');
+    await page.getByRole('button', { name: shown && shown < iso ? 'Next month' : 'Previous month' }).click();
+  }
+  await target.click();
+}
+
 export async function navigateTo(page: Page, label: string) {
   await page.getByRole('link', { name: label }).first().click();
   await page.waitForTimeout(300);

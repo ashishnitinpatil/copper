@@ -516,6 +516,13 @@ export function describeGroup(L: Lookups, group: DescribableGroup): Description 
   }
 
   switch (group.source) {
+    case 'undo': {
+      const inner =
+        entries.length === 1 && group.total === 1
+          ? describeEntry(L, entries[0])
+          : { text: `made ${plural(group.total, 'change')}`, detail: null, changes: [] };
+      return { ...inner, text: `${inner.text} (undo)` };
+    }
     case 'monefy-import': {
       const parts = [
         txs ? plural(txs, 'transaction') : '',

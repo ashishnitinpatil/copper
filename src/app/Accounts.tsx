@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { AccountGlyph, accountOptions, useAccountBalances } from '@/components/accountOptions';
+import { DateField } from '@/components/ui/DateField';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { InfoHint } from '@/components/ui/InfoHint';
@@ -10,7 +12,6 @@ import { useQuery } from '@/db/useQuery';
 import {
   archiveAccount,
   createAccount,
-  getAccountBalances,
   listAccounts,
   unarchiveAccount,
   updateAccount,
@@ -24,6 +25,9 @@ import { Money } from '@/components/ui/Money';
 import { Combobox } from '@/components/ui/Combobox';
 import { toDateString } from '@/lib/dates';
 import { useDefaultCurrency } from './AppSettingsProvider';
+
+// Offered on top of the default (the account type's own icon).
+const ACCOUNT_ICONS = ['🏦', '💳', '💵', '👛', '💰', '🪙', '📈', '🏠', '🚗', '🎓', '✈️', '🧾'];
 
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: 'cash', label: 'Cash' },
@@ -41,15 +45,7 @@ export function Accounts() {
   const accountsQuery = useQuery(useCallback((db) => listAccounts(db, true), []), {
     deps: ['accounts'],
   });
-  const balancesQuery = useQuery(useCallback((db) => getAccountBalances(db), []), {
-    deps: ['accounts', 'transactions'],
-  });
-
-  const balances = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const b of balancesQuery.data ?? []) map.set(b.account_id, b.balance_minor);
-    return map;
-  }, [balancesQuery.data]);
+  const balances = useAccountBalances();
 
   const accounts = accountsQuery.data ?? [];
   const active = accounts.filter((a) => !a.archived_at);
@@ -88,7 +84,10 @@ export function Accounts() {
           <ul className="space-y-2 text-sm text-slate-400">
             {archived.map((a) => (
               <li key={a.id} className="flex items-center justify-between">
-                <span>{a.name}</span>
+                <span className="flex items-center gap-2">
+                  <AccountGlyph account={a} />
+                  {a.name}
+                </span>
                 <button
                   className="text-xs text-brand-400 hover:underline"
                   onClick={() => setEditing(a)}
@@ -128,10 +127,13 @@ function AccountCard({ account, balanceMinor, onEdit }: AccountCardProps) {
       onClick={onEdit}
       className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-brand-500 hover:bg-slate-900/70"
     >
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-xs uppercase tracking-wide text-slate-500">{account.type.replace('_', ' ')}</div>
-          <div className="mt-0.5 text-base font-semibold text-slate-50">{account.name}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <AccountGlyph account={account} size="md" />
+          <div className="min-w-0">
+            <div className="text-xs uppercase tracking-wide text-slate-500">{account.type.replace('_', ' ')}</div>
+            <div className="mt-0.5 truncate text-base font-semibold text-slate-50">{account.name}</div>
+          </div>
         </div>
         {account.is_main === 1 && (
           <span className="rounded-md bg-brand-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
@@ -201,6 +203,9 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
         statement_day: form.statement_day ?? null,
         due_day: form.due_day ?? null,
         pay_from_account_id: form.pay_from_account_id ?? null,
+        // Carried through unchanged so saving never wipes a colour set elsewhere (e.g. import).
+        color: existing?.color ?? null,
+        icon: form.icon || null,
         starts_on: form.starts_on,
       };
       if (existing) {
@@ -235,9 +240,7 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
   const isArchived = !!existing?.archived_at;
   // Merging mixes balances, so only same-currency accounts are valid targets.
   const mergeOptions = existing
-    ? accounts
-        .filter((a) => a.id !== existing.id && a.currency === existing.currency)
-        .map((a) => ({ value: a.id, label: a.name }))
+    ? accountOptions(accounts.filter((a) => a.id !== existing.id && a.currency === existing.currency))
     : [];
 
   return (
@@ -265,6 +268,26 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
             options={CURRENCY_OPTIONS}
           />
         </div>
+        <div>
+          <span className="block text-xs font-medium uppercase tracking-wide text-slate-400">Icon</span>
+          <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Icon">
+            {['', ...ACCOUNT_ICONS].map((emoji) => (
+              <button
+                key={emoji || 'type'}
+                type="button"
+                role="radio"
+                aria-checked={form.icon === emoji}
+                aria-label={emoji || 'Default icon'}
+                onClick={() => update('icon', emoji)}
+                className={`flex h-9 w-9 items-center justify-center rounded-md text-lg ${
+                  form.icon === emoji ? 'bg-brand-500/30 ring-1 ring-brand-400' : 'bg-slate-800 hover:bg-slate-700'
+                }`}
+              >
+                {emoji || <AccountGlyph account={{ icon: null, type: form.type }} />}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Starting balance"
@@ -280,12 +303,7 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
             onChange={(e) => update('opening_input', e.target.value)}
             placeholder="0.00"
           />
-          <Input
-            label="Balance on"
-            type="date"
-            value={form.starts_on}
-            onChange={(e) => update('starts_on', e.target.value)}
-          />
+          <DateField label="Balance on" value={form.starts_on ?? ''} onChange={(v) => update('starts_on', v)} />
         </div>
         {form.type === 'credit_card' && (
           <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
@@ -330,9 +348,9 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
               value={form.pay_from_account_id ?? ''}
               onChange={(v) => update('pay_from_account_id', v || null)}
               emptyOption={{ value: '', label: '— None —' }}
-              options={accounts
-                .filter((a) => a.type !== 'credit_card' && a.id !== existing?.id)
-                .map((a) => ({ value: a.id, label: a.name }))}
+              options={accountOptions(
+                accounts.filter((a) => a.type !== 'credit_card' && a.id !== existing?.id),
+              )}
             />
           </div>
         )}
@@ -401,6 +419,7 @@ interface FormState extends AccountInput {
   is_main: boolean;
   include_in_total: boolean;
   starts_on: string;
+  icon: string;
 }
 
 function emptyForm(currency: string): FormState {
@@ -417,6 +436,7 @@ function emptyForm(currency: string): FormState {
     pay_from_account_id: null,
     opening_input: '',
     starts_on: toDateString(),
+    icon: '',
   };
 }
 
@@ -434,5 +454,6 @@ function toForm(a: Account): FormState {
     pay_from_account_id: a.pay_from_account_id,
     opening_input: String(fromMinor(a.opening_balance_minor, a.currency)),
     starts_on: a.starts_on,
+    icon: a.icon ?? '',
   };
 }

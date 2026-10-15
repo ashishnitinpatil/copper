@@ -20,6 +20,8 @@ interface Props {
   chronological?: boolean;
   /** Index (into oldest→newest data) of the first projected month, if any. */
   projectedFromIndex?: number;
+  /** What the faded months are: an average-based guess, or entries already scheduled. */
+  projection?: 'average' | 'scheduled';
 }
 
 const VB_W = 720;
@@ -44,6 +46,7 @@ export function CashflowTrendChart({
   months = 12,
   chronological = false,
   projectedFromIndex,
+  projection = 'average',
 }: Props) {
   const series = chronological ? data : data.slice(0, months).reverse();
   const hasProjection = projectedFromIndex !== undefined && projectedFromIndex < series.length;
@@ -83,7 +86,7 @@ export function CashflowTrendChart({
         <div>
           <div className="text-xs uppercase tracking-wide text-slate-500">
             {monthLabel(sel.month)} {sel.month.slice(0, 4)}
-            {isProjected(active) ? ' · projected' : ''}
+            {isProjected(active) ? (projection === 'scheduled' ? ' · scheduled' : ' · projected') : ''}
           </div>
           <div
             className={`font-display text-2xl font-semibold tabular-nums ${
@@ -226,8 +229,9 @@ export function CashflowTrendChart({
 
       {hasProjection && (
         <p className="text-xs text-slate-500">
-          Faded bars and the dashed net line are projected — every future month repeats the average
-          income and expense of the months before the marker.
+          {projection === 'scheduled'
+            ? 'Faded bars after the marker are future months — only entries already scheduled, like EMIs and recurring ones.'
+            : 'Faded bars and the dashed net line are projected — every future month repeats the average income and expense of the months before the marker.'}
         </p>
       )}
     </div>

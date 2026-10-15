@@ -33,6 +33,8 @@ export async function createRecurringRule(db: DB, input: RecurringRuleInput): Pr
     [id, JSON.stringify(input.template), input.rrule, input.next_run_on, nowIso()],
   );
   await logCreate(db, 'recurring', id);
+  // Add anything already due (e.g. today's) now, not on the next app start.
+  await materializeDueRecurrences(db);
   return id;
 }
 
@@ -47,12 +49,18 @@ export async function updateRecurringRule(
     [JSON.stringify(input.template), input.rrule, input.next_run_on, id],
   );
   await logUpdate(db, 'recurring', id, before);
+  await materializeDueRecurrences(db);
 }
 
 export async function archiveRecurringRule(db: DB, id: string): Promise<void> {
   const before = await snapshotEntity(db, 'recurring', id);
   await db.exec('UPDATE recurring_rules SET archived_at = ? WHERE id = ?', [nowIso(), id]);
   await logUpdate(db, 'recurring', id, before);
+}
+
+/** The id of the transaction a rule adds on `date` (stable across devices). */
+export function occurrenceId(ruleId: string, date: string): string {
+  return `rec:${ruleId}:${date}`;
 }
 
 export async function materializeDueRecurrences(db: DB): Promise<number> {
@@ -84,7 +92,7 @@ export async function materializeDueRecurrences(db: DB): Promise<number> {
         // materialize this occurrence, they generate the SAME id, so cr-sqlite
         // merges them into one row instead of keeping two duplicates. OR IGNORE
         // keeps a re-run on the same device idempotent.
-        const txId = `rec:${rule.id}:${occDate}`;
+        const txId = occurrenceId(rule.id, occDate);
         const signedAmount = tpl.kind === 'expense' ? -Math.abs(tpl.amount_minor) : Math.abs(tpl.amount_minor);
         await tx.exec(
           `INSERT OR IGNORE INTO transactions (id, account_id, category_id, amount_minor, kind, occurred_on, note, recurring_id, created_at)

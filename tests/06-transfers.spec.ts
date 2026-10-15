@@ -90,16 +90,19 @@ test.describe('Transfers', () => {
     await expect(page.getByText(/[-−]₹1,000\.00/).first()).toBeVisible();
   });
 
-  test('the Add screen saves a transfer by tapping the destination account', async ({ page }) => {
+  test('the Add screen moves money from one account to another', async ({ page }) => {
     await resetAndLoad(page, '/accounts');
     await waitForDB(page);
     await addAccount(page, 'Bank', '10000');
 
     await page.getByRole('link', { name: 'Add', exact: true }).first().click();
-    await page.getByRole('button', { name: 'Transfer', exact: true }).click();
+    await page.getByRole('tab', { name: 'Transfer' }).click();
+    // From defaults to the main account (Cash), To to the other one (Bank).
+    await expect(page.getByLabel('From account')).toContainText('Cash');
+    await expect(page.getByLabel('To account')).toContainText('Bank');
     await page.keyboard.type('500');
-    await page.locator('main').getByRole('button', { name: /Bank/ }).click();
-    await expect(page.getByText(/↔ Bank/)).toBeVisible();
+    await page.getByRole('button', { name: /^Transfer .500\.00$/ }).click();
+    await expect(page.getByText(/500\.00 to Bank/)).toBeVisible();
 
     await page.getByRole('link', { name: 'Accounts', exact: true }).first().click();
     await page.waitForTimeout(500);
@@ -113,15 +116,11 @@ test.describe('Transfers', () => {
     await addAccount(page, 'Dollar card', '0', 'USD');
 
     await page.getByRole('link', { name: 'Add', exact: true }).first().click();
-    await page.getByRole('button', { name: 'Transfer', exact: true }).click();
+    await page.getByRole('tab', { name: 'Transfer' }).click();
     await page.keyboard.type('250');
-    await page.locator('main').getByRole('button', { name: /Dollar card/ }).click();
-
-    const modal = page.locator('.fixed');
-    await expect(page.getByRole('heading', { name: 'New transfer' })).toBeVisible();
-    await expect(modal.getByLabel('Amount sent (INR)', { exact: true })).toHaveValue('250');
-    await modal.getByLabel('Amount received (USD)', { exact: true }).fill('3');
-    await page.getByRole('button', { name: 'Transfer', exact: true }).last().click();
+    await expect(page.getByLabel('To account')).toContainText('Dollar card');
+    await page.getByLabel('Amount received in Dollar card (USD)').fill('3');
+    await page.getByRole('button', { name: /^Transfer .250\.00$/ }).click();
     await page.waitForTimeout(500);
 
     await page.getByRole('link', { name: 'Accounts', exact: true }).first().click();

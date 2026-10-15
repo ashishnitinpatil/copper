@@ -1,39 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import {
-  LogIn,
-  RefreshCw,
-  Repeat,
-  ListChecks,
-  Palette,
-  Coins,
-  ArrowLeftRight,
-  Download,
-  Upload,
-  RotateCcw,
-  Smartphone,
-  Trash2,
-  type LucideIcon,
-} from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { RefreshCw, Palette, Download, type LucideIcon } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
-import { InfoHint } from '@/components/ui/InfoHint';
-import { Card, EmptyState } from '@/components/ui/Card';
-import { Input, Select } from '@/components/ui/Input';
+import { Card } from '@/components/ui/Card';
+import { Input } from '@/components/ui/Input';
 import { Combobox } from '@/components/ui/Combobox';
 import { Modal } from '@/components/ui/Modal';
 import { useDB } from '@/db/DBProvider';
 import { useSiteId } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
-import {
-  listRecurringRules,
-  createRecurringRule,
-  archiveRecurringRule,
-  type RecurringTemplate,
-  type RecurringRuleInput,
-} from '@/db/queries/recurring';
 import { listAccounts } from '@/db/queries/accounts';
-import { listCategories } from '@/db/queries/categories';
 import { getSettingNumber, setSetting, SETTINGS_KEYS } from '@/db/queries/settings';
 import { useAuth } from '@/auth/AuthProvider';
 import { useSync } from '@/sync/SyncProvider';
@@ -54,11 +31,11 @@ import { useBookPicker } from '@/sync/useBookPicker';
 import { BookIdentity } from '@/sync/BookIdentity';
 import { clearInvite, inviteLink, peekInvite } from '@/sync/invite';
 import type { DriveSnapshot } from '@/sync/driveBackup';
-import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
+import { useAppSettings } from './AppSettingsProvider';
 import { CURRENCY_OPTIONS } from '@/lib/money';
-import type { Account, AccountType, Category, RecurringRule } from '@/db/types';
-import { formatMoney, parseAmount } from '@/lib/money';
-import { formatHumanDate, toDateString } from '@/lib/dates';
+import type { Account, AccountType } from '@/db/types';
+import { formatMoney } from '@/lib/money';
+import { formatHumanDate } from '@/lib/dates';
 import { parseMonefyCsv, type ImportPlan } from '@/features/import/parseMonefy';
 import { runMonefyImport, type ImportOverrides } from '@/features/import/importMonefy';
 import {
@@ -80,160 +57,104 @@ import { closeDB, openDB, requestLocalReset } from '@/db/client';
 import type { BackupFile } from '@/features/export/exportData';
 import { useTheme, THEMES } from '@/lib/theme';
 
-// Order matches the on-page section order. The nav shows a pill per section that
-// is actually rendered (FxRatesSection hides itself when there's nothing to
-// convert), so the list is derived from the DOM, not assumed.
-const NAV_ITEMS: { id: string; label: string; Icon: LucideIcon }[] = [
-  { id: 'signin', label: 'Sign in', Icon: LogIn },
-  { id: 'sync', label: 'Sync', Icon: RefreshCw },
-  { id: 'recurring', label: 'Recurring', Icon: Repeat },
-  { id: 'review', label: 'Review', Icon: ListChecks },
-  { id: 'appearance', label: 'Appearance', Icon: Palette },
-  { id: 'currency', label: 'Currency', Icon: Coins },
-  { id: 'rates', label: 'Rates', Icon: ArrowLeftRight },
-  { id: 'export', label: 'Export', Icon: Download },
-  { id: 'import', label: 'Import', Icon: Upload },
-  { id: 'restore', label: 'Restore', Icon: RotateCcw },
-  { id: 'device', label: 'This device', Icon: Smartphone },
-  { id: 'reset', label: 'Erase', Icon: Trash2 },
+
+type TabId = 'sharing' | 'preferences' | 'data';
+
+// Three groups a person can tell apart at a glance, instead of one long page.
+// Each section keeps its own id so deep links (/settings#sync) still land on it.
+const TABS: { id: TabId; label: string; Icon: LucideIcon; sections: string[] }[] = [
+  { id: 'sharing', label: 'Sync & sharing', Icon: RefreshCw, sections: ['signin', 'sync', 'device'] },
+  { id: 'preferences', label: 'Preferences', Icon: Palette, sections: ['appearance', 'currency', 'rates', 'review'] },
+  { id: 'data', label: 'Your data', Icon: Download, sections: ['export', 'import', 'restore', 'reset'] },
 ];
+
+function tabFor(hash: string): TabId {
+  const id = hash.replace(/^#/, '');
+  return TABS.find((t) => t.id === id || t.sections.includes(id))?.id ?? 'sharing';
+}
 
 export function Settings() {
   const siteId = useSiteId();
   const { hash } = useLocation();
+  const navigate = useNavigate();
+  const tab = tabFor(hash);
 
-  // Deep links like /settings#sync (from the sync-paused banner) land on that section.
+  // A deep link to a section (/settings#sync, from the sync-paused banner)
+  // opens its tab and scrolls to it.
   useEffect(() => {
-    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' });
+    const id = hash.slice(1);
+    if (id && !TABS.some((t) => t.id === id)) {
+      requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }));
+    }
   }, [hash]);
 
   return (
-    <PageShell title="Settings" subtitle="Sync, recurring entries and backup">
-      <SettingsNav />
+    <PageShell title="Settings">
+      <div
+        role="tablist"
+        aria-label="Settings sections"
+        className="sticky top-0 z-20 -mx-1 flex gap-1 overflow-x-auto bg-slate-950/85 px-1 py-2 backdrop-blur [scrollbar-width:none]"
+      >
+        {TABS.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => navigate({ hash: id }, { replace: true })}
+            className={`inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-2 text-sm sm:flex-none sm:px-3 font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${
+              tab === id
+                ? 'bg-brand-500/15 text-brand-300 ring-1 ring-inset ring-brand-500/40'
+                : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
+            }`}
+          >
+            <Icon className="hidden h-4 w-4 sm:block" />
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <Section id="signin"><AuthSection /></Section>
-      <Section id="sync"><SyncSection /></Section>
-      <Section id="recurring"><RecurringRulesSection /></Section>
-      <Section id="review"><ReviewSettingsSection /></Section>
-      <Section id="appearance"><AppearanceSection /></Section>
-      <Section id="currency"><DefaultCurrencySection /></Section>
-      {/* Renders its own #rates anchor, or nothing when all accounts share a currency. */}
-      <FxRatesSection />
-      <Section id="export"><ExportSection /></Section>
-      <Section id="import"><ImportSection /></Section>
-      <Section id="restore"><RestoreSection /></Section>
-      <Section id="device"><ThisDeviceSection siteId={siteId} /></Section>
-      <Section id="reset"><ResetDeviceSection /></Section>
-      <p className="text-center text-xs text-slate-600">
-        For power users:{' '}
-        <Link to="/sql" className="underline hover:text-slate-400">
-          SQL console
-        </Link>
-      </p>
-      {/* Trailing room so jumping to a late section can bring its heading up
-          near the sticky nav instead of stopping short at the page bottom. */}
-      <div aria-hidden className="h-[40vh]" />
+      {tab === 'sharing' && (
+        <>
+          <Section id="signin"><AuthSection /></Section>
+          <Section id="sync"><SyncSection /></Section>
+          <Section id="device"><ThisDeviceSection siteId={siteId} /></Section>
+        </>
+      )}
+      {tab === 'preferences' && (
+        <>
+          <Section id="appearance"><AppearanceSection /></Section>
+          <Section id="currency"><DefaultCurrencySection /></Section>
+          {/* Renders its own #rates anchor, or nothing when all accounts share a currency. */}
+          <FxRatesSection />
+          <Section id="review"><ReviewSettingsSection /></Section>
+        </>
+      )}
+      {tab === 'data' && (
+        <>
+          <Section id="export"><ExportSection /></Section>
+          <Section id="import"><ImportSection /></Section>
+          <Section id="restore"><RestoreSection /></Section>
+          <Section id="reset"><ResetDeviceSection /></Section>
+          <p className="text-center text-xs text-slate-600">
+            For power users:{' '}
+            <Link to="/sql" className="underline hover:text-slate-400">
+              SQL console
+            </Link>
+          </p>
+        </>
+      )}
     </PageShell>
   );
 }
 
-// Anchor wrapper for a settings section. scroll-mt clears the sticky nav so a
-// jumped-to heading isn't hidden behind it.
+// Anchor wrapper for a settings section. scroll-mt clears the sticky tab bar so
+// a jumped-to heading isn't hidden behind it.
 function Section({ id, children }: { id: string; children: ReactNode }) {
   return (
-    <section id={id} data-settings-section className="scroll-mt-24">
+    <section id={id} className="scroll-mt-24">
       {children}
     </section>
-  );
-}
-
-// px below the viewport top where a section's heading counts as "current" —
-// just under the sticky nav so the active pill matches what's at the top.
-const ACTIVE_LINE = 120;
-
-function SettingsNav() {
-  const [present, setPresent] = useState<Set<string>>(() => new Set());
-  const [active, setActive] = useState<string>('');
-
-  useEffect(() => {
-    const first = document.querySelector<HTMLElement>('[data-settings-section]');
-    const root = first?.parentElement;
-    if (!root) return;
-
-    let raf = 0;
-    const compute = () => {
-      raf = 0;
-      const els = Array.from(root.querySelectorAll<HTMLElement>('[data-settings-section]'));
-      setPresent(new Set(els.map((el) => el.id)));
-      if (els.length === 0) return;
-      // Active = the last section whose top has scrolled above the active line.
-      // At the very bottom the last section can't reach the line, so pin it.
-      const atBottom =
-        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
-      let current = els[0].id;
-      if (atBottom) {
-        current = els[els.length - 1].id;
-      } else {
-        for (const el of els) {
-          if (el.getBoundingClientRect().top <= ACTIVE_LINE) current = el.id;
-          else break;
-        }
-      }
-      setActive(current);
-    };
-    const onScroll = () => {
-      if (!raf) raf = requestAnimationFrame(compute);
-    };
-
-    compute();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll);
-    // FxRatesSection can appear/disappear after its accounts query resolves.
-    const mo = new MutationObserver(compute);
-    mo.observe(root, { childList: true });
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onScroll);
-      mo.disconnect();
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-
-  const items = NAV_ITEMS.filter((i) => present.has(i.id));
-  if (items.length === 0) return null;
-
-  const jump = (id: string) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
-    setActive(id);
-  };
-
-  return (
-    <div className="sticky top-0 z-20 -mx-1 bg-slate-950/85 px-1 py-2 backdrop-blur">
-      <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {items.map(({ id, label, Icon }) => {
-          const on = active === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => jump(id)}
-              aria-current={on ? 'true' : undefined}
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${
-                on
-                  ? 'bg-brand-500/15 text-brand-300 ring-1 ring-inset ring-brand-500/40'
-                  : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -2194,254 +2115,5 @@ function Stat({ label, value }: { label: string; value: number }) {
       <div className="text-xs uppercase text-slate-500">{label}</div>
       <div className="text-lg font-semibold text-slate-50 tabular-nums">{value.toLocaleString()}</div>
     </div>
-  );
-}
-
-function RecurringRulesSection() {
-  const db = useDB();
-  const defaultSettingsCurrency = useDefaultCurrency();
-  const [creating, setCreating] = useState(false);
-
-  const rulesState = useQuery<RecurringRule[]>(
-    useCallback((d) => listRecurringRules(d, true), []),
-    { deps: ['recurring_rules'] },
-  );
-  const accountsState = useQuery<Account[]>(
-    useCallback((d) => listAccounts(d), []),
-    { deps: ['accounts'] },
-  );
-  const categoriesState = useQuery<Category[]>(
-    useCallback((d) => listCategories(d), []),
-    { deps: ['categories'] },
-  );
-
-  const rules = rulesState.data ?? [];
-  const accounts = accountsState.data ?? [];
-  const categories = categoriesState.data ?? [];
-  const accountMap = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
-  const catMap = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
-
-  const active = rules.filter((r) => !r.archived_at);
-  const archived = rules.filter((r) => r.archived_at);
-
-  const handleArchive = async (id: string) => {
-    await archiveRecurringRule(db, id);
-  };
-
-  return (
-    <Card>
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-300">Recurring entries</h3>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          + New recurring entry
-        </Button>
-      </div>
-
-      {active.length === 0 && (
-        <EmptyState
-          title="No recurring entries yet"
-          description="Add things that repeat, like rent, salary or subscriptions. Copper adds them on their dates and shows them in Cashflow."
-        />
-      )}
-
-      {active.length > 0 && (
-        <div className="divide-y divide-slate-800">
-          {active.map((rule) => {
-            const tpl: RecurringTemplate = JSON.parse(rule.template_json);
-            const acct = accountMap.get(tpl.account_id);
-            const cat = catMap.get(tpl.category_id ?? '');
-            return (
-              <div key={rule.id} className="flex items-center justify-between py-3">
-                <div>
-                  <div className="flex items-center gap-2 text-sm text-slate-50">
-                    <span>{cat?.icon ?? '•'}</span>
-                    <span>{cat?.name ?? 'Uncategorized'}</span>
-                    <span className="text-slate-500">·</span>
-                    <span className="tabular-nums">
-                      {formatMoney(tpl.amount_minor, acct?.currency ?? defaultSettingsCurrency)}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 text-xs text-slate-500">
-                    {tpl.kind === 'income' ? 'Income' : 'Expense'} · {acct?.name ?? '?'} · next:{' '}
-                    {formatHumanDate(rule.next_run_on)}
-                  </div>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => handleArchive(rule.id)}>
-                  Archive
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {archived.length > 0 && (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300">
-            {archived.length} archived
-          </summary>
-          <div className="mt-2 space-y-1 text-xs text-slate-500">
-            {archived.map((r) => {
-              const tpl: RecurringTemplate = JSON.parse(r.template_json);
-              const cat = catMap.get(tpl.category_id ?? '');
-              return (
-                <div key={r.id}>
-                  {cat?.icon} {cat?.name} — {tpl.kind}
-                </div>
-              );
-            })}
-          </div>
-        </details>
-      )}
-
-      <RecurringFormModal
-        open={creating}
-        onClose={() => setCreating(false)}
-        accounts={accounts}
-        categories={categories}
-      />
-    </Card>
-  );
-}
-
-const FREQUENCY_OPTIONS = [
-  { label: 'Daily', rrule: 'FREQ=DAILY;INTERVAL=1' },
-  { label: 'Weekly', rrule: 'FREQ=WEEKLY;INTERVAL=1' },
-  { label: 'Every 2 weeks', rrule: 'FREQ=WEEKLY;INTERVAL=2' },
-  { label: 'Monthly', rrule: 'FREQ=MONTHLY;INTERVAL=1' },
-  { label: 'Quarterly', rrule: 'FREQ=MONTHLY;INTERVAL=3' },
-  { label: 'Yearly', rrule: 'FREQ=YEARLY;INTERVAL=1' },
-];
-
-interface RecurringFormModalProps {
-  open: boolean;
-  onClose: () => void;
-  accounts: Account[];
-  categories: Category[];
-}
-
-function RecurringFormModal({ open, onClose, accounts, categories }: RecurringFormModalProps) {
-  const db = useDB();
-  const defaultCurrency = useDefaultCurrency();
-  const [kind, setKind] = useState<'expense' | 'income'>('expense');
-  const [accountId, setAccountId] = useState('');
-  const [categoryId, setCategoryId] = useState('');
-  const [amountInput, setAmountInput] = useState('');
-  const [note, setNote] = useState('');
-  const [freq, setFreq] = useState(FREQUENCY_OPTIONS[3].rrule);
-  const [startDate, setStartDate] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const filteredCats = useMemo(() => categories.filter((c) => c.kind === kind), [categories, kind]);
-
-  useEffect(() => {
-    if (!open) return;
-    setKind('expense');
-    setAccountId(accounts.find((a) => a.is_main)?.id ?? accounts[0]?.id ?? '');
-    setCategoryId('');
-    setAmountInput('');
-    setNote('');
-    setFreq(FREQUENCY_OPTIONS[3].rrule);
-    setStartDate(toDateString());
-  }, [open, accounts]);
-
-  const currency = accounts.find((a) => a.id === accountId)?.currency ?? defaultCurrency;
-
-  const handleSubmit = async () => {
-    const minor = parseAmount(amountInput, currency);
-    if (!accountId || !categoryId || !minor || minor <= 0 || !startDate) return;
-    setSubmitting(true);
-    try {
-      const input: RecurringRuleInput = {
-        template: {
-          account_id: accountId,
-          category_id: categoryId,
-          amount_minor: minor,
-          kind,
-          note: note.trim() || null,
-        },
-        rrule: `DTSTART:${startDate.replace(/-/g, '')}T000000Z\n${freq}`,
-        next_run_on: startDate,
-      };
-      await createRecurringRule(db, input);
-      onClose();
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="New recurring entry">
-      <div className="space-y-3">
-        <div className="flex gap-1 rounded-lg bg-slate-800 p-1">
-          {(['expense', 'income'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => { setKind(m); setCategoryId(''); }}
-              className={`flex-1 rounded-md py-1.5 text-sm font-medium transition ${
-                kind === m
-                  ? m === 'expense'
-                    ? 'bg-clay-500/20 text-clay-300'
-                    : 'bg-mint-500/20 text-mint-300'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {m === 'expense' ? 'Expense' : 'Income'}
-            </button>
-          ))}
-        </div>
-        <Combobox
-          label="Account"
-          value={accountId}
-          onChange={setAccountId}
-          options={accounts.map((a) => ({ value: a.id, label: a.name }))}
-        />
-        <Combobox
-          label="Category"
-          value={categoryId}
-          onChange={setCategoryId}
-          emptyOption={{ value: '', label: 'Select…' }}
-          options={filteredCats.map((c) => ({ value: c.id, label: `${c.icon ?? ''} ${c.name}`.trim() }))}
-        />
-        <Input
-          label="Amount"
-          inputMode="decimal"
-          value={amountInput}
-          onChange={(e) => setAmountInput(e.target.value)}
-          placeholder="0.00"
-          autoFocus
-        />
-        <Select label="Frequency" value={freq} onChange={(e) => setFreq(e.target.value)}>
-          {FREQUENCY_OPTIONS.map((f) => (
-            <option key={f.rrule} value={f.rrule}>{f.label}</option>
-          ))}
-        </Select>
-        <Input
-          label="Start date"
-          labelHint={
-            <InfoHint label="About the start date" title="Past dates backfill">
-              The first date this rule runs. Pick a date in the past and we’ll fill in
-              every occurrence from then up to today in one go.
-            </InfoHint>
-          }
-          type="date"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-        />
-        <Input
-          label="Note"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Optional"
-        />
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={submitting || !accountId || !categoryId || !amountInput}>
-            Create
-          </Button>
-        </div>
-      </div>
-    </Modal>
   );
 }

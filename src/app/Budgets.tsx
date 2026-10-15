@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { MonthField } from '@/components/ui/DateField';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/Card';
@@ -67,12 +68,7 @@ export function Budgets() {
       actions={<Button onClick={() => setCreating(true)}>+ New budget</Button>}
     >
       <div className="flex items-center gap-3">
-        <input
-          type="month"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-50 focus:border-brand-500 focus:outline-none"
-        />
+        <MonthField value={month} onChange={setMonth} />
         {budgets.length > 0 && (
           <div className="flex items-center gap-1 text-sm text-slate-400">
             <ConvertedMark

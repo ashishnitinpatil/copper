@@ -13,7 +13,7 @@ async function addExpense(page: Page, digits: string, category: RegExp) {
 
 test.describe('Settings — appearance & data', () => {
   test('switching theme persists the choice', async ({ page }) => {
-    await resetAndLoad(page, '/settings');
+    await resetAndLoad(page, '/settings#preferences');
     await waitForDB(page);
 
     // Appearance tiles are buttons; the active one shows an "Active" badge.
@@ -35,7 +35,7 @@ test.describe('Settings — appearance & data', () => {
     await addExpense(page, '999', /Groceries/);
 
     // Download a full backup.
-    await page.goto('/settings');
+    await page.goto('/settings#data');
     await waitForDB(page);
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download backup' }).click();
@@ -51,7 +51,7 @@ test.describe('Settings — appearance & data', () => {
     await expect(page.locator('main').getByText('₹222.00')).toBeVisible();
 
     // Restore the backup (replaces all current data, then reloads the page).
-    await page.goto('/settings');
+    await page.goto('/settings#data');
     await waitForDB(page);
     await page.locator('input[type="file"][accept*="json"]').setInputFiles(backupPath);
     await expect(page.getByRole('heading', { name: 'Restore from backup' })).toBeVisible();

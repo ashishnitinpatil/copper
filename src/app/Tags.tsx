@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { ArrowLeft, Plus } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
@@ -447,8 +448,8 @@ function TagFormModal({ open, existing, onClose }: TagFormModalProps) {
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
           <p className="text-xs text-slate-400">Add dates to track this as a trip with budget progress (optional).</p>
           <div className="mt-2 grid grid-cols-2 gap-3">
-            <Input label="From" type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
-            <Input label="To" type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
+            <DateField label="From" optional placeholder="No start" value={startsOn} onChange={setStartsOn} />
+            <DateField label="To" optional placeholder="No end" value={endsOn} onChange={setEndsOn} />
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <Input

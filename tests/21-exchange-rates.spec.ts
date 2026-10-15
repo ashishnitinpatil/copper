@@ -42,9 +42,7 @@ test('converted totals use the rate from your own transfer and say so', async ({
   await page.keyboard.type('100');
   await page.getByRole('button', { name: /Food & Dining/ }).click();
   await page.waitForTimeout(500);
-  await page.locator('main').getByRole('button', { name: 'Cash', exact: true }).click();
-  await page.locator('input:focus').fill('Dollar card');
-  await page.locator('input:focus').press('Enter');
+  await selectCombobox(page.locator('main'), 'Paid from account', 'Dollar card');
   await page.keyboard.type('5');
   await page.getByRole('button', { name: /Food & Dining/ }).click();
   await page.waitForTimeout(500);
