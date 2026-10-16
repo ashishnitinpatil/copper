@@ -1,0 +1,13 @@
+// Copper is served as static files by Cloudflare (Workers static assets).
+// `npm run deploy` builds and uploads `dist`. It owns only the one hostname
+// below; nothing else on ashishnitinpatil.com is touched.
+{
+  "name": "copper",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    // Unknown paths like /settings or /join/… get index.html; the app routes them.
+    "not_found_handling": "single-page-application"
+  },
+  "routes": [{ "pattern": "copper.ashishnitinpatil.com", "custom_domain": true }]
+}

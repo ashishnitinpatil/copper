@@ -25,3 +25,4 @@ playwright/.cache
 
 # TS incremental build cache
 *.tsbuildinfo
+.wrangler
