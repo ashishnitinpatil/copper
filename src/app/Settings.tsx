@@ -144,6 +144,11 @@ export function Settings() {
           </p>
         </>
       )}
+      <p className="pt-2 text-center text-xs text-slate-600">
+        <Link to="/privacy" className="hover:text-slate-400">Privacy</Link>
+        {' · '}
+        <Link to="/terms" className="hover:text-slate-400">Terms</Link>
+      </p>
     </PageShell>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { DevJoinById } from '@/sync/DevJoinById';
 import { Card } from '@/components/ui/Card';
@@ -598,6 +598,10 @@ export function Welcome() {
           {auth.google
             ? 'Your book syncs through your Google Drive.'
             : 'Your data stays on this device unless you turn on syncing later.'}
+          {' · '}
+          <Link to="/privacy" className="underline hover:text-slate-400">Privacy</Link>
+          {' · '}
+          <Link to="/terms" className="underline hover:text-slate-400">Terms</Link>
         </p>
       </div>
     </div>

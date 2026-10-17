@@ -257,9 +257,15 @@ export function Landing() {
             Get started <ArrowRight size={16} />
           </CopperButton>
         </div>
-        <footer className="mt-16 flex items-center justify-center gap-2 font-mono text-xs tracking-wide text-[#7A6551]">
-          <img src="/icon.svg" alt="" aria-hidden className="h-4 w-4 opacity-80" />
-          Copper — a local-first personal-finance app
+        <footer className="mt-16 flex flex-col items-center gap-3 font-mono text-xs tracking-wide text-[#7A6551]">
+          <span className="flex items-center gap-2">
+            <img src="/icon.svg" alt="" aria-hidden className="h-4 w-4 opacity-80" />
+            Copper — a local-first personal-finance app
+          </span>
+          <span className="flex gap-4">
+            <Link to="/privacy" className="hover:text-[#33241A]">Privacy</Link>
+            <Link to="/terms" className="hover:text-[#33241A]">Terms</Link>
+          </span>
         </footer>
       </section>
     </main>

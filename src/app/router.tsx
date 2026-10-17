@@ -17,6 +17,7 @@ import { Settings } from './Settings';
 import { Welcome } from './Welcome';
 import { WelcomeGate } from './WelcomeGate';
 import { JoinRoute } from './JoinRoute';
+import { Privacy, Terms } from './Legal';
 
 export const router = createBrowserRouter([
   {
@@ -32,6 +33,8 @@ export const router = createBrowserRouter([
   { path: '/', element: <Landing /> },
   // Invite link from a partner: remembers the shared book, then routes on.
   { path: '/join/:bookId', element: <JoinRoute /> },
+  { path: '/privacy', element: <Privacy /> },
+  { path: '/terms', element: <Terms /> },
   {
     element: <AppShell />,
     children: [
