@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 // Public Privacy and Terms pages. Brand-fixed colours like the Landing page, so
@@ -7,10 +7,39 @@ import { Link } from 'react-router-dom';
 
 const UPDATED = '17 October 2026';
 const OWNER = 'Ashish Patil';
-const CONTACT_EMAIL = 'copper@ashishnitinpatil.com';
+// The contact address is put together in the browser, so it never appears in
+// the page HTML or as one string in the code — simple scrapers can't harvest it.
+const SCRAMBLED = ['reppoc', 'moc.litapnitinhsihsa'];
+
+function useContactEmail(): string {
+  const [email, setEmail] = useState('');
+  useEffect(() => {
+    const [user, domain] = SCRAMBLED.map((p) => [...p].reverse().join(''));
+    setEmail(`${user}@${domain}`);
+  }, []);
+  return email;
+}
+
+function ContactEmail() {
+  const email = useContactEmail();
+  return email ? <a href={`mailto:${email}`}>{email}</a> : <span>the contact link below</span>;
+}
+
+/** Sets the browser tab title (and what search results show) for a page. */
+function usePageTitle(title: string) {
+  useEffect(() => {
+    const before = document.title;
+    document.title = title;
+    return () => {
+      document.title = before;
+    };
+  }, [title]);
+}
 const SITE = 'copper.ashishnitinpatil.com';
 
 function LegalPage({ title, children }: { title: string; children: ReactNode }) {
+  const email = useContactEmail();
+  usePageTitle(`${title} · Copper`);
   return (
     <main className="min-h-full bg-[#FBF7F2] px-5 py-12 text-[#33241A] sm:py-16">
       <article className="mx-auto max-w-2xl">
@@ -27,7 +56,11 @@ function LegalPage({ title, children }: { title: string; children: ReactNode }) 
           <Link to="/" className="hover:text-[#33241A]">Home</Link>
           <Link to="/privacy" className="hover:text-[#33241A]">Privacy</Link>
           <Link to="/terms" className="hover:text-[#33241A]">Terms</Link>
-          <a href={`mailto:${CONTACT_EMAIL}`} className="hover:text-[#33241A]">Contact</a>
+          {email && (
+            <a href={`mailto:${email}`} className="hover:text-[#33241A]">
+              Contact
+            </a>
+          )}
         </footer>
       </article>
     </main>
@@ -129,7 +162,7 @@ export function Privacy() {
         <h2>Changes and contact</h2>
         <p>
           If this policy changes, the new version will appear here with a new date. Questions? Email{' '}
-          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
+          <ContactEmail />.
         </p>
       </section>
     </LegalPage>
@@ -184,7 +217,7 @@ export function Terms() {
       <section>
         <h2>Contact</h2>
         <p>
-          Questions? Email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>. See also the{' '}
+          Questions? Email <ContactEmail />. See also the{' '}
           <Link to="/privacy">privacy policy</Link>.
         </p>
       </section>
