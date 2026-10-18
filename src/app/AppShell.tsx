@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -75,6 +75,16 @@ export function AppShell() {
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Lets the pre-rendered landing page stay hidden for people who already use
+  // Copper on this device (see scripts/prerender.mjs).
+  useEffect(() => {
+    if (!onboarded) return;
+    try {
+      localStorage.setItem('copper-returning', '1');
+    } catch {
+      /* storage blocked — the landing page may flash briefly, nothing worse */
+    }
+  }, [onboarded]);
   if (!onboarded) return <Navigate to="/welcome" replace />;
 
   const moreActive = MOBILE_MORE.some((g) => g.items.some((i) => location.pathname.startsWith(i.to)));

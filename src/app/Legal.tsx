@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 // they read the same for everyone, signed in or not. Keep every statement true
 // to what the code does — Google's verification reviewers read this.
 
-const UPDATED = '17 October 2026';
+const UPDATED = '18 October 2026';
 const OWNER = 'Ashish Patil';
 // The contact address is only put together when someone clicks, so it's never
 // in the page or the code as one string — scrapers can't harvest it.
@@ -113,6 +113,42 @@ export function Privacy() {
           </a>
           , including the Limited Use requirements. That information is used only to provide Copper&rsquo;s
           features to you. It is never sold, used for advertising, or shared with anyone.
+        </p>
+      </section>
+
+      <section>
+        <h2>Google user data at a glance</h2>
+        <ul>
+          <li>
+            <strong>Accessed:</strong> your name, email address and profile picture; and only the Drive
+            files Copper creates or that you pick.
+          </li>
+          <li>
+            <strong>Used for:</strong> showing who is signed in, labelling your changes, and saving and
+            syncing your book. Nothing else — no advertising, profiling or AI training.
+          </li>
+          <li>
+            <strong>Stored:</strong> your profile in your browser on your device; your book, its backups
+            and your first name in your own Google Drive. Never on any server of ours — we don&rsquo;t
+            have one.
+          </li>
+          <li>
+            <strong>Shared:</strong> with no one, except people you yourself share your book with through
+            Google Drive.
+          </li>
+          <li>
+            <strong>Kept:</strong> until you sign out, erase the device or delete the files in your Drive.
+            We hold no copy, so there is nothing for us to keep or delete.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Security</h2>
+        <p>
+          Copper talks to Google directly from your browser over encrypted HTTPS connections. Backup files
+          you download can be locked with a password (AES-GCM encryption); without that password nobody,
+          including us, can open them.
         </p>
       </section>
 
