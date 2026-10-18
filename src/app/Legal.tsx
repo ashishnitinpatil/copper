@@ -7,22 +7,27 @@ import { Link } from 'react-router-dom';
 
 const UPDATED = '17 October 2026';
 const OWNER = 'Ashish Patil';
-// The contact address is put together in the browser, so it never appears in
-// the page HTML or as one string in the code — simple scrapers can't harvest it.
-const SCRAMBLED = ['reppoc', 'moc.litapnitinhsihsa'];
+// The contact address is only put together when someone clicks, so it's never
+// in the page or the code as one string — scrapers can't harvest it.
+const CONTACT = { user: 'copper', domain: 'ashishnitinpatil', tld: 'com' };
 
-function useContactEmail(): string {
+/** A link that builds the address on click, opens the mail app, then shows it for copying. */
+function ContactLink({ children, className }: { children: ReactNode; className?: string }) {
   const [email, setEmail] = useState('');
-  useEffect(() => {
-    const [user, domain] = SCRAMBLED.map((p) => [...p].reverse().join(''));
-    setEmail(`${user}@${domain}`);
-  }, []);
-  return email;
-}
-
-function ContactEmail() {
-  const email = useContactEmail();
-  return email ? <a href={`mailto:${email}`}>{email}</a> : <span>the contact link below</span>;
+  return (
+    <a
+      href="#contact"
+      className={className}
+      onClick={(e) => {
+        e.preventDefault();
+        const address = `${CONTACT.user}@${CONTACT.domain}.${CONTACT.tld}`;
+        setEmail(address);
+        window.location.href = `mailto:${address}`;
+      }}
+    >
+      {email || children}
+    </a>
+  );
 }
 
 /** Sets the browser tab title (and what search results show) for a page. */
@@ -38,7 +43,6 @@ function usePageTitle(title: string) {
 const SITE = 'copper.ashishnitinpatil.com';
 
 function LegalPage({ title, children }: { title: string; children: ReactNode }) {
-  const email = useContactEmail();
   usePageTitle(`${title} · Copper`);
   return (
     <main className="min-h-full bg-[#FBF7F2] px-5 py-12 text-[#33241A] sm:py-16">
@@ -56,11 +60,7 @@ function LegalPage({ title, children }: { title: string; children: ReactNode }) 
           <Link to="/" className="hover:text-[#33241A]">Home</Link>
           <Link to="/privacy" className="hover:text-[#33241A]">Privacy</Link>
           <Link to="/terms" className="hover:text-[#33241A]">Terms</Link>
-          {email && (
-            <a href={`mailto:${email}`} className="hover:text-[#33241A]">
-              Contact
-            </a>
-          )}
+          <ContactLink className="hover:text-[#33241A]">Contact</ContactLink>
         </footer>
       </article>
     </main>
@@ -161,8 +161,8 @@ export function Privacy() {
       <section>
         <h2>Changes and contact</h2>
         <p>
-          If this policy changes, the new version will appear here with a new date. Questions? Email{' '}
-          <ContactEmail />.
+          If this policy changes, the new version will appear here with a new date. Questions?{' '}
+          <ContactLink>Email us</ContactLink>.
         </p>
       </section>
     </LegalPage>
@@ -217,7 +217,7 @@ export function Terms() {
       <section>
         <h2>Contact</h2>
         <p>
-          Questions? Email <ContactEmail />. See also the{' '}
+          Questions? <ContactLink>Email us</ContactLink>. See also the{' '}
           <Link to="/privacy">privacy policy</Link>.
         </p>
       </section>
