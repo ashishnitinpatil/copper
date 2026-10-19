@@ -74,6 +74,9 @@ export async function openDB(): Promise<DB> {
     const sqlite = await getSQLite();
     const db = await sqlite.open(DB_FILE);
     await db.automigrateTo(SCHEMA_NAME, SCHEMA_SQL);
+    // A large sync drops indexes while it applies (see applyRemoteChanges); if
+    // the page was closed mid-way, put back any that are missing.
+    await ensureIndexes(db);
     // Seed only a brand-new, unconnected device. Sync merges the whole local
     // state into the shared book, so defaults seeded on a device that is joining
     // (or already joined — e.g. reloaded before its first sync landed) would be
@@ -115,4 +118,11 @@ export function getOpenDB(): DB {
     throw new Error('Database not opened yet — call openDB() first');
   }
   return dbInstance;
+}
+
+const INDEX_STATEMENTS = SCHEMA_SQL.match(/CREATE (?:UNIQUE )?INDEX IF NOT EXISTS[^;]+;/g) ?? [];
+
+/** Re-create any schema index that's missing. Cheap when they all exist. */
+export async function ensureIndexes(db: DB): Promise<void> {
+  for (const sql of INDEX_STATEMENTS) await db.exec(sql);
 }
