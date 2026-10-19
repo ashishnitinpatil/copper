@@ -21,7 +21,7 @@ import { startOfMonth, toDateString, formatRelativeDate } from '@/lib/dates';
 import { AccountGlyph } from '@/components/accountOptions';
 import { Money } from '@/components/ui/Money';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
-import { useIsFirstPull } from '@/sync/SyncProgressBanner';
+import { useIsFirstPull } from '@/sync/SyncSetupScreen';
 import { useAppSettings } from './AppSettingsProvider';
 
 // Accounts shown as cards before the phone layout switches to compact rows.
@@ -137,27 +137,27 @@ export function Dashboard() {
 
   const accountsState = useQuery<Account[]>(
     useCallback((d) => listAccounts(d), []),
-    { deps: ['accounts'] },
+    { deps: ['accounts'], cacheKey: 'dashboard:accounts' },
   );
   const balancesState = useQuery<AccountBalance[]>(
     useCallback((d) => getAccountBalances(d), []),
-    { deps: ['accounts', 'transactions'] },
+    { deps: ['accounts', 'transactions'], cacheKey: 'dashboard:balances' },
   );
   const totalsState = useQuery<CurrencyTotal[]>(
     useCallback((d) => getTotalsByCurrency(d), []),
-    { deps: ['accounts', 'transactions'] },
+    { deps: ['accounts', 'transactions'], cacheKey: 'dashboard:totals' },
   );
   const recentState = useQuery<TransactionWithMeta[]>(
     // Up to today: scheduled future entries (e.g. loan EMIs) aren't "recent".
     useCallback((d) => listTransactions(d, { limit: 8, dateTo: toDateString() }), []),
-    { deps: ['transactions'] },
+    { deps: ['transactions'], cacheKey: 'dashboard:recent' },
   );
   const budgetsState = useQuery<BudgetWithSpent[]>(
     useCallback(
       (d) => getBudgetsWithSpent(d, monthFrom, defaultCurrency, fxRates),
       [monthFrom, defaultCurrency, fxRates],
     ),
-    { deps: ['budgets', 'transactions', 'accounts', 'categories'] },
+    { deps: ['budgets', 'transactions', 'accounts', 'categories'], cacheKey: 'dashboard:budgets' },
   );
 
   const accounts = accountsState.data ?? [];
@@ -201,7 +201,7 @@ export function Dashboard() {
   ];
   // While a first pull is streaming the ledger in, both the checklist ("record
   // your first transaction") and the local-only warning are wrong — the data is
-  // arriving. The global SyncProgressBanner speaks for this state instead.
+  // arriving. The SyncSetupScreen covers the app during it anyway.
   const firstPull = useIsFirstPull();
   const showGettingStarted =
     !firstPull && !gsDismissed && !gettingStartedSteps.every((s) => s.done);
@@ -219,7 +219,7 @@ export function Dashboard() {
       ) : firstPull ? null : (
         <LocalOnlyWarning />
       )}
-      <TotalBalanceCard totals={totalsState.data ?? []} />
+      <TotalBalanceCard totals={totalsState.data} />
 
       {/* A few accounts get a card each. Past COMPACT_AFTER, phones switch to one
           row per account so the list doesn't push everything else off-screen;
@@ -308,7 +308,9 @@ export function Dashboard() {
             <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
-        {recent.length === 0 ? (
+        {recentState.data === null ? (
+          <LoadingRows />
+        ) : recent.length === 0 ? (
           <EmptyState
             title="No transactions yet"
             description="Tap Add to record your first expense or income."
@@ -398,7 +400,37 @@ export function Dashboard() {
   );
 }
 
-function TotalBalanceCard({ totals }: { totals: CurrencyTotal[] }) {
+/** Placeholder rows while a query is still running, so a slow load doesn't read as "empty". */
+function LoadingRows() {
+  return (
+    <div role="status" className="divide-y divide-slate-800">
+      <span className="sr-only">Loading…</span>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex items-center gap-3 py-2.5 motion-safe:animate-pulse">
+          <div className="h-8 w-8 shrink-0 rounded-full bg-slate-800" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3 w-1/3 rounded bg-slate-800" />
+            <div className="h-2.5 w-1/4 rounded bg-slate-800/70" />
+          </div>
+          <div className="h-3 w-16 rounded bg-slate-800" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TotalBalanceCard({ totals }: { totals: CurrencyTotal[] | null }) {
+  if (totals === null) {
+    return (
+      <Card>
+        <div role="status" className="motion-safe:animate-pulse">
+          <span className="sr-only">Loading…</span>
+          <div className="h-3 w-24 rounded bg-slate-800" />
+          <div className="mt-4 h-7 w-40 rounded bg-slate-800" />
+        </div>
+      </Card>
+    );
+  }
   if (totals.length === 0) {
     return (
       <Card>

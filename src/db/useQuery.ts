@@ -13,7 +13,14 @@ interface QueryOptions {
    * the loader is re-run. If omitted, the query only runs on mount.
    */
   deps?: string[];
+  /**
+   * Remember the last result under this key, so coming back to a page shows it
+   * straight away (then refreshes) instead of an empty loading state.
+   */
+  cacheKey?: string;
 }
+
+const lastResults = new Map<string, unknown>();
 
 interface QueryState<T> {
   data: T | null;
@@ -29,7 +36,12 @@ interface QueryState<T> {
  */
 export function useQuery<T>(loader: Loader<T>, options: QueryOptions = {}): QueryState<T> {
   const db = useDB();
-  const [state, setState] = useState<QueryState<T>>({ data: null, loading: true, error: null });
+  const { cacheKey } = options;
+  const [state, setState] = useState<QueryState<T>>(() => ({
+    data: cacheKey && lastResults.has(cacheKey) ? (lastResults.get(cacheKey) as T) : null,
+    loading: true,
+    error: null,
+  }));
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
 
@@ -43,6 +55,7 @@ export function useQuery<T>(loader: Loader<T>, options: QueryOptions = {}): Quer
         .current(db)
         .then((data) => {
           if (cancelled) return;
+          if (cacheKey) lastResults.set(cacheKey, data);
           setState({ data, loading: false, error: null });
         })
         .catch((err: unknown) => {
@@ -86,7 +99,7 @@ export function useQuery<T>(loader: Loader<T>, options: QueryOptions = {}): Quer
     // changes like Reports' month filter trigger a refetch. Callers must wrap
     // closures in useCallback (see hook doc) or this loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, depsKey, loader]);
+  }, [db, depsKey, loader, cacheKey]);
 
   return state;
 }

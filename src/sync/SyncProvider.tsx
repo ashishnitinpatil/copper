@@ -207,6 +207,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           return;
         }
         let result = await syncNow(db, async () => token, setProgress);
+        // The merge is done; the upload and backup that may follow needn't hold the app.
+        setProgress(null);
         // First sync after a reset: the book's devices are in now, so retire
         // this device's old identity — and send that straight back up.
         const retire = await getSetting(db, SYNC_KEYS.RETIRE_SITE);

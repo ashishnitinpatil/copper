@@ -69,7 +69,7 @@ export function RecurringList() {
       {active.length === 0 ? (
         <EmptyState
           title="No recurring entries yet"
-          description="Add things that repeat, like rent, salary or subscriptions — here, or with “Repeats” when you add a transaction."
+          description="Add things that repeat, like rent, salary or subscriptions — here, or with “Repeats” when you add a transaction. Future-dated entries you added or imported (such as Monefy’s scheduled payments) are listed under Upcoming in All, but don’t repeat by themselves."
         />
       ) : (
         <ul className="divide-y divide-slate-800">

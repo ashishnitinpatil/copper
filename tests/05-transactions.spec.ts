@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 import { resetAndLoad, waitForDB, pickDate } from './helpers';
 
 async function addExpense(page: import('@playwright/test').Page, amount: string, category: RegExp) {
@@ -85,5 +86,33 @@ test.describe('Transactions', () => {
     await waitForDB(page);
     await expect(page.locator('main').getByText('₹500.00').first()).toBeVisible();
     await expect(page.locator('main').getByText(/₹300\.00/)).toHaveCount(0);
+  });
+});
+
+test.describe('Transactions paging', () => {
+  test('shows 50 past entries, loads more, and scheduled ones never crowd them out', async ({ page }) => {
+    await resetAndLoad(page, '/settings#data');
+    await waitForDB(page);
+    await page.getByRole('button', { name: 'Import Monefy CSV' }).click();
+    await page
+      .locator('input[type="file"][accept*="csv"]')
+      .setInputFiles(fileURLToPath(new URL('./fixtures/monefy-paging.csv', import.meta.url)));
+    await page
+      .getByLabel('Import from Monefy')
+      .getByRole('button', { name: 'Replace and import', exact: true })
+      .click();
+    await expect(page.getByText(/Imported .*transactions/)).toBeVisible({ timeout: 30000 });
+
+    await page.goto('/transactions');
+    await waitForDB(page);
+    // All 60 scheduled entries are in Upcoming, yet the newest past ones still show.
+    await expect(page.getByText(/60 scheduled/)).toBeVisible();
+    await expect(page.getByText('Cash · Past 60', { exact: true })).toBeVisible();
+    await expect(page.getByText('Cash · Past 11', { exact: true })).toBeVisible();
+    await expect(page.getByText('Cash · Past 10', { exact: true })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Load more' }).click();
+    await expect(page.getByText('Cash · Past 1', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
   });
 });

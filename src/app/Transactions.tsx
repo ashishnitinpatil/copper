@@ -38,7 +38,7 @@ import { TransferModal } from './TransferModal';
 import type { Tag, Transaction, TransactionKind } from '@/db/types';
 import { formatMoney, parseAmount, fromMinor } from '@/lib/money';
 import { useDefaultCurrency } from './AppSettingsProvider';
-import { formatRelativeDate, toDateString } from '@/lib/dates';
+import { addDays, formatRelativeDate, toDateString } from '@/lib/dates';
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -49,6 +49,10 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
+
+const PAGE_SIZE = 50;
+/** Scheduled entries all show at once (folded); this only guards against runaway rules. */
+const UPCOMING_LIMIT = 2000;
 
 export function Transactions() {
   const [filters, setFilters] = useState<{
@@ -134,38 +138,70 @@ export function Transactions() {
   // Debounce only the text query so each keystroke doesn't re-scan the table.
   const debouncedSearch = useDebouncedValue(filters.search, 250);
 
-  const loader = useCallback(
-    (db: import('@/db/wasm').DB) => {
-      const base = {
-        accountId: filters.accountId || undefined,
-        categoryId: filters.categoryId || undefined,
-        tagId: filters.tagId || undefined,
-        kind: filters.kind || undefined,
-        dateFrom: filters.dateFrom || undefined,
-        dateTo: filters.dateTo || undefined,
-        limit: 500,
-      };
-      const q = debouncedSearch.trim();
-      return q
-        ? searchTransactions(db, q, base, defaultCurrency)
-        : listTransactions(db, base);
-    },
-    [
-      filters.accountId,
-      filters.categoryId,
-      filters.tagId,
-      filters.kind,
-      filters.dateFrom,
-      filters.dateTo,
-      debouncedSearch,
-      defaultCurrency,
-    ],
-  );
-  const txQuery = useQuery(loader, {
-    deps: ['transactions', 'accounts', 'categories', 'transaction_tags'],
-  });
+  const today = toDateString();
+  const tomorrow = toDateString(addDays(new Date(), 1));
+  // Past entries come a page at a time; "Load more" asks for another page.
+  const [pageLimit, setPageLimit] = useState(PAGE_SIZE);
+  const filterKey = JSON.stringify([filters.accountId, filters.categoryId, filters.tagId, filters.kind, filters.dateFrom, filters.dateTo, debouncedSearch]);
+  useEffect(() => setPageLimit(PAGE_SIZE), [filterKey]);
 
-  const grouped = useMemo(() => groupByDate(txQuery.data ?? []), [txQuery.data]);
+  // Past and upcoming are queried separately: scheduled entries (years of loan
+  // EMIs, say) sort first, and in one capped query they crowded out the past.
+  const makeLoader = useCallback(
+    (range: { dateFrom?: string; dateTo?: string }, limit: number) =>
+      (db: import('@/db/wasm').DB) => {
+        if (range.dateFrom && range.dateTo && range.dateFrom > range.dateTo) return Promise.resolve([]);
+        const base = {
+          accountId: filters.accountId || undefined,
+          categoryId: filters.categoryId || undefined,
+          tagId: filters.tagId || undefined,
+          kind: filters.kind || undefined,
+          ...range,
+          limit,
+        };
+        const q = debouncedSearch.trim();
+        return q ? searchTransactions(db, q, base, defaultCurrency) : listTransactions(db, base);
+      },
+    [filters.accountId, filters.categoryId, filters.tagId, filters.kind, debouncedSearch, defaultCurrency],
+  );
+  const txDeps = { deps: ['transactions', 'accounts', 'categories', 'transaction_tags'] };
+  const pastQuery = useQuery(
+    useMemo(
+      () =>
+        makeLoader(
+          {
+            dateFrom: filters.dateFrom || undefined,
+            dateTo: filters.dateTo && filters.dateTo < today ? filters.dateTo : today,
+          },
+          // One extra row tells us whether there's more to load.
+          pageLimit + 1,
+        ),
+      [makeLoader, filters.dateFrom, filters.dateTo, today, pageLimit],
+    ),
+    txDeps,
+  );
+  const upcomingQuery = useQuery(
+    useMemo(
+      () =>
+        makeLoader(
+          {
+            dateFrom: filters.dateFrom && filters.dateFrom > tomorrow ? filters.dateFrom : tomorrow,
+            dateTo: filters.dateTo || undefined,
+          },
+          UPCOMING_LIMIT,
+        ),
+      [makeLoader, filters.dateFrom, filters.dateTo, tomorrow],
+    ),
+    txDeps,
+  );
+  const pastRows = pastQuery.data ?? [];
+  const hasMore = pastRows.length > pageLimit;
+  const loaded = pastQuery.data !== null && upcomingQuery.data !== null;
+  const nothing = loaded && pastRows.length === 0 && upcomingQuery.data!.length === 0;
+
+  const past = useMemo(() => groupByDate(pastRows.slice(0, pageLimit)), [pastRows, pageLimit]);
+  // Soonest first: "what's coming next" reads top-down.
+  const upcoming = useMemo(() => groupByDate(upcomingQuery.data ?? []).reverse(), [upcomingQuery.data]);
   const activeFilters = [
     filters.accountId,
     filters.categoryId,
@@ -174,10 +210,6 @@ export function Transactions() {
     filters.dateFrom,
     filters.dateTo,
   ].filter(Boolean).length;
-  const today = toDateString();
-  const past = grouped.filter(([date]) => date <= today);
-  // Soonest first: "what's coming next" reads top-down.
-  const upcoming = grouped.filter(([date]) => date > today).reverse();
   const upcomingCount = upcoming.reduce((n, [, items]) => n + items.length, 0);
 
   // A day's heading and its entries; used for both past and upcoming days.
@@ -404,7 +436,7 @@ export function Transactions() {
         </button>
       </Card>
 
-      {txQuery.data && txQuery.data.length === 0 &&
+      {nothing &&
         (activeFilters > 0 || filters.search ? (
           <EmptyState
             title="No matches"
@@ -445,6 +477,13 @@ export function Transactions() {
       )}
 
       <div className="space-y-6">{past.map(renderDay)}</div>
+      {hasMore && (
+        <div className="flex justify-center">
+          <Button variant="secondary" onClick={() => setPageLimit((n) => n + PAGE_SIZE)}>
+            Load more
+          </Button>
+        </div>
+      )}
 
       {selectMode && (
         <div className="fixed inset-x-3 bottom-24 z-40 mx-auto flex max-w-3xl flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-slate-700 bg-slate-900 px-4 py-2.5 shadow-2xl lg:bottom-8">
