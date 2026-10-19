@@ -23,6 +23,7 @@ import { Money } from '@/components/ui/Money';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useIsFirstPull } from '@/sync/SyncSetupScreen';
 import { useAppSettings } from './AppSettingsProvider';
+import { Glance } from './Glance';
 
 // Accounts shown as cards before the phone layout switches to compact rows.
 const COMPACT_AFTER = 6;
@@ -220,6 +221,7 @@ export function Dashboard() {
         <LocalOnlyWarning />
       )}
       <TotalBalanceCard totals={totalsState.data} />
+      <Glance />
 
       {/* A few accounts get a card each. Past COMPACT_AFTER, phones switch to one
           row per account so the list doesn't push everything else off-screen;

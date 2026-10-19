@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CATEGORY_ICON_GROUPS, IconPicker } from '@/components/ui/IconPicker';
 import { Pipette } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
@@ -23,7 +24,6 @@ import {
 import { mergeCategory, previewCategoryMerge } from '@/db/queries/merge';
 import type { Category, CategoryKind } from '@/db/types';
 
-const PRESET_ICONS = ['🍽️', '🛒', '🚗', '💡', '🏠', '🏥', '🛍️', '🎬', '✈️', '📚', '🔁', '🎁', '🎯', '💼', '↩️', '➕'];
 // Ordered by hue (red → orange → yellow → green → cyan → blue → purple → pink).
 const PRESET_COLORS = [
   '#ef4444', // red
@@ -267,22 +267,7 @@ function CategoryFormModal({
           emptyOption={{ value: '', label: '— None (top level) —' }}
           options={parentOptions.map((o) => ({ value: o.id, label: o.label }))}
         />
-        <div>
-          <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">Icon</label>
-          <div className="mt-2 grid grid-cols-8 gap-1.5">
-            {PRESET_ICONS.map((emoji) => (
-              <button
-                key={emoji}
-                onClick={() => setIcon(emoji)}
-                className={`flex h-9 items-center justify-center rounded-md text-lg ${
-                  icon === emoji ? 'bg-brand-500/30 ring-1 ring-brand-400' : 'bg-slate-800 hover:bg-slate-700'
-                }`}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        </div>
+        <IconPicker value={icon} onChange={setIcon} groups={CATEGORY_ICON_GROUPS} />
         <div>
           <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">Color</label>
           <div className="mt-2 flex flex-wrap gap-1.5">

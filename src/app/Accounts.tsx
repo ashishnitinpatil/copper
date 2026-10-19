@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ACCOUNT_ICON_GROUPS, IconPicker } from '@/components/ui/IconPicker';
 import { AccountGlyph, accountOptions, useAccountBalances } from '@/components/accountOptions';
 import { DateField } from '@/components/ui/DateField';
 import { PageShell } from './PageShell';
@@ -27,7 +28,6 @@ import { toDateString } from '@/lib/dates';
 import { useDefaultCurrency } from './AppSettingsProvider';
 
 // Offered on top of the default (the account type's own icon).
-const ACCOUNT_ICONS = ['🏦', '💳', '💵', '👛', '💰', '🪙', '📈', '🏠', '🚗', '🎓', '✈️', '🧾'];
 
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: 'cash', label: 'Cash' },
@@ -268,26 +268,12 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
             options={CURRENCY_OPTIONS}
           />
         </div>
-        <div>
-          <span className="block text-xs font-medium uppercase tracking-wide text-slate-400">Icon</span>
-          <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Icon">
-            {['', ...ACCOUNT_ICONS].map((emoji) => (
-              <button
-                key={emoji || 'type'}
-                type="button"
-                role="radio"
-                aria-checked={form.icon === emoji}
-                aria-label={emoji || 'Default icon'}
-                onClick={() => update('icon', emoji)}
-                className={`flex h-9 w-9 items-center justify-center rounded-md text-lg ${
-                  form.icon === emoji ? 'bg-brand-500/30 ring-1 ring-brand-400' : 'bg-slate-800 hover:bg-slate-700'
-                }`}
-              >
-                {emoji || <AccountGlyph account={{ icon: null, type: form.type }} />}
-              </button>
-            ))}
-          </div>
-        </div>
+        <IconPicker
+          value={form.icon ?? ''}
+          onChange={(icon) => update('icon', icon)}
+          groups={ACCOUNT_ICON_GROUPS}
+          defaultOption={<AccountGlyph account={{ icon: null, type: form.type }} />}
+        />
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Starting balance"

@@ -42,4 +42,26 @@ test.describe('Dashboard', () => {
 
     await expect(page.locator('main').getByText('−₹1,000.00').first()).toBeVisible();
   });
+
+  test('at a glance sums this month, splits by category and switches period', async ({ page }) => {
+    await resetAndLoad(page, '/add');
+    await waitForDB(page);
+    for (const [amount, category] of [['300', /Groceries/], ['100', /Transport/]] as const) {
+      for (const ch of amount) await page.getByRole('button', { name: ch, exact: true }).click();
+      await page.getByRole('button', { name: category }).first().click();
+      await page.waitForTimeout(400);
+    }
+
+    await page.getByRole('link', { name: 'Dashboard', exact: true }).first().click();
+    const glance = page.getByText('At a glance').locator('xpath=../..');
+    await expect(glance.getByText('₹400.00').first()).toBeVisible();
+    await expect(glance.getByText('75%')).toBeVisible();
+    await expect(glance.getByText('25%')).toBeVisible();
+    await expect(glance.getByText(/Nothing spent this time last month/)).toBeVisible();
+
+    await glance.getByRole('button', { name: 'Last month' }).click();
+    await expect(glance.getByText('No spending in this period yet.')).toBeVisible();
+    await glance.getByRole('button', { name: 'All time' }).click();
+    await expect(glance.getByText(/a month on average/)).toBeVisible();
+  });
 });
