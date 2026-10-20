@@ -38,7 +38,7 @@ test.describe('Reports', () => {
     // Last month has nothing; next month can't be picked from this month.
     await expect(page.getByRole('button', { name: 'Next month' })).toBeDisabled();
     await page.getByRole('button', { name: 'Previous month' }).click();
-    await expect(page.getByText('No spending this month')).toBeVisible();
+    await expect(page.getByText(/^No spending in /)).toBeVisible();
 
     // A custom range that covers today brings the expense back.
     await page.getByRole('button', { name: 'Custom dates' }).click();
@@ -47,8 +47,37 @@ test.describe('Reports', () => {
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     await pickDate(page.getByRole('button', { name: /^Date:/ }).last(), iso(today));
     await expect(page.getByText('₹300.00').first()).toBeVisible();
-    await page.getByRole('button', { name: 'Back to months' }).click();
+    await page.getByRole('button', { name: 'Month', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Previous month' })).toBeVisible();
+  });
+
+  test('a quarter compared with the quarter before', async ({ page }) => {
+    await resetAndLoad(page, '/add');
+    await waitForDB(page);
+    await addExpense(page, '300', /Food & Dining/);
+    // ₹200 on the first day of last quarter: within "the same days" of it.
+    const d = new Date();
+    const q = new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3 - 3, 1);
+    const iso = `${q.getFullYear()}-${String(q.getMonth() + 1).padStart(2, '0')}-01`;
+    await pickDate(page.getByRole('button', { name: /^Date:/ }), iso);
+    await addExpense(page, '200', /Food & Dining/);
+    await addExpense(page, '50', /Transport/);
+
+    await page.getByRole('link', { name: 'Reports', exact: true }).first().click();
+    await waitForDB(page);
+    await page.getByRole('button', { name: 'Quarter', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Next quarter' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Compare', exact: true }).click();
+
+    await expect(page.getByText('₹50.00 more (20%)')).toBeVisible();
+    await expect(page.getByText('₹200.00 before')).toBeVisible();
+    await expect(page.getByText('50% more')).toBeVisible();
+    // Spent on before, nothing this quarter: still listed, at ₹0.
+    await expect(page.getByText('Transport').first()).toBeVisible();
+    await expect(page.getByText('₹50.00 before')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Previous quarter' }).click();
+    await expect(page.getByText('₹250.00').first()).toBeVisible();
   });
 
   test('monthly trend tab works', async ({ page }) => {

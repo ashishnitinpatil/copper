@@ -7,13 +7,17 @@ import { useQuery } from '@/db/useQuery';
 import type { DB } from '@/db/wasm';
 import { formatMoney } from '@/lib/money';
 import { convert } from '@/lib/fx';
-import { startOfMonth, endOfMonth, toDateString } from '@/lib/dates';
+import { toDateString } from '@/lib/dates';
+import {
+  periodComparison, periodLabel, periodStart, precedingSpan, stepPeriod, type PeriodUnit, type Span,
+} from '@/lib/reportPeriods';
 import { categoryStyle } from '@/lib/categoryStyle';
 import { useAppSettings } from './AppSettingsProvider';
 import { CashflowTrendChart } from '@/components/charts/CashflowTrendChart';
 import { CategoryDonut, type DonutSlice } from '@/components/charts/CategoryDonut';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
-import { DateField, MonthField } from '@/components/ui/DateField';
+import { DateField } from '@/components/ui/DateField';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface CategorySpend {
   category_id: string;
@@ -48,40 +52,66 @@ interface MonthlyRowRaw {
 }
 
 type ReportTab = 'category' | 'monthly';
+type PeriodChoice = PeriodUnit | 'custom';
+
+const PERIOD_CHOICES: { id: PeriodChoice; label: string }[] = [
+  { id: 'month', label: 'Month' },
+  { id: 'quarter', label: 'Quarter' },
+  { id: 'year', label: 'Year' },
+  { id: 'custom', label: 'Custom dates' },
+];
+
+const CATEGORY_SPEND_SQL = `SELECT c.id AS category_id, c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
+          a.currency AS currency, SUM(ABS(t.amount_minor)) AS total
+   FROM transactions t
+   JOIN categories c ON c.id = t.category_id
+   JOIN accounts a ON a.id = t.account_id
+   WHERE t.kind = 'expense' AND t.occurred_on >= ? AND t.occurred_on <= ?
+   GROUP BY c.id, a.currency`;
 
 // The donut shows the biggest categories; the rest share one grey slice.
 const DONUT_SLICES = 7;
 
 export function Reports() {
   const [tab, setTab] = useState<ReportTab>('category');
-  const [month, setMonth] = useState(() => toDateString().slice(0, 7));
-  // A custom range replaces the month when set.
-  const [range, setRange] = useState<{ from: string; to: string } | null>(null);
+  const today = toDateString();
+  const [unit, setUnit] = useState<PeriodChoice>('month');
+  // The first day of the month, quarter or year being looked at.
+  const [start, setStart] = useState(() => periodStart('month', today));
+  const [range, setRange] = useState<Span>(() => ({ from: periodStart('month', today), to: today }));
+  const [compare, setCompare] = useState(false);
   const [activeSlice, setActiveSlice] = useState<string | null>(null);
   const [showUpcoming, setShowUpcoming] = useState(false);
-  const refDate = month + '-01';
   const { defaultCurrency: currency, fxRates } = useAppSettings();
 
-  const from = range?.from ?? toDateString(startOfMonth(new Date(refDate + 'T00:00:00')));
-  const to = range?.to ?? toDateString(endOfMonth(new Date(refDate + 'T00:00:00')));
+  const spans = useMemo(
+    () =>
+      unit === 'custom'
+        ? { current: range, previous: precedingSpan(range), partial: false }
+        : periodComparison(unit, start, today),
+    [unit, start, range, today],
+  );
+  const { from, to } = spans.current;
+  const before = spans.previous;
 
   const catSpend = useQuery<CategorySpendRow[]>(
+    useCallback((db: DB) => db.execO<CategorySpendRow>(CATEGORY_SPEND_SQL, [from, to]), [from, to]),
+    { deps: ['transactions', 'categories', 'accounts'] },
+  );
+  const prevSpend = useQuery<CategorySpendRow[]>(
     useCallback(
       (db: DB) =>
-        db.execO<CategorySpendRow>(
-          `SELECT c.id AS category_id, c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
-                  a.currency AS currency, SUM(ABS(t.amount_minor)) AS total
-           FROM transactions t
-           JOIN categories c ON c.id = t.category_id
-           JOIN accounts a ON a.id = t.account_id
-           WHERE t.kind = 'expense' AND t.occurred_on >= ? AND t.occurred_on <= ?
-           GROUP BY c.id, a.currency`,
-          [from, to],
-        ),
-      [from, to],
+        compare ? db.execO<CategorySpendRow>(CATEGORY_SPEND_SQL, [before.from, before.to]) : Promise.resolve([]),
+      [compare, before.from, before.to],
     ),
     { deps: ['transactions', 'categories', 'accounts'] },
   );
+
+  const choosePeriod = (next: PeriodChoice) => {
+    if (next === 'custom') setRange({ from, to });
+    else setStart(periodStart(next, unit === 'custom' ? range.from : start));
+    setUnit(next);
+  };
 
   const monthlyData = useQuery<MonthlyRowRaw[]>(
     useCallback(
@@ -99,21 +129,17 @@ export function Reports() {
     { deps: ['transactions', 'accounts'] },
   );
 
-  const categories = useMemo<CategorySpend[]>(() => {
-    const map = new Map<string, CategorySpend>();
-    for (const r of catSpend.data ?? []) {
-      const ex = map.get(r.category_id) ?? {
-        category_id: r.category_id,
-        category_name: r.category_name,
-        category_icon: r.category_icon,
-        category_color: r.category_color,
-        total: 0,
-      };
-      ex.total += convert(r.total, r.currency, currency, currency, fxRates);
-      map.set(r.category_id, ex);
-    }
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [catSpend.data, currency, fxRates]);
+  const categories = useMemo(() => byCategory(catSpend.data ?? [], currency, fxRates), [catSpend.data, currency, fxRates]);
+  const previous = useMemo(() => byCategory(prevSpend.data ?? [], currency, fxRates), [prevSpend.data, currency, fxRates]);
+  const prevById = useMemo(() => new Map(previous.map((c) => [c.category_id, c.total])), [previous]);
+  // Categories spent on before but not now still belong in a comparison.
+  const listed = useMemo(
+    () =>
+      compare
+        ? [...categories, ...previous.filter((p) => !categories.some((c) => c.category_id === p.category_id)).map((p) => ({ ...p, total: 0 }))]
+        : categories,
+    [compare, categories, previous],
+  );
 
   const monthly = useMemo<MonthlyRow[]>(() => {
     const map = new Map<string, MonthlyRow>();
@@ -139,6 +165,12 @@ export function Reports() {
   const tableMonths = showUpcoming ? [...upcomingMonths, ...pastMonths] : pastMonths;
 
   const grandTotal = categories.reduce((s, c) => s + c.total, 0);
+  const prevTotal = previous.reduce((s, c) => s + c.total, 0);
+  const label = unit === 'custom' ? null : periodLabel(unit, start);
+  const beforeLabel =
+    unit === 'custom'
+      ? 'the same number of days before'
+      : `${spans.partial ? 'the same days of ' : ''}the ${unit} before`;
   const slices = useMemo<DonutSlice[]>(() => {
     const top = categories.slice(0, categories.length > DONUT_SLICES ? DONUT_SLICES - 1 : DONUT_SLICES);
     const rest = categories.slice(top.length);
@@ -179,8 +211,23 @@ export function Reports() {
 
       {tab === 'category' && (
         <>
+          <div className="-mx-1 flex gap-1 overflow-x-auto px-1" role="group" aria-label="Period">
+            {PERIOD_CHOICES.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={unit === p.id}
+                onClick={() => choosePeriod(p.id)}
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+                  unit === p.id ? 'bg-brand-500 text-slate-950' : 'bg-slate-800/70 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
-            {range ? (
+            {unit === 'custom' ? (
               <div className="flex flex-1 items-center gap-2 sm:flex-none">
                 <DateField
                   value={range.from}
@@ -197,24 +244,40 @@ export function Reports() {
                 />
               </div>
             ) : (
-              <MonthField value={month} onChange={setMonth} />
+              <PeriodStepper
+                unit={unit}
+                label={label ?? ''}
+                onStep={(n) => setStart(stepPeriod(unit, start, n))}
+                canGoForward={stepPeriod(unit, start, 1) <= today}
+              />
             )}
+            {spans.partial && <span className="text-xs text-slate-500">so far</span>}
             <button
               type="button"
-              onClick={() => setRange(range ? null : { from, to })}
-              className="rounded-lg px-2 py-1.5 text-sm font-medium text-brand-400 hover:text-brand-300"
+              aria-pressed={compare}
+              onClick={() => setCompare((v) => !v)}
+              className={`ml-auto rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+                compare
+                  ? 'border-brand-500 text-brand-400'
+                  : 'border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
             >
-              {range ? 'Back to months' : 'Custom dates'}
+              Compare
             </button>
           </div>
 
           {categories.length === 0 ? (
             <EmptyState
-              title={range ? 'No spending in these dates' : 'No spending this month'}
+              title={label ? `No spending in ${label}` : 'No spending in these dates'}
               description="Add an expense and you'll see where your money goes, category by category."
             />
           ) : (
             <Card>
+              {compare && prevSpend.data && (
+                <p className="mb-4 text-sm text-slate-300">
+                  <ChangeSentence now={grandTotal} before={prevTotal} currency={currency} beforeLabel={beforeLabel} />
+                </p>
+              )}
               <div className="grid items-center gap-6 md:grid-cols-[15rem_minmax(0,1fr)]">
                 <div className="space-y-2">
                   <CategoryDonut
@@ -234,7 +297,7 @@ export function Reports() {
                   </p>
                 </div>
                 <ul className="space-y-1">
-                  {categories.map((c) => {
+                  {listed.map((c) => {
                     const pct = grandTotal > 0 ? (c.total / grandTotal) * 100 : 0;
                     const slice = sliceOf(c.category_id);
                     const color = slices.find((s) => s.id === slice)?.color;
@@ -259,6 +322,9 @@ export function Reports() {
                             </div>
                             <span className="w-10 text-right text-xs tabular-nums text-slate-500">{pct > 0 && pct < 1 ? "<1" : pct.toFixed(0)}%</span>
                           </div>
+                          {compare && prevSpend.data && (
+                            <RowChange now={c.total} before={prevById.get(c.category_id) ?? 0} currency={currency} />
+                          )}
                         </div>
                       </li>
                     );
@@ -352,5 +418,100 @@ export function Reports() {
         </>
       )}
     </PageShell>
+  );
+}
+
+function byCategory(rows: CategorySpendRow[], currency: string, fxRates: Parameters<typeof convert>[4]): CategorySpend[] {
+  const map = new Map<string, CategorySpend>();
+  for (const r of rows) {
+    const ex = map.get(r.category_id) ?? {
+      category_id: r.category_id,
+      category_name: r.category_name,
+      category_icon: r.category_icon,
+      category_color: r.category_color,
+      total: 0,
+    };
+    ex.total += convert(r.total, r.currency, currency, currency, fxRates);
+    map.set(r.category_id, ex);
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total);
+}
+
+function PeriodStepper({
+  unit,
+  label,
+  onStep,
+  canGoForward,
+}: {
+  unit: PeriodUnit;
+  label: string;
+  onStep: (n: number) => void;
+  canGoForward: boolean;
+}) {
+  return (
+    <div className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900/60">
+      <button
+        type="button"
+        aria-label={`Previous ${unit}`}
+        onClick={() => onStep(-1)}
+        className="rounded-l-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-50"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <span className="min-w-[8.5rem] px-1 text-center text-sm font-medium text-slate-100" aria-live="polite">
+        {label}
+      </span>
+      <button
+        type="button"
+        aria-label={`Next ${unit}`}
+        onClick={() => onStep(1)}
+        disabled={!canGoForward}
+        className="rounded-r-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-50 disabled:opacity-30 disabled:hover:bg-transparent"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+// Within 1% counts as the same; spending less is the good direction.
+function change(now: number, before: number) {
+  const diff = now - before;
+  if (before === 0) return { diff, pct: null, same: now === 0 };
+  return { diff, pct: Math.round((Math.abs(diff) / before) * 100), same: Math.abs(diff) < before * 0.01 };
+}
+
+function ChangeSentence({ now, before, currency, beforeLabel }: { now: number; before: number; currency: string; beforeLabel: string }) {
+  const { diff, pct, same } = change(now, before);
+  if (before === 0) return <>Nothing was spent in {beforeLabel}.</>;
+  if (same) return <>About the same as {beforeLabel} ({formatMoney(before, currency)}).</>;
+  return (
+    <>
+      <span className={diff < 0 ? 'text-success' : 'text-danger'}>
+        {formatMoney(Math.abs(diff), currency)} {diff < 0 ? 'less' : 'more'} ({pct}%)
+      </span>{' '}
+      than {beforeLabel} ({formatMoney(before, currency)}).
+    </>
+  );
+}
+
+function RowChange({ now, before, currency }: { now: number; before: number; currency: string }) {
+  const { diff, pct, same } = change(now, before);
+  return (
+    <p className="mt-0.5 text-xs text-slate-500">
+      {before === 0 ? (
+        'Nothing before'
+      ) : (
+        <>
+          {formatMoney(before, currency)} before
+          {!same && (
+            <span className={diff < 0 ? 'text-success' : 'text-danger'}>
+              {' · '}
+              {pct}% {diff < 0 ? 'less' : 'more'}
+            </span>
+          )}
+        </>
+      )}
+    </p>
   );
 }
