@@ -11,7 +11,8 @@ import { useDB } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
 import { listAccounts } from '@/db/queries/accounts';
 import { listCategories } from '@/db/queries/categories';
-import { createTransaction, createTransfer, deleteTransaction } from '@/db/queries/transactions';
+import { createTransaction, createTransfer, deleteTransaction, listPastNotes } from '@/db/queries/transactions';
+import { suggestNotes, type PastNote } from '@/lib/noteSuggestions';
 import { archiveRecurringRule, createRecurringRule, occurrenceId } from '@/db/queries/recurring';
 import { listTags, setTransactionTags } from '@/db/queries/tags';
 import { TagPicker } from '@/components/ui/TagPicker';
@@ -76,6 +77,11 @@ export function QuickEntry() {
     useCallback((d) => listTags(d), []),
     { deps: ['tags'] },
   );
+  const pastNotes = useQuery<PastNote[]>(
+    useCallback((d) => listPastNotes(d, mode), [mode]),
+    { deps: ['transactions'] },
+  );
+  const noteSuggestions = useMemo(() => suggestNotes(pastNotes.data ?? [], note), [pastNotes.data, note]);
 
   const accounts = accountsState.data ?? [];
   const allCategories = categoriesState.data ?? [];
@@ -426,8 +432,23 @@ export function QuickEntry() {
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Note (optional)"
+            aria-label="Note"
             className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:border-brand-500 focus:outline-none"
           />
+          {noteSuggestions.length > 0 && (
+            <div className="-mt-1 flex flex-wrap gap-1.5" aria-label="Notes you've used before">
+              {noteSuggestions.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setNote(n)}
+                  className="max-w-full truncate rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-slate-500 hover:text-slate-50"
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          )}
           {tags.length > 0 && mode !== 'transfer' && (
             <div className="space-y-1.5">
               <div className="text-xs uppercase tracking-wider text-slate-500">Tags (optional)</div>

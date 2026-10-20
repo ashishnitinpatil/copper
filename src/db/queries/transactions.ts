@@ -5,6 +5,7 @@ import { nowIso, toDateString } from '@/lib/dates';
 import { logCreate, logUpdate, logDelete, newBatchId, snapshotEntity } from '../changeLog';
 import { fuzzyScore } from '@/lib/fuzzy';
 import { parseAmount, getCurrency } from '@/lib/money';
+import type { PastNote } from '@/lib/noteSuggestions';
 
 export interface TransactionInput {
   account_id: string;
@@ -442,4 +443,17 @@ export async function createTransfer(db: DB, input: TransferInput): Promise<[str
   await logCreate(db, 'transaction', toId, { batchId, source: 'transfer' });
 
   return [fromId, toId];
+}
+
+/** Notes used before for this kind of entry, for suggesting while typing one. */
+export async function listPastNotes(db: DB, kind: TransactionKind): Promise<PastNote[]> {
+  return db.execO<PastNote>(
+    `SELECT TRIM(note) AS note, COUNT(*) AS uses, MAX(occurred_on) AS last_on
+     FROM transactions
+     WHERE kind = ? AND note IS NOT NULL AND TRIM(note) <> ''
+     GROUP BY TRIM(note)
+     ORDER BY last_on DESC
+     LIMIT 500`,
+    [kind],
+  );
 }

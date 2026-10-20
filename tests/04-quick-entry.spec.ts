@@ -48,6 +48,20 @@ test.describe('Quick Entry', () => {
     await expect(page.locator('main').getByText('₹0')).toBeVisible();
   });
 
+  test('suggests notes used before, and taps one in', async ({ page }) => {
+    const note = page.getByRole('textbox', { name: 'Note' });
+    await page.getByRole('button', { name: '5', exact: true }).click();
+    await note.fill('Coffee with Sam');
+    await page.getByRole('button', { name: /Food & Dining/ }).click();
+    await expect(note).toHaveValue('');
+
+    await note.fill('cof');
+    const chips = page.getByLabel("Notes you've used before");
+    await chips.getByRole('button', { name: 'Coffee with Sam' }).click();
+    await expect(note).toHaveValue('Coffee with Sam');
+    await expect(chips).toHaveCount(0);
+  });
+
   test('backspace removes last digit', async ({ page }) => {
     await page.getByRole('button', { name: '1', exact: true }).click();
     await page.getByRole('button', { name: '2', exact: true }).click();
