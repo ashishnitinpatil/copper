@@ -251,11 +251,13 @@ export async function refreshGoogleToken(hint?: string, remember = false): Promi
   }
 }
 
-export function revokeGoogleToken(token: string): void {
-  // The helper revokes the refresh token, which ends Copper's access at Google.
+/**
+ * Sign this device out. Nothing is revoked at Google: revoking ends the whole
+ * grant, which would sign the person out on their other devices too. Removing
+ * Copper's access everywhere is done from their Google Account.
+ */
+export function forgetGoogleSignIn(): void {
   if (USE_HELPER) void fetch('/api/auth/signout', { method: 'POST' }).catch(() => {});
-  if (!window.google?.accounts?.oauth2) return;
-  window.google.accounts.oauth2.revoke(token);
 }
 
 interface UserInfo {

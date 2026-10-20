@@ -4,7 +4,7 @@ import {
   isGoogleConfigured,
   signInWithGoogle,
   refreshGoogleToken,
-  revokeGoogleToken,
+  forgetGoogleSignIn,
   SignInClosed,
 } from './google';
 
@@ -129,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOutGoogle = useCallback(() => {
     setState((s) => {
-      if (s.google?.accessToken) revokeGoogleToken(s.google.accessToken);
+      if (s.google) forgetGoogleSignIn();
       return { ...s, google: null };
     });
   }, []);

@@ -146,8 +146,8 @@ export function Privacy() {
             Google Drive.
           </li>
           <li>
-            <strong>Kept:</strong> until you sign out (which also ends Copper&rsquo;s access at Google),
-            erase the device or delete the files in your Drive.
+            <strong>Kept:</strong> until you sign out on that device, erase it, or delete the files in
+            your Drive. Removing Copper&rsquo;s access in your Google Account ends it on every device.
             We hold no copy, so there is nothing for us to keep or delete.
           </li>
         </ul>

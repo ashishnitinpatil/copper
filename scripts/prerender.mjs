@@ -6,7 +6,8 @@
 // dist/index.html doubles as the fallback for every app route (/dashboard …),
 // so an inline script hides the pre-rendered landing page there, and for
 // returning users (who are sent straight to their dashboard).
-import { readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { preview } from 'vite';
 import { chromium } from '@playwright/test';
 
@@ -54,3 +55,37 @@ try {
   await browser.close();
   await new Promise((resolve) => server.httpServer.close(resolve));
 }
+
+// Content-Security-Policy, with hashes of the inline scripts above (theme
+// before first paint, landing-page hide) so no 'unsafe-inline' is needed for
+// scripts. Only Google's sign-in, Drive and Picker hosts are allowed; the
+// database needs 'wasm-unsafe-eval'. Shipped Report-Only first: violations
+// show in the console without breaking anything — switch to enforcing once a
+// sign-in, Picker and sync run shows none.
+const hashes = new Set();
+for (const { file } of PAGES) {
+  const html = await readFile(file, 'utf8');
+  for (const [, attrs, body] of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)) {
+    if (/\bsrc=|application\/ld\+json/.test(attrs)) continue;
+    hashes.add(`'sha256-${createHash('sha256').update(body).digest('base64')}'`);
+  }
+}
+const GOOGLE_FRAMES = 'https://accounts.google.com https://docs.google.com https://drive.google.com https://content.googleapis.com';
+const csp = [
+  "default-src 'self'",
+  `script-src 'self' 'wasm-unsafe-eval' ${[...hashes].join(' ')} https://accounts.google.com/gsi/client https://apis.google.com`,
+  // React's style={…} and the Google widgets set inline styles.
+  "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
+  "img-src 'self' data: blob: https://*.googleusercontent.com https://*.gstatic.com https://*.google.com",
+  "font-src 'self'",
+  "connect-src 'self' https://www.googleapis.com https://content.googleapis.com https://accounts.google.com",
+  `frame-src ${GOOGLE_FRAMES}`,
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+await appendFile('dist/_headers', `\n# Added by scripts/prerender.mjs\n/*\n  Content-Security-Policy-Report-Only: ${csp}\n`);
+console.log(`CSP (report-only) with ${hashes.size} inline-script hashes → dist/_headers`);

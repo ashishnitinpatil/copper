@@ -38,7 +38,7 @@ export default {
         case '/api/auth/refresh':
           return await refresh(request, url, env);
         case '/api/auth/signout':
-          return await signout(request, url, env);
+          return signout(request, url);
       }
       if (url.pathname.startsWith('/api/')) return json({ error: 'not_found' }, 404);
       return env.ASSETS.fetch(request);
@@ -143,16 +143,13 @@ async function refresh(request: Request, url: URL, env: Env): Promise<Response> 
   ]);
 }
 
-/** Forget this device's sign-in, and end Copper's access at Google. */
-async function signout(request: Request, url: URL, env: Env): Promise<Response> {
+/**
+ * Forget this device's sign-in. Deliberately no revoke at Google: that ends
+ * the whole grant, signing the person out on every other device too. Removing
+ * Copper's access everywhere is done from their Google Account.
+ */
+async function signout(request: Request, url: URL): Promise<Response> {
   if (!sameOrigin(request, url)) return json({ error: 'forbidden' }, 403);
-  const sealed = readCookie(request, RT_COOKIE);
-  const refreshToken = sealed ? await unseal(sealed, env) : null;
-  if (refreshToken) {
-    await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(refreshToken)}`, {
-      method: 'POST',
-    }).catch(() => {});
-  }
   return json({ ok: true }, 200, [cookie(RT_COOKIE, '', 0)]);
 }
 

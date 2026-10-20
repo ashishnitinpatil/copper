@@ -1,6 +1,6 @@
 // Plain-language answer to "why sign in, and what can Copper see?" — shown
 // wherever we ask for Google. Keep it true to the scopes in google.ts
-// (openid email profile + drive.file) and to the fact that there's no server.
+// (openid email profile + drive.file) and to worker/index.ts (the sign-in helper).
 export function GoogleAccessNote() {
   return (
     <details className="group rounded-md border border-slate-800 bg-slate-900/40 px-3 py-2 text-xs text-slate-400">
@@ -9,8 +9,8 @@ export function GoogleAccessNote() {
       </summary>
       <ul className="mt-2 list-disc space-y-1.5 pl-4">
         <li>
-          <span className="text-slate-300">Why it's needed:</span> Copper has no server. To sync, it
-          keeps your book as a file in your own Google Drive, and your devices — and your partner, if
+          <span className="text-slate-300">Why it's needed:</span> Copper keeps nothing on a server. To
+          sync, it keeps your book as a file in your own Google Drive, and your devices — and your partner, if
           you invite one — read and write that file.
         </li>
         <li>
@@ -20,7 +20,8 @@ export function GoogleAccessNote() {
         </li>
         <li>
           <span className="text-slate-300">Where your data goes:</span> straight from this browser to
-          Google Drive. It never passes through a Copper server, and no one else receives it.
+          Google Drive. It never passes through a Copper server, and no one else receives it. A small
+          Copper sign-in helper only renews your hourly Google pass, so you stay signed in.
         </li>
         <li>
           The book is stored like your other Drive files — protected by your Google account, not
@@ -36,7 +37,7 @@ export function GoogleAccessNote() {
           >
             Google Account
           </a>
-          . What's on this device stays.
+          . Signing out here only signs this device out; what's on it stays.
         </li>
       </ul>
     </details>
