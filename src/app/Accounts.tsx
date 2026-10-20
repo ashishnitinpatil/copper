@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ACCOUNT_ICON_GROUPS, IconPicker } from '@/components/ui/IconPicker';
 import { AccountGlyph, accountOptions, useAccountBalances } from '@/components/accountOptions';
 import { DateField } from '@/components/ui/DateField';
@@ -25,7 +25,7 @@ import { parseAmount, fromMinor, CURRENCY_OPTIONS } from '@/lib/money';
 import { Money } from '@/components/ui/Money';
 import { Combobox } from '@/components/ui/Combobox';
 import { toDateString } from '@/lib/dates';
-import { useDefaultCurrency } from './AppSettingsProvider';
+import { useConvert, useDefaultCurrency } from './AppSettingsProvider';
 
 // Offered on top of the default (the account type's own icon).
 
@@ -38,18 +38,84 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
+type AccountOrder = 'used' | 'balance' | 'name' | 'type';
+type CountedFilter = 'all' | 'counted' | 'not-counted';
+
+const ORDER_OPTIONS: { value: AccountOrder; label: string }[] = [
+  { value: 'used', label: 'Most used' },
+  { value: 'balance', label: 'Balance' },
+  { value: 'name', label: 'Name' },
+  { value: 'type', label: 'Type' },
+];
+const ORDER_KEY = 'copper-accounts-order';
+
+const COUNTED_FILTERS: { value: CountedFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'counted', label: 'In total' },
+  { value: 'not-counted', label: 'Not counted' },
+];
+
 export function Accounts() {
   const [editing, setEditing] = useState<Account | null>(null);
   const [creating, setCreating] = useState(false);
+  const [counted, setCounted] = useState<CountedFilter>('all');
+  const [order, setOrder] = useState<AccountOrder>(() => {
+    try {
+      const saved = localStorage.getItem(ORDER_KEY);
+      return ORDER_OPTIONS.some((o) => o.value === saved) ? (saved as AccountOrder) : 'used';
+    } catch {
+      return 'used';
+    }
+  });
 
   const accountsQuery = useQuery(useCallback((db) => listAccounts(db, true), []), {
     deps: ['accounts'],
   });
+  // Entries in the last 90 days, for "Most used".
+  const usage = useQuery(
+    useCallback(
+      (db) =>
+        db.execO<{ account_id: string; uses: number }>(
+          `SELECT account_id, COUNT(*) AS uses FROM transactions
+           WHERE occurred_on > date('now', 'localtime', '-90 days') AND occurred_on <= date('now', 'localtime')
+           GROUP BY account_id`,
+        ),
+      [],
+    ),
+    { deps: ['transactions'] },
+  );
   const balances = useAccountBalances();
+  const toMain = useConvert();
 
-  const accounts = accountsQuery.data ?? [];
-  const active = accounts.filter((a) => !a.archived_at);
+  const accounts = useMemo(() => accountsQuery.data ?? [], [accountsQuery.data]);
   const archived = accounts.filter((a) => a.archived_at);
+  const unarchived = useMemo(() => accounts.filter((a) => !a.archived_at), [accounts]);
+  const anyNotCounted = unarchived.some((a) => a.include_in_total === 0);
+  const filter = anyNotCounted ? counted : 'all';
+
+  const active = useMemo(() => {
+    const uses = new Map((usage.data ?? []).map((u) => [u.account_id, u.uses]));
+    const balanceOf = (a: Account) => toMain(balances.get(a.id) ?? a.opening_balance_minor, a.currency);
+    const typeRank = (a: Account) => ACCOUNT_TYPES.findIndex((t) => t.value === a.type);
+    const by: Record<AccountOrder, (a: Account, b: Account) => number> = {
+      used: (a, b) => (uses.get(b.id) ?? 0) - (uses.get(a.id) ?? 0),
+      balance: (a, b) => balanceOf(b) - balanceOf(a),
+      name: () => 0,
+      type: (a, b) => typeRank(a) - typeRank(b),
+    };
+    return unarchived
+      .filter((a) => filter === 'all' || (filter === 'counted') === (a.include_in_total === 1))
+      .sort((a, b) => b.is_main - a.is_main || by[order](a, b) || a.name.localeCompare(b.name));
+  }, [unarchived, filter, order, usage.data, balances, toMain]);
+
+  const chooseOrder = (next: AccountOrder) => {
+    setOrder(next);
+    try {
+      localStorage.setItem(ORDER_KEY, next);
+    } catch {
+      /* remembered for this visit only */
+    }
+  };
 
   return (
     <PageShell
@@ -57,7 +123,43 @@ export function Accounts() {
       subtitle="Cash, bank, credit cards and wallets"
       actions={<Button onClick={() => setCreating(true)}>+ New account</Button>}
     >
-      {active.length === 0 && !accountsQuery.loading && (
+      {unarchived.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {anyNotCounted && (
+            <div className="-mx-1 flex gap-1 overflow-x-auto px-1" role="group" aria-label="Show">
+              {COUNTED_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  aria-pressed={filter === f.value}
+                  onClick={() => setCounted(f.value)}
+                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+                    filter === f.value ? 'bg-brand-500 text-slate-950' : 'bg-slate-800/70 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <label className="ml-auto flex items-center gap-2 text-xs text-slate-400">
+            <span className="sr-only sm:not-sr-only">Order by</span>
+            <select
+              value={order}
+              onChange={(e) => chooseOrder(e.target.value as AccountOrder)}
+              className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+            >
+              {ORDER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      {unarchived.length === 0 && !accountsQuery.loading && (
         <EmptyState
           title="No active accounts"
           description="Add your first account to start tracking expenses."
@@ -102,12 +204,12 @@ export function Accounts() {
 
       <AccountFormModal
         open={creating}
-        accounts={active}
+        accounts={unarchived}
         onClose={() => setCreating(false)}
       />
       <AccountFormModal
         open={editing !== null}
-        accounts={active}
+        accounts={unarchived}
         existing={editing}
         onClose={() => setEditing(null)}
       />
@@ -135,11 +237,21 @@ function AccountCard({ account, balanceMinor, onEdit }: AccountCardProps) {
             <div className="mt-0.5 truncate text-base font-semibold text-slate-50">{account.name}</div>
           </div>
         </div>
-        {account.is_main === 1 && (
-          <span className="rounded-md bg-brand-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
-            Main
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {account.include_in_total === 0 && (
+            <span
+              title="Not included in your total balance"
+              className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
+            >
+              not counted
+            </span>
+          )}
+          {account.is_main === 1 && (
+            <span className="rounded-md bg-brand-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
+              Main
+            </span>
+          )}
+        </div>
       </div>
       <Money
         minor={balanceMinor}

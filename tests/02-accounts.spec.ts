@@ -46,6 +46,42 @@ test.describe('Accounts CRUD', () => {
     await expect(page.getByText('Petty Cash')).toBeVisible();
   });
 
+  test('filter out not-counted accounts and change the order', async ({ page }) => {
+    await page.getByRole('button', { name: '+ New account' }).click();
+    await page.getByLabel('Name').fill('Home loan');
+    await page.getByLabel('Type').selectOption('loan');
+    await page.getByLabel('Starting balance', { exact: true }).fill('-500000');
+    await page.getByLabel('Include in total balance').uncheck();
+    await page.getByRole('button', { name: 'Create' }).click();
+    await page.getByRole('button', { name: '+ New account' }).click();
+    await page.getByLabel('Name').fill('Zeta Wallet');
+    await page.getByLabel('Starting balance', { exact: true }).fill('100');
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    const names = page.locator('main .grid > button .text-base');
+    const loanCard = page.locator('main .grid > button', { hasText: 'Home loan' });
+    await expect(loanCard.getByText('not counted')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Not counted', exact: true }).click();
+    await expect(names).toHaveText(['Home loan']);
+    await page.getByRole('button', { name: 'In total', exact: true }).click();
+    await expect(loanCard).toHaveCount(0);
+    await page.getByRole('button', { name: 'All', exact: true }).click();
+
+    // Main stays first; the rest follow the chosen order.
+    await page.getByLabel('Order by').selectOption('name');
+    const byName = await names.allTextContents();
+    expect(byName[0]).toBe('Cash');
+    expect(byName.slice(1)).toEqual([...byName.slice(1)].sort((x, y) => x.localeCompare(y)));
+    await page.getByLabel('Order by').selectOption('balance');
+    await expect(names.last()).toHaveText('Home loan');
+
+    // The order is remembered.
+    await page.reload();
+    await waitForDB(page);
+    await expect(page.getByLabel('Order by')).toHaveValue('balance');
+  });
+
   test('archive an account', async ({ page }) => {
     await page.getByRole('button', { name: '+ New account' }).click();
     await page.getByLabel('Name').fill('Old Wallet');
