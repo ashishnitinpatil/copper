@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useDB } from '@/db/DBProvider';
 import { useAuth } from '@/auth/AuthProvider';
+import { CAN_RENEW_SILENTLY } from '@/auth/google';
 import { useAppSettings } from '@/app/AppSettingsProvider';
 import { retireDevice, setLocalDevicePerson } from '@/db/changeLog';
 import {
@@ -177,7 +178,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const isManual = reason === 'manual';
       const hasFreshToken =
         !!auth.google.accessToken && auth.google.expiresAt - 60_000 > Date.now();
-      if (!isManual && !hasFreshToken) {
+      // Without the sign-in helper, renewing needs a popup, which only a click may open.
+      if (!isManual && !hasFreshToken && !CAN_RENEW_SILENTLY) {
         setStatus('signed-out');
         return;
       }

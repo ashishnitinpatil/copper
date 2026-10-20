@@ -47,6 +47,8 @@ const SILENT_REFRESH_TIMEOUT_MS = 8000;
 // server has no helper, so it uses the browser-only flow: 1-hour tokens,
 // silently renewed while Google allows it.
 const USE_HELPER = import.meta.env.PROD;
+/** Whether an expired token can be renewed without a click (via the helper). */
+export const CAN_RENEW_SILENTLY = USE_HELPER;
 
 /** The sign-in window was closed (or left) without finishing. Not an error worth showing. */
 export class SignInClosed extends Error {}

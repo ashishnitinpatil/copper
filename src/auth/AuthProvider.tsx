@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AuthIdentity, AuthState, GoogleSession } from './types';
 import {
   isGoogleConfigured,
@@ -134,18 +134,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Several screens and the sync can ask at once when the token runs out; they share one renewal.
+  const renewing = useRef<Promise<string | null> | null>(null);
   const getGoogleAccessToken = useCallback(async () => {
     const current = state.google;
     if (!current) return null;
     if (current.accessToken && current.expiresAt - 60_000 > Date.now()) {
       return current.accessToken;
     }
-    const refreshed = await refreshGoogleToken(current.identity.email, trustDevice);
-    if (refreshed) {
-      setState((s) => ({ ...s, google: refreshed }));
-      return refreshed.accessToken;
-    }
-    return null;
+    renewing.current ??= refreshGoogleToken(current.identity.email, trustDevice)
+      .then((refreshed) => {
+        if (!refreshed) return null;
+        setState((s) => ({ ...s, google: refreshed }));
+        return refreshed.accessToken;
+      })
+      .finally(() => {
+        renewing.current = null;
+      });
+    return renewing.current;
   }, [state.google, trustDevice]);
 
   const value = useMemo<AuthContextValue>(
