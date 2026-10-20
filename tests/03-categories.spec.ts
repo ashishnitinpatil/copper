@@ -15,7 +15,7 @@ test.describe('Categories', () => {
   });
 
   test('create a new expense category', async ({ page }) => {
-    await page.getByRole('button', { name: '+ Expense' }).click();
+    await page.getByRole('button', { name: 'Add expense category' }).click();
     await page.getByLabel('Name', { exact: true }).fill('Pet Care');
     await page.getByRole('button', { name: 'Create' }).click();
 
@@ -23,7 +23,7 @@ test.describe('Categories', () => {
   });
 
   test('create a new income category', async ({ page }) => {
-    await page.getByRole('button', { name: '+ Income' }).click();
+    await page.getByRole('button', { name: 'Add income category' }).click();
     await page.getByLabel('Name', { exact: true }).fill('Freelance');
     await page.getByRole('button', { name: 'Create' }).click();
 
@@ -39,7 +39,7 @@ test.describe('Categories', () => {
   });
 
   test('pick a line icon from the grid', async ({ page }) => {
-    await page.getByRole('button', { name: '+ Expense' }).click();
+    await page.getByRole('button', { name: 'Add expense category' }).click();
     await page.getByLabel('Name', { exact: true }).fill('Pets');
     await page.getByRole('radio', { name: '🐶' }).click();
     await expect(page.getByRole('radio', { name: '🐶' })).toHaveAttribute('aria-checked', 'true');

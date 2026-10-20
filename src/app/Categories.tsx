@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CATEGORY_ICON_GROUPS, IconPicker } from '@/components/ui/IconPicker';
-import { Pipette } from 'lucide-react';
+import { Pipette, Plus } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { Card, EmptyState } from '@/components/ui/Card';
@@ -59,26 +59,26 @@ export function Categories() {
     <PageShell
       title="Categories"
       subtitle="Your expense and income categories, organised into groups"
-      actions={
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setCreatingUnder({ parentId: null, kind: 'income' })}>
-            + Income
-          </Button>
-          <Button onClick={() => setCreatingUnder({ parentId: null, kind: 'expense' })}>
-            + Expense
-          </Button>
-        </div>
-      }
     >
       {expenseRoots.length === 0 && incomeRoots.length === 0 && !categoriesQuery.loading && (
         <EmptyState title="No categories yet" description="Start by adding a top-level expense category." />
       )}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <h3 className="mb-3 flex items-center justify-between text-sm font-semibold text-slate-300">
-            Expense
-            <span className="text-xs font-normal text-slate-500">{countTree(expenseRoots)} categories</span>
-          </h3>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-300">Expense</h3>
+              <p className="text-xs text-slate-500">{countTree(expenseRoots)} categories</p>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-label="Add expense category"
+              onClick={() => setCreatingUnder({ parentId: null, kind: 'expense' })}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add
+            </Button>
+          </div>
           <CategoryTreeView
             nodes={expenseRoots}
             onEdit={setEditing}
@@ -86,10 +86,20 @@ export function Categories() {
           />
         </Card>
         <Card>
-          <h3 className="mb-3 flex items-center justify-between text-sm font-semibold text-slate-300">
-            Income
-            <span className="text-xs font-normal text-slate-500">{countTree(incomeRoots)} categories</span>
-          </h3>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-300">Income</h3>
+              <p className="text-xs text-slate-500">{countTree(incomeRoots)} categories</p>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-label="Add income category"
+              onClick={() => setCreatingUnder({ parentId: null, kind: 'income' })}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add
+            </Button>
+          </div>
           <CategoryTreeView
             nodes={incomeRoots}
             onEdit={setEditing}
@@ -131,7 +141,7 @@ interface CategoryTreeViewProps {
 
 function CategoryTreeView({ nodes, depth = 0, onEdit, onAddChild }: CategoryTreeViewProps) {
   if (nodes.length === 0) {
-    return <p className="text-xs text-slate-500">— empty —</p>;
+    return <p className="text-xs text-slate-500">None yet — tap Add to create one.</p>;
   }
   return (
     <ul className="space-y-1">

@@ -39,7 +39,7 @@ test.describe('Review queue', () => {
 
     // Create a second "Transport" category alongside the seeded one.
     await navigateTo(page, 'Categories');
-    await page.getByRole('button', { name: '+ Expense' }).click();
+    await page.getByRole('button', { name: 'Add expense category' }).click();
     await page.getByLabel('Name', { exact: true }).fill('Transport');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(500);
