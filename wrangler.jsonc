@@ -1,13 +1,21 @@
-// Copper is served as static files by Cloudflare (Workers static assets).
+// Copper is served as static files by Cloudflare (Workers static assets), plus
+// one small script for /api/* — the Google sign-in helper (worker/index.ts).
 // `npm run deploy` builds and uploads `dist`. It owns only the one hostname
 // below; nothing else on ashishnitinpatil.com is touched.
 {
   "name": "copper",
   "compatibility_date": "2026-10-01",
+  "main": "worker/index.ts",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
+    // Only the sign-in helper runs code; every other path is a plain static file.
+    "run_worker_first": ["/api/*"],
     // Unknown paths like /settings or /join/… get index.html; the app routes them.
     "not_found_handling": "single-page-application"
   },
+  // Public (it's in the app bundle too). The client secret and cookie key are
+  // Worker secrets: `wrangler secret put GOOGLE_CLIENT_SECRET` / `TOKEN_KEY`.
+  "vars": { "GOOGLE_CLIENT_ID": "11632236723-msn0vv028q0efthre2bb4sj7k8i5j0ve.apps.googleusercontent.com" },
   "routes": [{ "pattern": "copper.ashishnitinpatil.com", "custom_domain": true }]
 }

@@ -41,6 +41,8 @@ export default defineConfig({
         globIgnores: ['**/brand/**', '**/og-image.png'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         navigateFallback: '/index.html',
+        // The sign-in popup's /api/auth/* pages come from the Worker, never the app shell.
+        navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
       },
       devOptions: {

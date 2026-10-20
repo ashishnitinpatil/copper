@@ -5,6 +5,7 @@ import {
   signInWithGoogle,
   refreshGoogleToken,
   revokeGoogleToken,
+  SignInClosed,
 } from './google';
 
 const STORAGE_KEY = 'expense-tracker.auth.identities';
@@ -118,12 +119,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       // On a reconnect we know which account this is — pin to it so a
       // multi-account browser re-mints against the right one.
-      const session = await signInWithGoogle(state.google?.identity.email);
+      const session = await signInWithGoogle(state.google?.identity.email, trustDevice);
       setState((s) => ({ ...s, google: session }));
     } catch (e) {
+      if (e instanceof SignInClosed) return;
       setError(e instanceof Error ? e.message : 'Google sign-in failed');
     }
-  }, [state.google?.identity.email]);
+  }, [state.google?.identity.email, trustDevice]);
 
   const signOutGoogle = useCallback(() => {
     setState((s) => {
@@ -138,13 +140,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (current.accessToken && current.expiresAt - 60_000 > Date.now()) {
       return current.accessToken;
     }
-    const refreshed = await refreshGoogleToken(current.identity.email);
+    const refreshed = await refreshGoogleToken(current.identity.email, trustDevice);
     if (refreshed) {
       setState((s) => ({ ...s, google: refreshed }));
       return refreshed.accessToken;
     }
     return null;
-  }, [state.google]);
+  }, [state.google, trustDevice]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 // they read the same for everyone, signed in or not. Keep every statement true
 // to what the code does — Google's verification reviewers read this.
 
-const UPDATED = '18 October 2026';
+const UPDATED = '20 October 2026';
 const OWNER = 'Ashish Patil';
 // The contact address is only put together when someone clicks, so it's never
 // in the page or the code as one string — scrapers can't harvest it.
@@ -72,7 +72,7 @@ export function Privacy() {
     <LegalPage title="Privacy">
       <section>
         <p className="text-lg text-[#33241A]">
-          Copper has no server of its own. What you enter stays in your browser and, if you turn on
+          Copper keeps nothing on a server. What you enter stays in your browser and, if you turn on
           sync, in your own Google Drive. We can&rsquo;t see your book, and we don&rsquo;t want to.
         </p>
       </section>
@@ -102,9 +102,18 @@ export function Privacy() {
           </li>
         </ul>
         <p>
-          These requests go straight from your browser to Google. Your sign-in is remembered on your
-          device only — for this browser session, or until you sign out if you choose &ldquo;Trust this
-          device&rdquo;.
+          Your book goes straight between your browser and Google Drive. Your sign-in is remembered on
+          your device only — for this browser session, or until you sign out if you choose &ldquo;Trust
+          this device&rdquo;.
+        </p>
+        <p>
+          <strong>Staying signed in.</strong> Google&rsquo;s access passes last an hour. So you don&rsquo;t
+          have to sign in again every hour, Copper&rsquo;s sign-in helper — a small piece of code
+          running on Cloudflare at {SITE} — swaps Google&rsquo;s one-time sign-in code for a longer-lived
+          &ldquo;refresh token&rdquo; and hands it back to your device in an encrypted cookie that only
+          the helper can read. When the app needs a new hourly pass, it sends that cookie to the helper,
+          which asks Google for one. The helper keeps no record of you or your tokens, and your book
+          never passes through it.
         </p>
         <p>
           Copper&rsquo;s use and transfer of information received from Google APIs adheres to the{' '}
@@ -128,16 +137,17 @@ export function Privacy() {
             syncing your book. Nothing else — no advertising, profiling or AI training.
           </li>
           <li>
-            <strong>Stored:</strong> your profile in your browser on your device; your book, its backups
-            and your first name in your own Google Drive. Never on any server of ours — we don&rsquo;t
-            have one.
+            <strong>Stored:</strong> your profile and an encrypted sign-in cookie in your browser on your
+            device; your book, its backups and your first name in your own Google Drive. Never on any
+            server of ours.
           </li>
           <li>
             <strong>Shared:</strong> with no one, except people you yourself share your book with through
             Google Drive.
           </li>
           <li>
-            <strong>Kept:</strong> until you sign out, erase the device or delete the files in your Drive.
+            <strong>Kept:</strong> until you sign out (which also ends Copper&rsquo;s access at Google),
+            erase the device or delete the files in your Drive.
             We hold no copy, so there is nothing for us to keep or delete.
           </li>
         </ul>
@@ -146,7 +156,8 @@ export function Privacy() {
       <section>
         <h2>Security</h2>
         <p>
-          Copper talks to Google directly from your browser over encrypted HTTPS connections. Backup files
+          Copper talks to Google over encrypted HTTPS connections — directly from your browser, apart
+          from the sign-in helper&rsquo;s token requests described above. Backup files
           you download can be locked with a password (AES-GCM encryption); without that password nobody,
           including us, can open them.
         </p>
@@ -164,9 +175,9 @@ export function Privacy() {
       <section>
         <h2>Hosting</h2>
         <p>
-          The Copper app itself is served by Cloudflare. Like any web host, Cloudflare may briefly
-          process technical details such as your IP address to deliver the site and protect it from
-          abuse. Google&rsquo;s sign-in screens are covered by{' '}
+          The Copper app and its sign-in helper are served by Cloudflare. Like any web host, Cloudflare
+          may briefly process technical details such as your IP address to deliver the site and protect
+          it from abuse. Google&rsquo;s sign-in screens are covered by{' '}
           <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">
             Google&rsquo;s privacy policy
           </a>

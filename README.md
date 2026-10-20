@@ -15,8 +15,8 @@
 
 ---
 
-Copper has no backend. Everything you enter is stored in the browser (SQLite
-compiled to WebAssembly). Turn on sync and Copper keeps one shared file in your
+Copper keeps nothing on a server. Everything you enter is stored in the browser
+(SQLite compiled to WebAssembly). Turn on sync and Copper keeps one shared file in your
 Google Drive; partners each sign in with their own Google account and their
 changes merge automatically. No account to create, no server holding your
 money data, no analytics.
@@ -68,6 +68,14 @@ sign-in and Drive sync, copy `.env.example` to `.env.local` and fill in:
 | `VITE_GOOGLE_APP_ID` | The Google Cloud project number. |
 
 These are public client-side values; they're compiled into the build.
+
+Locally, sign-in uses Google's browser-only flow (1-hour tokens). The hosted app
+signs in through a small stateless helper, `worker/index.ts`, on the same
+Cloudflare Worker: it exchanges Google's sign-in code for a refresh token and
+returns it to the device in an encrypted HttpOnly cookie, so people stay signed
+in. It needs two Worker secrets — `GOOGLE_CLIENT_SECRET` and `TOKEN_KEY` (32
+random bytes, base64) — and `https://<your host>/api/auth/callback` as an
+authorized redirect URI on the OAuth client.
 
 ## Scripts
 
