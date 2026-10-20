@@ -20,7 +20,7 @@ test.describe('Budgets', () => {
     await page.waitForTimeout(300);
 
     await page.getByRole('button', { name: '+ New budget' }).first().click();
-    await selectCombobox(page, 'Category', '🍽️ Food & Dining');
+    await selectCombobox(page, 'Category', 'Food & Dining');
     await page.getByLabel('Monthly cap').fill('2000');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(300);
@@ -39,7 +39,7 @@ test.describe('Budgets', () => {
     await page.waitForTimeout(300);
 
     await page.getByRole('button', { name: '+ New budget' }).first().click();
-    await selectCombobox(page, 'Category', '🛍️ Shopping');
+    await selectCombobox(page, 'Category', 'Shopping');
     await page.getByLabel('Monthly cap').fill('1000');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(300);

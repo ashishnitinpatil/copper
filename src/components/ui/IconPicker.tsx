@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
+import { Glyph, lineIconFor } from './Glyph';
+import type { LucideIcon } from 'lucide-react';
 
-// Emoji are plain text, so a chosen icon shows the same in every list,
-// dropdown and on every synced device — no icon set to keep in step.
+// Each choice is stored as an emoji (plain text that shows sensibly on any
+// device or older copy of the app) and drawn as the matching line icon — see
+// Glyph.tsx. Every emoji listed here must have a line icon there.
 export const CATEGORY_ICON_GROUPS: { label: string; icons: string[] }[] = [
   { label: 'Food & drink', icons: ['🍽️', '🛒', '🍔', '🍕', '🍜', '🍣', '🥗', '🥐', '🍰', '🍦', '☕', '🍵', '🍺', '🍷', '🍸', '🥤', '🍎', '🥦', '🥩', '🍳', '🥡', '🍿'] },
   { label: 'Home & bills', icons: ['🏠', '🔑', '💡', '🔌', '💧', '🔥', '📶', '📱', '📺', '🛋️', '🛏️', '🧹', '🧺', '🧼', '🔧', '🪴', '🧾', '🗑️'] },
@@ -20,20 +23,9 @@ export const ACCOUNT_ICON_GROUPS: { label: string; icons: string[] }[] = [
   { label: 'Other', icons: ['✈️', '🛒', '📱', '💼', '👶', '❤️', '⭐', '🔒'] },
 ];
 
-/** The last character typed or pasted, so tapping a new emoji replaces the old one. */
-function lastGlyph(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed) return '';
-  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
-    const parts = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(trimmed)];
-    return parts[parts.length - 1].segment;
-  }
-  return Array.from(trimmed).pop() ?? '';
-}
-
 /**
- * A grouped grid of emoji to choose from, plus a box for any other emoji.
- * `defaultOption` adds a leading "no icon" choice (value '').
+ * A grouped grid of simple line icons. `defaultOption` adds a leading
+ * "no icon" choice (value ''). Icons that look the same appear once.
  */
 export function IconPicker({
   value,
@@ -46,21 +38,40 @@ export function IconPicker({
   groups: { label: string; icons: string[] }[];
   defaultOption?: ReactNode;
 }) {
+  const seen = new Set<LucideIcon>();
+  const shown = groups.map((g) => ({
+    label: g.label,
+    icons: g.icons.filter((i) => {
+      const line = lineIconFor(i);
+      if (!line || seen.has(line)) return false;
+      seen.add(line);
+      return true;
+    }),
+  }));
+  // A stored emoji is "selected" wherever its line icon is shown; one with no
+  // match here (picked in an older version) gets its own cell so it stays visible.
+  const valueLine = lineIconFor(value);
+  const isSelected = (icon: string) => icon === value || (!!valueLine && lineIconFor(icon) === valueLine);
+  const extra = value && !shown.some((g) => g.icons.some(isSelected)) ? value : '';
+
   const cell = (icon: string, content: ReactNode, label: string) => (
     <button
       key={icon || 'default'}
       type="button"
       role="radio"
-      aria-checked={value === icon}
+      aria-checked={isSelected(icon)}
       aria-label={label}
       onClick={() => onChange(icon)}
-      className={`flex h-9 items-center justify-center rounded-md text-lg transition ${
-        value === icon ? 'bg-brand-500/30 ring-1 ring-brand-400' : 'bg-slate-800/70 hover:bg-slate-700'
+      className={`flex h-9 items-center justify-center rounded-md transition ${
+        isSelected(icon)
+          ? 'bg-brand-500/20 text-brand-300 ring-1 ring-brand-400'
+          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
       }`}
     >
       {content}
     </button>
   );
+  const grid = 'grid grid-cols-7 gap-1 sm:grid-cols-9';
 
   return (
     <div>
@@ -70,26 +81,19 @@ export function IconPicker({
         role="radiogroup"
         aria-label="Icon"
       >
-        {defaultOption && (
-          <div className="grid grid-cols-7 gap-1.5 sm:grid-cols-9">{cell('', defaultOption, 'Default icon')}</div>
+        {(defaultOption || extra) && (
+          <div className={grid}>
+            {defaultOption && cell('', defaultOption, 'Default icon')}
+            {extra && cell(extra, <Glyph icon={extra} className="h-[18px] w-[18px]" />, extra)}
+          </div>
         )}
-        {groups.map((g) => (
+        {shown.map((g) => (
           <div key={g.label}>
             <div className="mb-1.5 text-[11px] font-medium text-slate-500">{g.label}</div>
-            <div className="grid grid-cols-7 gap-1.5 sm:grid-cols-9">{g.icons.map((i) => cell(i, i, i))}</div>
+            <div className={grid}>{g.icons.map((i) => cell(i, <Glyph icon={i} className="h-[18px] w-[18px]" />, i))}</div>
           </div>
         ))}
       </div>
-      <label className="mt-2 flex items-center gap-2 text-xs text-slate-400">
-        Or any emoji
-        <input
-          // Shows the current icon so one picked earlier (or typed) stays visible.
-          value={value}
-          onChange={(e) => onChange(lastGlyph(e.target.value))}
-          aria-label="Any emoji"
-          className="h-9 w-14 rounded-md border border-slate-700 bg-slate-900 text-center text-lg text-slate-100 focus:border-brand-400 focus:outline-none"
-        />
-      </label>
     </div>
   );
 }

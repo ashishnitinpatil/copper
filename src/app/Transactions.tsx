@@ -39,6 +39,7 @@ import type { Tag, Transaction, TransactionKind } from '@/db/types';
 import { formatMoney, parseAmount, fromMinor } from '@/lib/money';
 import { useDefaultCurrency } from './AppSettingsProvider';
 import { addDays, formatRelativeDate, toDateString } from '@/lib/dates';
+import { Glyph } from '@/components/ui/Glyph';
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -367,7 +368,8 @@ export function Transactions() {
               emptyOption={{ value: '', label: 'All' }}
               options={(categoriesQuery.data ?? []).map((c) => ({
                 value: c.id,
-                label: `${c.icon ?? ''} ${c.name}`.trim(),
+                label: c.name,
+                icon: <Glyph icon={c.icon} className="h-4 w-4 text-slate-400" />,
               }))}
             />
             <Combobox
@@ -377,7 +379,8 @@ export function Transactions() {
               emptyOption={{ value: '', label: 'All' }}
               options={(tagsQuery.data ?? []).map((t) => ({
                 value: t.id,
-                label: `${t.icon ?? ''} ${t.name}`.trim(),
+                label: t.name,
+                icon: <Glyph icon={t.icon} className="h-4 w-4 text-slate-400" />,
               }))}
             />
             <Select
@@ -502,7 +505,7 @@ export function Transactions() {
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-xs font-medium text-slate-200 transition hover:border-slate-500 hover:text-slate-50 active:scale-95"
                 >
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color ?? '#94a3b8' }} />
-                  {t.icon ? `${t.icon} ` : ''}
+                  <Glyph icon={t.icon} className="h-3 w-3 opacity-80" />
                   {t.name}
                 </button>
               ))}
@@ -616,7 +619,8 @@ function RecategorizeModal({ open, count, categories, onApply, onClose }: Recate
           placeholder="Choose a category…"
           options={categories.map((c) => ({
             value: c.id,
-            label: `${c.icon ?? ''} ${c.name}`.trim(),
+            label: c.name,
+            icon: <Glyph icon={c.icon} className="h-4 w-4 text-slate-400" />,
           }))}
         />
         <div className="flex justify-end gap-2">
@@ -747,7 +751,11 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
           emptyOption={{ value: '', label: '— None —' }}
           options={categories
             .filter((c) => c.kind === form.kind)
-            .map((c) => ({ value: c.id, label: `${c.icon ?? ''} ${c.name}`.trim() }))}
+            .map((c) => ({
+              value: c.id,
+              label: c.name,
+              icon: <Glyph icon={c.icon} className="h-4 w-4 text-slate-400" />,
+            }))}
         />
         <Textarea
           label="Note"

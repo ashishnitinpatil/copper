@@ -304,18 +304,18 @@
      stay legible. Dark themes get a touch more saturation + a hairline ring so
      the coin holds its shape against the void; light themes stay softer to sit
      quietly on a pale page. */
+  /* Quiet on purpose: a faint wash of the category colour behind a line icon,
+     so categories are easy to tell apart without pulling the eye. */
   .coin-disc {
-    background-color: color-mix(in srgb, var(--coin) 32%, white);
-    color: color-mix(in srgb, var(--coin) 58%, black);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coin) 30%, transparent);
+    background-color: color-mix(in srgb, var(--coin) 16%, transparent);
+    color: color-mix(in srgb, var(--coin) 72%, white);
   }
 
   [data-theme='daylight'] .coin-disc,
   [data-theme='copper'] .coin-disc,
   [data-theme='classic'] .coin-disc {
-    background-color: color-mix(in srgb, var(--coin) 20%, white);
-    color: color-mix(in srgb, var(--coin) 68%, black);
-    box-shadow: none;
+    background-color: color-mix(in srgb, var(--coin) 13%, transparent);
+    color: color-mix(in srgb, var(--coin) 62%, black);
   }
 }
 

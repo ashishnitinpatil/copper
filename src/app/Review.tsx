@@ -26,6 +26,7 @@ import { getSettingNumber, SETTINGS_KEYS } from '@/db/queries/settings';
 import { formatMoney } from '@/lib/money';
 import { useDefaultCurrency } from './AppSettingsProvider';
 import { formatHumanDate } from '@/lib/dates';
+import { Glyph } from '@/components/ui/Glyph';
 
 const REASON_LABEL: Record<string, string> = {
   duplicate: 'Possible duplicate',
@@ -346,7 +347,7 @@ function FlagCard({ flag, onDismiss, onResolveDuplicate }: FlagCardProps) {
       </div>
 
       <div className="flex items-center gap-3 rounded-lg bg-slate-800/50 p-3">
-        <span className="text-lg">{flag.tx_category_icon ?? '•'}</span>
+        <Glyph icon={flag.tx_category_icon} className="h-4 w-4 text-slate-400" />
         <div className="flex-1">
           <div className="text-sm text-slate-50">
             {flag.tx_category_name ?? 'Uncategorized'} · {flag.tx_account_name}

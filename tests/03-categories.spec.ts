@@ -38,18 +38,13 @@ test.describe('Categories', () => {
     await expect(page.getByText('Coffee')).toBeVisible();
   });
 
-  test('pick an icon from the grid, or type any emoji', async ({ page }) => {
+  test('pick a line icon from the grid', async ({ page }) => {
     await page.getByRole('button', { name: '+ Expense' }).click();
     await page.getByLabel('Name', { exact: true }).fill('Pets');
     await page.getByRole('radio', { name: '🐶' }).click();
-    await expect(page.getByLabel('Any emoji')).toHaveValue('🐶');
+    await expect(page.getByRole('radio', { name: '🐶' })).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('button', { name: 'Create' }).click();
-    await expect(page.locator('li', { hasText: 'Pets' }).getByText('🐶')).toBeVisible();
-
-    await page.getByRole('button', { name: '+ Expense' }).click();
-    await page.getByLabel('Name', { exact: true }).fill('Dragons');
-    await page.getByLabel('Any emoji').fill('🐉');
-    await page.getByRole('button', { name: 'Create' }).click();
-    await expect(page.locator('li', { hasText: 'Dragons' }).getByText('🐉')).toBeVisible();
+    // Stored as the emoji, drawn as a simple line icon.
+    await expect(page.locator('li', { hasText: 'Pets' }).locator('svg.lucide-dog').first()).toBeVisible();
   });
 });

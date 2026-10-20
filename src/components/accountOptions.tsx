@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react';
+import { Glyph } from '@/components/ui/Glyph';
 import type { Account, AccountType } from '@/db/types';
 import { getAccountBalances } from '@/db/queries/accounts';
 import { useQuery } from '@/db/useQuery';
@@ -18,10 +19,10 @@ export function AccountGlyph({
   return (
     <span
       aria-hidden
-      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-brand-500/15 text-brand-300 ${box}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-slate-800/80 text-slate-300 ${box}`}
     >
       {account.icon ? (
-        <span className="leading-none">{account.icon}</span>
+        <Glyph icon={account.icon} className={size === 'md' ? 'h-4 w-4' : size === 'xs' ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5'} />
       ) : (
         <AccountTypeIcon type={account.type as AccountType} className={size === 'md' ? 'h-4 w-4' : size === 'xs' ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5'} />
       )}

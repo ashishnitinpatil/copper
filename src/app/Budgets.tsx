@@ -23,6 +23,7 @@ import { ConvertedMark } from '@/components/ConvertedMark';
 import { convert } from '@/lib/fx';
 import { toDateString, startOfMonth } from '@/lib/dates';
 import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
+import { Glyph } from '@/components/ui/Glyph';
 
 export function Budgets() {
   const [editing, setEditing] = useState<BudgetWithSpent | null>(null);
@@ -123,7 +124,7 @@ function BudgetCard({ budget, onEdit }: { budget: BudgetWithSpent; onEdit: () =>
       className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-brand-500"
     >
       <div className="flex items-center gap-2">
-        <span className="text-lg">{budget.category_icon ?? '•'}</span>
+        <Glyph icon={budget.category_icon} className="h-4 w-4 text-slate-400" />
         <span className="text-sm font-medium text-slate-50">{budget.category_name}</span>
       </div>
       <div className="mt-3 flex items-baseline justify-between">
@@ -214,7 +215,11 @@ function BudgetFormModal({ open, onClose, categories, existing }: BudgetFormModa
           value={categoryId}
           onChange={setCategoryId}
           emptyOption={{ value: '', label: 'Select…' }}
-          options={categories.map((c) => ({ value: c.id, label: `${c.icon ?? ''} ${c.name}`.trim() }))}
+          options={categories.map((c) => ({
+            value: c.id,
+            label: c.name,
+            icon: <Glyph icon={c.icon} className="h-4 w-4 text-slate-400" />,
+          }))}
         />
         <div className="grid grid-cols-2 gap-3">
           <Input

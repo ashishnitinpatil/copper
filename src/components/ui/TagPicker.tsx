@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { Check } from 'lucide-react';
 import type { Tag } from '@/db/types';
+import { Glyph } from '@/components/ui/Glyph';
 
 const DEFAULT_DOT = '#94a3b8'; // slate-400, for tags without a color
 
@@ -18,7 +19,7 @@ export function TagChip({ tag, className = '' }: { tag: Pick<Tag, 'name' | 'colo
       }
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
-      {tag.icon ? `${tag.icon} ` : ''}
+      <Glyph icon={tag.icon} className="h-3 w-3 opacity-80" />
       {tag.name}
     </span>
   );
@@ -57,7 +58,7 @@ export function TagPicker({ tags, selected, onToggle, className = '' }: TagPicke
             }
           >
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-            {t.icon ? `${t.icon} ` : ''}
+            <Glyph icon={t.icon} className="h-3 w-3 opacity-80" />
             {t.name}
             {on && <Check className="h-3 w-3" />}
           </button>

@@ -26,6 +26,7 @@ import { toDateString } from '@/lib/dates';
 import { FREQUENCY_OPTIONS, MONTHLY, ruleStarting } from '@/features/recurring/frequencies';
 import { repeatLabel } from '@/features/activity/describe';
 import { useDefaultCurrency } from './AppSettingsProvider';
+import { Glyph } from '@/components/ui/Glyph';
 
 /** The frequency part of a stored rule ("FREQ=…;INTERVAL=…"), without its start date. */
 function frequencyOf(rrule: string): string {
@@ -129,7 +130,8 @@ export function RecurringList() {
               const cat = catMap.get(tpl.category_id ?? '');
               return (
                 <li key={r.id}>
-                  {cat?.icon} {cat?.name ?? 'Uncategorized'} —{' '}
+                  <Glyph icon={cat?.icon} className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-slate-400" />
+                  {cat?.name ?? 'Uncategorized'} —{' '}
                   {formatMoney(tpl.amount_minor, accountMap.get(tpl.account_id)?.currency ?? defaultCurrency)}
                 </li>
               );

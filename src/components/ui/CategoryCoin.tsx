@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { categoryStyle } from '@/lib/categoryStyle';
+import { Glyph } from './Glyph';
 
 interface CategoryCoinProps {
   name: string;
@@ -29,7 +30,7 @@ export function CategoryCoin({ name, color, icon, size = 'md', className = '' }:
       {st.isMonogram ? (
         <span className="text-[0.62em] font-bold tracking-tight">{st.glyph}</span>
       ) : (
-        <span>{st.glyph}</span>
+        <Glyph icon={st.glyph} className="h-[1.05em] w-[1.05em]" />
       )}
     </span>
   );

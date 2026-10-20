@@ -24,6 +24,7 @@ import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useIsFirstPull } from '@/sync/SyncSetupScreen';
 import { useAppSettings } from './AppSettingsProvider';
 import { Glance } from './Glance';
+import { Glyph } from '@/components/ui/Glyph';
 
 // Accounts shown as cards before the phone layout switches to compact rows.
 const COMPACT_AFTER = 6;
@@ -289,8 +290,8 @@ export function Dashboard() {
           <div className="space-y-2">
             {overBudgets.map((b) => (
               <div key={b.id} className="flex items-center justify-between text-sm">
-                <span className="text-slate-200">
-                  {b.category_icon} {b.category_name}
+                <span className="flex items-center gap-1.5 text-slate-200">
+                  <Glyph icon={b.category_icon} className="h-3.5 w-3.5 text-slate-400" /> {b.category_name}
                 </span>
                 <span className="tabular-nums text-clay-400">
                   {formatMoney(b.spent_minor, b.currency)} /{' '}
@@ -378,8 +379,8 @@ export function Dashboard() {
               return (
                 <div key={b.id}>
                   <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="text-slate-300">
-                      {b.category_icon} {b.category_name}
+                    <span className="flex items-center gap-1.5 text-slate-300">
+                      <Glyph icon={b.category_icon} className="h-3.5 w-3.5 text-slate-400" /> {b.category_name}
                     </span>
                     <span className="tabular-nums text-slate-500">
                       {formatMoney(b.spent_minor, b.currency, { withSymbol: false })} /{' '}

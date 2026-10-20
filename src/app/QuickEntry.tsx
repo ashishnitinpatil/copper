@@ -197,7 +197,7 @@ export function QuickEntry() {
     setCommitting(true);
     try {
       const cat = filteredCategories.find((c) => c.id === categoryId);
-      const amountLabel = `${cat?.icon ?? ''} ${cat?.name ?? 'Saved'}  ${formatMoney(minor!, currency)}`;
+      const amountLabel = `${cat?.name ?? 'Saved'}  ${formatMoney(minor!, currency)}`;
       if (repeat) {
         // A repeating entry is a recurring rule starting on the chosen date;
         // creating it adds that first occurrence too when it's already due.

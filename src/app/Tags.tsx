@@ -28,12 +28,14 @@ import { formatMoney, parseAmount, fromMinor, CURRENCY_OPTIONS } from '@/lib/mon
 import { ConvertedMark } from '@/components/ConvertedMark';
 import { formatHumanDate, formatRelativeDate } from '@/lib/dates';
 import { useAppSettings, useDefaultCurrency } from './AppSettingsProvider';
+import { Glyph } from '@/components/ui/Glyph';
+import { IconPicker } from '@/components/ui/IconPicker';
 
 const PRESET_COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#10b981',
   '#06b6d4', '#0ea5e9', '#3b82f6', '#8b5cf6', '#a855f7', '#ec4899',
 ];
-const PRESET_ICONS = ['🏖️', '✈️', '🏔️', '🎉', '🎁', '🏠', '💼', '🍽️', '🚗', '💍', '🎓', '🩺'];
+const PRESET_ICONS = ['🏖️', '✈️', '🏔️', '🎉', '🎁', '🏠', '💼', '🍽️', '🚗', '💍', '🎓', '🩺', '🏕️', '👶', '❤️', '🎯'];
 
 function isDated(t: { starts_on: string | null; ends_on: string | null }): boolean {
   return !!t.starts_on || !!t.ends_on;
@@ -141,9 +143,9 @@ function TagCard({ tag, onOpen }: { tag: TagWithSpend; onOpen: () => void }) {
     >
       <div className="flex items-center gap-2">
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-        <span className="truncate text-sm font-medium text-slate-50">
-          {tag.icon ? `${tag.icon} ` : ''}
-          {tag.name}
+        <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-slate-50">
+          <Glyph icon={tag.icon} className="h-3.5 w-3.5 text-slate-400" />
+          <span className="truncate">{tag.name}</span>
         </span>
       </div>
       {dated && (
@@ -217,7 +219,7 @@ function TagDetail({ tag, onBack, onEdit, formModal }: TagDetailProps) {
 
   return (
     <PageShell
-      title={`${tag.icon ? tag.icon + ' ' : ''}${tag.name}`}
+      title={tag.name}
       subtitle={isDated(tag) ? formatRange(tag.starts_on, tag.ends_on) : `${tag.tx_count} tagged entries`}
       actions={
         <div className="flex items-center gap-2">
@@ -279,7 +281,9 @@ function TagDetail({ tag, onBack, onEdit, formModal }: TagDetailProps) {
             return (
               <div key={c.category_id ?? '__none'}>
                 <div className="mb-1 flex items-center justify-between text-sm">
-                  <span className="text-slate-50">{c.category_icon ?? '•'} {c.category_name ?? 'Uncategorised'}</span>
+                  <span className="flex items-center gap-1.5 text-slate-50">
+                    <Glyph icon={c.category_icon} className="h-3.5 w-3.5 text-slate-400" /> {c.category_name ?? 'Uncategorised'}
+                  </span>
                   <span className="tabular-nums text-slate-300">
                     {formatMoney(c.total, tag.currency)} <span className="text-slate-500">({p.toFixed(1)}%)</span>
                   </span>
@@ -401,32 +405,12 @@ function TagFormModal({ open, existing, onClose }: TagFormModalProps) {
       <div className="space-y-4">
         <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Goa trip" autoFocus />
 
-        <div>
-          <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">Icon</label>
-          <div className="mt-2 grid grid-cols-6 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setIcon(null)}
-              className={`flex h-9 items-center justify-center rounded-md text-xs ${
-                icon === null ? 'bg-brand-500/30 ring-1 ring-brand-400 text-slate-50' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
-            >
-              None
-            </button>
-            {PRESET_ICONS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => setIcon(emoji)}
-                className={`flex h-9 items-center justify-center rounded-md text-lg ${
-                  icon === emoji ? 'bg-brand-500/30 ring-1 ring-brand-400' : 'bg-slate-800 hover:bg-slate-700'
-                }`}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        </div>
+        <IconPicker
+          value={icon ?? ''}
+          onChange={(v) => setIcon(v || null)}
+          groups={[{ label: 'For trips, events and projects', icons: PRESET_ICONS }]}
+          defaultOption={<span className="text-xs">None</span>}
+        />
 
         <div>
           <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">Color</label>
