@@ -18,6 +18,7 @@ import { isPickerConfigured, type PickedFile } from '@/sync/googlePicker';
 import { BOOK_FILE_NAME } from '@/sync/bookFile';
 import { GoogleAccessNote } from '@/auth/GoogleAccessNote';
 import { useFreshToken } from '@/auth/useFreshToken';
+import { CAN_RENEW_SILENTLY } from '@/auth/google';
 import { describeSource } from '@/components/ConvertedMark';
 import type { FxRate } from '@/lib/fx';
 import { TrustDeviceToggle } from '@/auth/TrustDeviceToggle';
@@ -426,10 +427,16 @@ function SyncSection() {
 
   // Background syncs never reopen an expired sign-in (that takes a click), so
   // an expired one means changes wait here until the person taps.
+  // With the sign-in helper an expired token renews by itself, so it isn't a reason to ask.
   const needsReconnect =
-    signedIn && (sync.status === 'signed-out' || (sync.status === 'idle' && !freshToken));
+    signedIn &&
+    (sync.status === 'signed-out' || (sync.status === 'idle' && !freshToken && !CAN_RENEW_SILENTLY));
+  // Sync stopped on purpose to let the person decide (a book found, the book
+  // replaced, or a newer app version wrote it) — not a failure.
+  const needsChoice = sync.status === 'error' && (!!sync.foundBookId || sync.bookReplaced || sync.newerBook);
   const statusLabel = (() => {
     if (needsReconnect) return 'Reconnect needed';
+    if (needsChoice) return sync.newerBook ? 'Update Copper to continue' : 'Needs your choice';
     switch (sync.status) {
       case 'syncing':
         return 'Syncing…';
@@ -445,7 +452,7 @@ function SyncSection() {
   })();
 
   const statusTone = (() => {
-    if (needsReconnect) return 'text-warning';
+    if (needsReconnect || needsChoice) return 'text-warning';
     switch (sync.status) {
       case 'syncing':
         return 'text-info';
@@ -638,7 +645,11 @@ function SyncSection() {
           )}
 
           {sync.error && (
-            <div className="flex flex-col gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+            <div
+              className={`flex flex-col gap-2 rounded-md border px-3 py-2 text-xs ${
+                needsChoice ? 'border-warning/40 bg-warning/10 text-warning' : 'border-danger/40 bg-danger/10 text-danger'
+              }`}
+            >
               <div className="flex items-start justify-between gap-2">
                 <span className="min-w-0 break-words">{sync.error}</span>
                 <button
@@ -662,7 +673,7 @@ function SyncSection() {
               {sync.foundBookId && !book.picked && (
                 <button
                   type="button"
-                  className="self-start rounded border border-danger/50 px-2 py-1 font-medium text-danger hover:bg-danger/20 disabled:opacity-50"
+                  className="self-start rounded border border-warning/50 px-2 py-1 font-medium text-warning hover:bg-warning/20 disabled:opacity-50"
                   onClick={() => book.choose(undefined, { id: sync.foundBookId!, name: BOOK_FILE_NAME })}
                   disabled={book.busy}
                 >
@@ -672,7 +683,7 @@ function SyncSection() {
               {sync.bookReplaced && sync.bookId && (
                 <button
                   type="button"
-                  className="self-start rounded border border-danger/50 px-2 py-1 font-medium text-danger hover:bg-danger/20"
+                  className="self-start rounded border border-warning/50 px-2 py-1 font-medium text-warning hover:bg-warning/20"
                   onClick={() => setConfirmFresh(true)}
                 >
                   Load the shared book again…

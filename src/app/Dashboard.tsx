@@ -24,6 +24,7 @@ import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useIsFirstPull } from '@/sync/SyncSetupScreen';
 import { useAppSettings } from './AppSettingsProvider';
 import { Glance } from './Glance';
+import { NameDevicePrompt } from './NameDevicePrompt';
 import { Glyph } from '@/components/ui/Glyph';
 
 // Accounts shown as cards before the phone layout switches to compact rows.
@@ -221,6 +222,7 @@ export function Dashboard() {
       ) : firstPull ? null : (
         <LocalOnlyWarning />
       )}
+      {!firstPull && <NameDevicePrompt />}
       <TotalBalanceCard totals={totalsState.data} />
       <Glance />
 
