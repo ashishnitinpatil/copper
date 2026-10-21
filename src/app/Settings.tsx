@@ -1436,7 +1436,9 @@ function ExportSection() {
             <div>
               Last backup:{' '}
               <span className="text-slate-400">
-                {sync.lastBackupAt ? new Date(sync.lastBackupAt).toLocaleString() : 'never'}
+                {sync.lastBackupAt
+                  ? new Date(sync.lastBackupAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                  : 'never'}
               </span>
             </div>
             <label className="flex items-center gap-2">

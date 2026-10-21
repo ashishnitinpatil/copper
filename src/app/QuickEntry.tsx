@@ -172,7 +172,8 @@ export function QuickEntry() {
     setNote('');
     setReceivedInput('');
     setReceivedTouched(false);
-    flashTimer.current = window.setTimeout(() => setFlash(null), 4500);
+    // Long enough to notice and reach for Undo on a phone.
+    flashTimer.current = window.setTimeout(() => setFlash(null), 8000);
     savedTimer.current = window.setTimeout(() => setSavedId(null), 900);
   };
 
@@ -363,6 +364,7 @@ export function QuickEntry() {
               ariaLabel={mode === 'expense' ? 'Paid from account' : 'Received into account'}
               value={accountId ?? ''}
               onChange={setAccountId}
+              placeholder={accountsState.data ? undefined : 'Loading…'}
               options={options}
             />
           )}
@@ -527,7 +529,15 @@ export function QuickEntry() {
               )}
             </div>
 
-            {filteredCategories.length === 0 ? (
+            {categoriesState.data === null && !categoriesState.error ? (
+              // Still opening the book: placeholders, not "no categories yet".
+              <div role="status" className="grid grid-cols-3 gap-3 motion-safe:animate-pulse sm:grid-cols-4">
+                <span className="sr-only">Loading categories…</span>
+                {Array.from({ length: 8 }, (_, i) => (
+                  <div key={i} className="h-28 rounded-2xl bg-slate-800/60" />
+                ))}
+              </div>
+            ) : filteredCategories.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-500">
                 No {mode} categories yet. Add some on the Categories page.
               </div>

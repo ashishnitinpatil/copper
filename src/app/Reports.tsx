@@ -278,8 +278,9 @@ export function Reports() {
                   <ChangeSentence now={grandTotal} before={prevTotal} currency={currency} beforeLabel={beforeLabel} />
                 </p>
               )}
-              <div className="grid items-center gap-6 md:grid-cols-[15rem_minmax(0,1fr)]">
-                <div className="space-y-2">
+              <div className="grid items-start gap-6 md:grid-cols-[15rem_minmax(0,1fr)]">
+                {/* Stays in view beside a long category list. */}
+                <div className="space-y-2 md:sticky md:top-6">
                   <CategoryDonut
                     slices={slices}
                     total={grandTotal}
