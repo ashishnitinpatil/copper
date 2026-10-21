@@ -17,6 +17,15 @@ interface Env {
   GOOGLE_CLIENT_SECRET: string;
   /** 32 random bytes, base64 — encrypts the refresh-token cookie. */
   TOKEN_KEY: string;
+  /**
+   * The key before the last rotation, still accepted so changing TOKEN_KEY
+   * doesn't sign everyone out: put the old value here, the new one in
+   * TOKEN_KEY, and each device's cookie moves to the new key on its next
+   * refresh. Delete it once a cookie's lifetime (400 days) has passed.
+   */
+  TOKEN_KEY_PREVIOUS?: string;
+  /** Per-address limit on /api/* (see "ratelimits" in wrangler.jsonc). */
+  AUTH_LIMIT?: { limit(options: { key: string }): Promise<{ success: boolean }> };
 }
 
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive.file';
@@ -30,6 +39,10 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     try {
+      if (url.pathname.startsWith('/api/') && env.AUTH_LIMIT) {
+        const { success } = await env.AUTH_LIMIT.limit({ key: request.headers.get('CF-Connecting-IP') ?? 'unknown' });
+        if (!success) return json({ error: 'rate_limited' }, 429);
+      }
       switch (url.pathname) {
         case '/api/auth/start':
           return start(url, env);
@@ -116,8 +129,9 @@ async function callback(request: Request, url: URL, env: Env): Promise<Response>
 async function refresh(request: Request, url: URL, env: Env): Promise<Response> {
   if (!sameOrigin(request, url)) return json({ error: 'forbidden' }, 403);
   const sealed = readCookie(request, RT_COOKIE);
-  const refreshToken = sealed ? await unseal(sealed, env) : null;
-  if (!refreshToken) return json({ error: 'signed_out' }, 401);
+  const opened = sealed ? await unseal(sealed, env) : null;
+  if (!opened) return json({ error: 'signed_out' }, 401);
+  const refreshToken = opened.text;
 
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
@@ -139,7 +153,8 @@ async function refresh(request: Request, url: URL, env: Env): Promise<Response> 
   const { remember } = (await request.json().catch(() => ({}))) as { remember?: boolean };
   return json({ access_token: token.access_token, expires_in: token.expires_in, scope: token.scope }, 200, [
     // Re-set on every refresh, so the expiry slides and "Trust this device" changes take effect.
-    cookie(RT_COOKIE, sealed!, remember ? REMEMBER_SECONDS : null),
+    // A cookie sealed with the previous key moves to the current one.
+    cookie(RT_COOKIE, opened.stale ? await seal(refreshToken, env) : sealed!, remember ? REMEMBER_SECONDS : null),
   ]);
 }
 
@@ -208,15 +223,15 @@ function randomId(): string {
   return b64url(crypto.getRandomValues(new Uint8Array(18)));
 }
 
-async function key(env: Env): Promise<CryptoKey> {
-  const raw = Uint8Array.from(atob(env.TOKEN_KEY), (c) => c.charCodeAt(0));
+async function key(b64: string): Promise<CryptoKey> {
+  const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
 async function seal(text: string, env: Env): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = new Uint8Array(
-    await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(env), new TextEncoder().encode(text)),
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(env.TOKEN_KEY), new TextEncoder().encode(text)),
   );
   const out = new Uint8Array(iv.length + data.length);
   out.set(iv);
@@ -224,14 +239,24 @@ async function seal(text: string, env: Env): Promise<string> {
   return b64url(out);
 }
 
-async function unseal(sealed: string, env: Env): Promise<string | null> {
+/** The sealed text, and whether it was sealed with the previous key. */
+async function unseal(sealed: string, env: Env): Promise<{ text: string; stale: boolean } | null> {
+  let bytes: Uint8Array;
   try {
-    const bytes = Uint8Array.from(atob(sealed.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, await key(env), bytes.slice(12));
-    return new TextDecoder().decode(plain);
+    bytes = Uint8Array.from(atob(sealed.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
   } catch {
     return null;
   }
+  for (const [k, stale] of [[env.TOKEN_KEY, false], [env.TOKEN_KEY_PREVIOUS, true]] as const) {
+    if (!k) continue;
+    try {
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, await key(k), bytes.slice(12));
+      return { text: new TextDecoder().decode(plain), stale };
+    } catch {
+      // Not this key (AES-GCM fails on the wrong one); try the next.
+    }
+  }
+  return null;
 }
 
 function b64url(bytes: Uint8Array): string {

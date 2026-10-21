@@ -16,6 +16,9 @@
   },
   // Public (it's in the app bundle too). The client secret and cookie key are
   // Worker secrets: `wrangler secret put GOOGLE_CLIENT_SECRET` / `TOKEN_KEY`.
+  // Per address: 30 sign-in helper calls a minute (a device refreshes about
+  // hourly), so a runaway or hostile client can't burn the Google quota.
+  "ratelimits": [{ "name": "AUTH_LIMIT", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }],
   "vars": { "GOOGLE_CLIENT_ID": "11632236723-msn0vv028q0efthre2bb4sj7k8i5j0ve.apps.googleusercontent.com" },
   "routes": [{ "pattern": "copper.ashishnitinpatil.com", "custom_domain": true }]
 }
