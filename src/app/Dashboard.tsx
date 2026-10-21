@@ -26,9 +26,10 @@ import { useAppSettings } from './AppSettingsProvider';
 import { Glance } from './Glance';
 import { NameDevicePrompt } from './NameDevicePrompt';
 import { Glyph } from '@/components/ui/Glyph';
+import { getSavedOrder, useSortedAccounts } from '@/components/accountOrder';
 
-// Accounts shown as cards before the phone layout switches to compact rows.
-const COMPACT_AFTER = 6;
+// The Dashboard shows this many accounts; the rest are a tap away.
+const ACCOUNTS_SHOWN = 6;
 
 function LocalOnlyWarning() {
   const { google } = useAuth();
@@ -171,7 +172,8 @@ export function Dashboard() {
   }, [balancesState.data]);
 
   const recent = recentState.data ?? [];
-  const compact = accounts.length > COMPACT_AFTER;
+  const sortedAccounts = useSortedAccounts(accounts, getSavedOrder(), balances);
+  const topAccounts = sortedAccounts.slice(0, ACCOUNTS_SHOWN);
   const budgets = budgetsState.data ?? [];
   const overBudgets = budgets.filter((b) => b.spent_minor > b.amount_minor);
 
@@ -226,61 +228,47 @@ export function Dashboard() {
       <TotalBalanceCard totals={totalsState.data} />
       <Glance />
 
-      {/* A few accounts get a card each. Past COMPACT_AFTER, phones switch to one
-          row per account so the list doesn't push everything else off-screen;
-          wider screens keep the grid of cards. */}
+      {/* The first few accounts, in the order picked on the Accounts page
+          (most used by default), so the ones in daily use are right here. */}
       {accounts.length > 0 && (
-        <div
-          className={
-            compact
-              ? 'divide-y divide-slate-800 rounded-xl border border-slate-800 bg-slate-900/40 sm:grid sm:grid-cols-2 sm:gap-4 sm:divide-y-0 sm:rounded-none sm:border-0 sm:bg-transparent lg:grid-cols-3'
-              : 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3'
-          }
-        >
-          {accounts.map((a) => (
-            <Link
-              key={a.id}
-              to="/accounts"
-              className={
-                compact
-                  ? 'group flex items-center justify-between gap-3 px-4 py-2.5 transition hover:bg-slate-900/70 sm:block sm:rounded-xl sm:border sm:border-slate-800 sm:bg-slate-900/40 sm:p-4 sm:hover:-translate-y-0.5 sm:hover:border-brand-500'
-                  : 'group rounded-xl border border-slate-800 bg-slate-900/40 p-4 transition hover:-translate-y-0.5 hover:border-brand-500 hover:bg-slate-900/70'
-              }
-            >
-              <div className={compact ? 'hidden items-center gap-2 sm:flex' : 'flex items-center gap-2'}>
-                <div className="text-xs uppercase tracking-wide text-slate-500">
-                  {a.type.replace('_', ' ')}
-                </div>
-                {a.include_in_total === 0 && (
-                  <span
-                    title="Not included in your total balance"
-                    className="ml-auto rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
-                  >
-                    not counted
-                  </span>
-                )}
-              </div>
-              <div className={compact ? 'min-w-0 sm:mt-1' : 'mt-1 min-w-0'}>
-                <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-50">
-                  <AccountGlyph account={a} />
-                  <span className="truncate">{a.name}</span>
-                </div>
-                {compact && a.include_in_total === 0 && (
-                  <div className="text-[11px] text-slate-500 sm:hidden">not counted</div>
-                )}
-              </div>
-              <Money
-                minor={balances.get(a.id) ?? a.opening_balance_minor}
-                currency={a.currency}
-                className={`font-display font-semibold tabular-nums ${
-                  compact ? 'shrink-0 text-base sm:mt-2 sm:block sm:text-xl' : 'mt-2 block text-xl'
-                } ${
-                  (balances.get(a.id) ?? 0) < 0 ? 'text-clay-400' : 'text-slate-100'
-                }`}
-              />
+        <Card>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-slate-300">Accounts</h3>
+            <Link to="/accounts" className="text-xs font-medium text-brand-400 hover:text-brand-300">
+              {accounts.length > ACCOUNTS_SHOWN ? `All ${accounts.length} accounts →` : 'Manage →'}
             </Link>
-          ))}
-        </div>
+          </div>
+          <div className="grid divide-y divide-slate-800 sm:grid-cols-2 sm:gap-x-8 sm:divide-y-0">
+            {topAccounts.map((a) => {
+              const balance = balances.get(a.id) ?? a.opening_balance_minor;
+              return (
+                <Link
+                  key={a.id}
+                  to="/accounts"
+                  className="flex items-center justify-between gap-3 rounded-lg px-1 py-2.5 transition hover:bg-slate-800/50 sm:border-b sm:border-slate-800/60"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <AccountGlyph account={a} />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-slate-50">{a.name}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {a.type.replace('_', ' ')}
+                        {a.include_in_total === 0 && ' · not counted'}
+                      </div>
+                    </div>
+                  </div>
+                  <Money
+                    minor={balance}
+                    currency={a.currency}
+                    className={`shrink-0 font-display text-base font-semibold tabular-nums ${
+                      balance < 0 ? 'text-clay-400' : 'text-slate-100'
+                    }`}
+                  />
+                </Link>
+              );
+            })}
+          </div>
+        </Card>
       )}
 
       {overBudgets.length > 0 && (

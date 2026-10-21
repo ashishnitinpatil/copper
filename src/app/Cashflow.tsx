@@ -404,7 +404,8 @@ export function Cashflow() {
       ) : (
         <Card>
           <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-slate-300">
-            Estimated balance (next {horizon} days)
+            {/* Not "balance": the Dashboard total also counts card debt. */}
+            Forecast for the next {horizon} days
             <ConvertedMark
               currencies={[...nonCreditAccounts, ...ccStatements.map((st) => st.account)].map((a) => a.currency)}
               target={defaultCurrency}

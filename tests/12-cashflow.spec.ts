@@ -42,7 +42,7 @@ test.describe('Cashflow', () => {
 
     // With a recurring outflow, the forecast renders the estimated-balance card
     // (not the "Nothing to show yet" empty state).
-    await expect(page.getByText('Estimated balance (next 30 days)')).toBeVisible();
+    await expect(page.getByText('Forecast for the next 30 days')).toBeVisible();
     await expect(page.getByText('Nothing to show yet')).toHaveCount(0);
   });
 

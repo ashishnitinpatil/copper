@@ -64,4 +64,18 @@ test.describe('Categories', () => {
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.locator('li', { hasText: 'Petrol' }).locator('svg.lucide-fuel').first()).toBeVisible();
   });
+
+  test('offers icons for categories that never got one', async ({ page }) => {
+    await page.getByRole('button', { name: 'Add expense category' }).click();
+    await page.getByLabel('Name', { exact: true }).fill('Petrol');
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    await expect(page.getByText('1 category has no icon of its own yet.', { exact: false })).toBeVisible();
+    await page.getByRole('button', { name: 'Suggest icons' }).click();
+    await expect(page.getByRole('dialog').getByText('fuel')).toBeVisible();
+    await page.getByRole('button', { name: 'Use 1 icon' }).click();
+
+    await expect(page.locator('li', { hasText: 'Petrol' }).locator('svg.lucide-fuel').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Suggest icons' })).toHaveCount(0);
+  });
 });

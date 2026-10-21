@@ -8,6 +8,15 @@ import { useDefaultCurrency } from './AppSettingsProvider';
 
 /** Fired after Ctrl+Z undoes something, so pages can drop stale "saved" notices. */
 export const UNDO_EVENT = 'copper:undo';
+const OFFER_UNDO_EVENT = 'copper:offer-undo';
+
+/**
+ * After a change with no other way back on a phone (a delete), show a notice
+ * with an Undo button. It runs the same undo as Ctrl+Z: the latest change.
+ */
+export function offerUndo(text: string) {
+  window.dispatchEvent(new CustomEvent(OFFER_UNDO_EVENT, { detail: text }));
+}
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = IS_MAC ? '⌘' : 'Ctrl';
@@ -40,15 +49,21 @@ export function Shortcuts({ helpOpen, onHelpOpenChange }: { helpOpen: boolean; o
   const db = useDB();
   const defaultCurrency = useDefaultCurrency();
   const navigate = useNavigate();
-  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; ok: boolean; undoable?: boolean } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const busy = useRef(false);
 
-  const show = useCallback((text: string, ok: boolean) => {
-    setNotice({ text, ok });
+  const show = useCallback((text: string, ok: boolean, undoable = false) => {
+    setNotice({ text, ok, undoable });
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setNotice(null), ok ? 4000 : 7000);
+    timer.current = setTimeout(() => setNotice(null), undoable ? 8000 : ok ? 4000 : 7000);
   }, []);
+
+  useEffect(() => {
+    const onOffer = (e: Event) => show((e as CustomEvent<string>).detail, true, true);
+    window.addEventListener(OFFER_UNDO_EVENT, onOffer);
+    return () => window.removeEventListener(OFFER_UNDO_EVENT, onOffer);
+  }, [show]);
 
   const undo = useCallback(async () => {
     if (busy.current) return;
@@ -128,8 +143,17 @@ export function Shortcuts({ helpOpen, onHelpOpenChange }: { helpOpen: boolean; o
           role="status"
           className="fixed inset-x-3 bottom-24 z-50 mx-auto flex max-w-md items-start gap-2.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm shadow-2xl lg:bottom-8"
         >
-          {notice.ok && <Undo2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-400" />}
-          <span className={notice.ok ? 'text-slate-100' : 'text-slate-300'}>{notice.text}</span>
+          {notice.ok && !notice.undoable && <Undo2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-400" />}
+          <span className={`flex-1 ${notice.ok ? 'text-slate-100' : 'text-slate-300'}`}>{notice.text}</span>
+          {notice.undoable && (
+            <button
+              type="button"
+              onClick={() => void undo()}
+              className="shrink-0 font-semibold text-brand-400 underline underline-offset-2 hover:text-brand-300"
+            >
+              Undo
+            </button>
+          )}
         </div>
       )}
     </>

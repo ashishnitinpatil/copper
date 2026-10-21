@@ -56,7 +56,7 @@ import {
 import type { Device } from '@/db/types';
 import { closeDB, openDB, requestLocalReset } from '@/db/client';
 import type { BackupFile } from '@/features/export/exportData';
-import { useTheme, applyTheme, applyCustomTheme, THEMES } from '@/lib/theme';
+import { useTheme, applyTheme, applyCustomTheme, getCustomColors, THEMES } from '@/lib/theme';
 import { buildTheme } from '@/lib/customTheme';
 import { listThemes, type CustomTheme } from '@/db/queries/themes';
 import { ThemeEditor } from './ThemeEditor';
@@ -386,6 +386,18 @@ function AppearanceSection() {
             </div>
           );
         })}
+        {theme.startsWith('custom:') && custom.data && !custom.data.some((t) => theme === `custom:${t.id}`) && (
+          // Deleted on another device: still on screen here until another is picked.
+          <div className="rounded-xl border border-brand-400 bg-slate-800/60 p-3">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-sm font-medium text-slate-100">{getCustomColors()?.name ?? 'Your theme'}</span>
+              <span className="ml-auto text-xs font-medium text-brand-500">Active</span>
+            </div>
+            <div className="mt-2 text-xs text-slate-500">
+              Removed on another device. It stays here until you pick another theme.
+            </div>
+          </div>
+        )}
         <button
           type="button"
           onClick={() => setCreating(true)}
@@ -699,7 +711,9 @@ function SyncSection() {
           <div className="text-xs text-slate-500">
             Last sync:{' '}
             <span className="text-slate-400">
-              {sync.lastSyncAt ? new Date(sync.lastSyncAt).toLocaleString() : 'never'}
+              {sync.lastSyncAt
+                ? new Date(sync.lastSyncAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                : 'never'}
             </span>
             <span className="ml-2 text-slate-500">· when you open or leave the app, and every few minutes while it's open</span>
           </div>

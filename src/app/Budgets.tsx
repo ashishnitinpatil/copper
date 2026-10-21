@@ -66,7 +66,7 @@ export function Budgets() {
     <PageShell
       title="Budgets"
       subtitle="Monthly spending limits by category"
-      actions={<Button onClick={() => setCreating(true)}>+ New budget</Button>}
+      actions={budgets.length > 0 ? <Button onClick={() => setCreating(true)}>+ New budget</Button> : undefined}
     >
       <div className="flex items-center gap-3">
         <MonthField value={month} onChange={setMonth} />

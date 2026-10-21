@@ -109,9 +109,11 @@ export function Review() {
       title="Review"
       subtitle="Possible duplicates and unusual amounts worth a second look"
       actions={
-        <Button variant="secondary" onClick={runScan} disabled={scanning}>
-          {scanning ? 'Checking…' : 'Run check'}
-        </Button>
+        nothingToShow ? undefined : (
+          <Button variant="secondary" onClick={runScan} disabled={scanning}>
+            {scanning ? 'Checking…' : 'Run check'}
+          </Button>
+        )
       }
     >
       {nothingToShow ? (

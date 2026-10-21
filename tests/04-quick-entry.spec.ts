@@ -60,6 +60,10 @@ test.describe('Quick Entry', () => {
     await chips.getByRole('button', { name: 'Coffee with Sam' }).click();
     await expect(note).toHaveValue('Coffee with Sam');
     await expect(chips).toHaveCount(0);
+    // The category it went under last time is marked.
+    const usual = page.getByRole('button', { name: /Food & Dining/ });
+    await expect(usual.getByText('Last time')).toBeVisible();
+    await expect(page.getByText('Last time')).toHaveCount(1);
   });
 
   test('backspace removes last digit', async ({ page }) => {

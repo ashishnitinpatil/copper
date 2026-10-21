@@ -82,6 +82,11 @@ export function QuickEntry() {
     { deps: ['transactions'] },
   );
   const noteSuggestions = useMemo(() => suggestNotes(pastNotes.data ?? [], note), [pastNotes.data, note]);
+  // A note used before points at the category it went with last time.
+  const lastCategoryId = useMemo(() => {
+    const typed = note.trim().toLowerCase();
+    return typed ? (pastNotes.data?.find((p) => p.note.toLowerCase() === typed)?.category_id ?? null) : null;
+  }, [pastNotes.data, note]);
 
   const accounts = accountsState.data ?? [];
   const allCategories = categoriesState.data ?? [];
@@ -548,18 +553,25 @@ export function QuickEntry() {
                   // Keep the just-saved tile bright through its confirmation flash,
                   // even though the amount has reset to 0 (which dims the rest).
                   const dim = !canCommit && !saved;
+                  const usual = c.id === lastCategoryId && !saved;
                   return (
                     <button
                       key={c.id}
                       type="button"
                       disabled={!canCommit}
                       onClick={() => commit(c.id)}
+                      aria-description={usual ? 'Used with this note last time' : undefined}
                       className={`group relative flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center transition active:scale-[0.97] enabled:hover:-translate-y-0.5 enabled:hover:bg-slate-800 disabled:cursor-not-allowed ${
                         saved
                           ? 'border-mint-400 bg-mint-500/10 ring-2 ring-mint-400/50'
-                          : 'border-slate-800 bg-slate-900/60 enabled:hover:border-slate-700'
+                          : usual
+                            ? 'border-brand-400 bg-slate-900/60 ring-1 ring-brand-400/40'
+                            : 'border-slate-800 bg-slate-900/60 enabled:hover:border-slate-700'
                       } ${dim ? 'opacity-40' : 'opacity-100'}`}
                     >
+                      {usual && (
+                        <span className="absolute inset-x-0 top-1.5 text-[10px] font-medium text-brand-400">Last time</span>
+                      )}
                       {saved && (
                         <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-mint-500 text-xs font-bold text-slate-950">
                           ✓

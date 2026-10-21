@@ -22,8 +22,7 @@ test.describe('Review queue', () => {
 
     await page.goto('/review');
     await waitForDB(page);
-    // "Run check" is in both the header and the empty state; use the header's.
-    await page.locator('header').getByRole('button', { name: 'Run check' }).click();
+    await page.getByRole('button', { name: 'Run check' }).first().click();
 
     await expect(page.getByText('Possible duplicate')).toBeVisible();
     await expect(page.getByText(/transaction.* to review/)).toBeVisible();

@@ -10,6 +10,22 @@ test.describe('Dashboard', () => {
     await expect(page.locator('main').getByText('₹0.00').first()).toBeVisible();
   });
 
+  test('lists a few accounts and links to all of them', async ({ page }) => {
+    await resetAndLoad(page, '/accounts');
+    await waitForDB(page);
+    for (const name of ['Wallet 1', 'Wallet 2', 'Wallet 3', 'Wallet 4', 'Wallet 5', 'Wallet 6']) {
+      await page.getByRole('button', { name: '+ New account' }).click();
+      await page.getByLabel('Name', { exact: true }).fill(name);
+      await page.getByRole('button', { name: 'Create' }).click();
+      await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+    }
+
+    await page.getByRole('link', { name: 'Dashboard', exact: true }).first().click();
+    const card = page.getByRole('heading', { name: 'Accounts', exact: true }).locator('xpath=../..');
+    await card.getByRole('link', { name: 'All 7 accounts →' }).click();
+    await expect(page).toHaveURL(/\/accounts/);
+  });
+
   test('shows recent transactions after adding entries', async ({ page }) => {
     await resetAndLoad(page, '/add');
     await waitForDB(page);

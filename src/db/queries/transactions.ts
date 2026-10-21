@@ -448,12 +448,77 @@ export async function createTransfer(db: DB, input: TransferInput): Promise<[str
 /** Notes used before for this kind of entry, for suggesting while typing one. */
 export async function listPastNotes(db: DB, kind: TransactionKind): Promise<PastNote[]> {
   return db.execO<PastNote>(
-    `SELECT TRIM(note) AS note, COUNT(*) AS uses, MAX(occurred_on) AS last_on
+    // With a single MAX(), SQLite takes bare columns (category_id) from that
+    // row: the category this note was last used with.
+    `SELECT TRIM(note) AS note, COUNT(*) AS uses, MAX(occurred_on) AS last_on, category_id
      FROM transactions
      WHERE kind = ? AND note IS NOT NULL AND TRIM(note) <> ''
      GROUP BY TRIM(note)
      ORDER BY last_on DESC
      LIMIT 500`,
     [kind],
+  );
+}
+
+/** Entries matching a filter (and search), counted and summed per kind and currency. */
+export interface TransactionSummaryRow {
+  kind: TransactionKind;
+  currency: string;
+  n: number;
+  total: number;
+}
+
+export async function summarizeTransactions(
+  db: DB,
+  filter: TransactionFilter,
+  query: string,
+  currency: string,
+): Promise<TransactionSummaryRow[]> {
+  const add = (map: Map<string, TransactionSummaryRow>, kind: TransactionKind, cur: string, amount: number) => {
+    const key = `${kind}|${cur}`;
+    const row = map.get(key) ?? { kind, currency: cur, n: 0, total: 0 };
+    row.n += 1;
+    row.total += Math.abs(amount);
+    map.set(key, row);
+  };
+  if (query.trim()) {
+    // Search ranks in JS, so sum what it matched.
+    const rows = await searchTransactions(db, query, { ...filter, limit: 1_000_000 }, currency);
+    const map = new Map<string, TransactionSummaryRow>();
+    for (const r of rows) add(map, r.kind, r.account_currency, r.amount_minor);
+    return [...map.values()];
+  }
+  const where: string[] = [];
+  const params: (string | number)[] = [];
+  if (filter.accountId) {
+    where.push('t.account_id = ?');
+    params.push(filter.accountId);
+  }
+  if (filter.categoryId) {
+    where.push('t.category_id = ?');
+    params.push(filter.categoryId);
+  }
+  if (filter.tagId) {
+    where.push('EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = ?)');
+    params.push(filter.tagId);
+  }
+  if (filter.kind) {
+    where.push('t.kind = ?');
+    params.push(filter.kind);
+  }
+  if (filter.dateFrom) {
+    where.push('t.occurred_on >= ?');
+    params.push(filter.dateFrom);
+  }
+  if (filter.dateTo) {
+    where.push('t.occurred_on <= ?');
+    params.push(filter.dateTo);
+  }
+  return db.execO<TransactionSummaryRow>(
+    `SELECT t.kind AS kind, a.currency AS currency, COUNT(*) AS n, SUM(ABS(t.amount_minor)) AS total
+     FROM transactions t JOIN accounts a ON a.id = t.account_id
+     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+     GROUP BY t.kind, a.currency`,
+    params,
   );
 }

@@ -45,6 +45,11 @@ test.describe('Transactions', () => {
 
     const count = await page.locator('main li').getByText('Transport').count();
     expect(count).toBe(0);
+
+    // No keyboard on a phone: the notice offers the way back.
+    await expect(page.getByText('Deleted Transport ₹200.00')).toBeVisible();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(page.locator('main li').getByText('Transport').first()).toBeVisible();
   });
 
   test('searches by amount', async ({ page }) => {
@@ -53,6 +58,8 @@ test.describe('Transactions', () => {
 
     await expect(page.locator('main li').getByText('Food & Dining').first()).toBeVisible();
     expect(await page.locator('main li').getByText('Transport').count()).toBe(0);
+    // What the matches add up to.
+    await expect(page.getByText('1 entry · ₹500.00 spent')).toBeVisible();
   });
 
   test('searches text with typo tolerance', async ({ page }) => {
@@ -110,6 +117,7 @@ test.describe('Transactions paging', () => {
     await expect(page.getByText('Cash · Past 60', { exact: true })).toBeVisible();
     await expect(page.getByText('Cash · Past 11', { exact: true })).toBeVisible();
     await expect(page.getByText('Cash · Past 10', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Showing 50 of 60')).toBeVisible();
 
     await page.getByRole('button', { name: 'Load more' }).click();
     await expect(page.getByText('Cash · Past 1', { exact: true })).toBeVisible();

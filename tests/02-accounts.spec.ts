@@ -87,6 +87,8 @@ test.describe('Accounts CRUD', () => {
     await page.getByLabel('Name').fill('Old Wallet');
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByText('Old Wallet')).toBeVisible();
+    // The list can show the new account a moment before the form closes.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
 
     await page.getByText('Old Wallet').click();
     await page.getByRole('button', { name: 'Archive' }).click();

@@ -3,6 +3,8 @@ export interface PastNote {
   note: string;
   uses: number;
   last_on: string;
+  /** The category of the most recent entry with this note. */
+  category_id?: string | null;
 }
 
 /**

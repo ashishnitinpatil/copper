@@ -25,6 +25,11 @@ export const ACCOUNT_ICON_GROUPS: { label: string; icons: string[] }[] = [
   { label: 'Other', icons: ['✈️', '🛒', '📱', '💼', '👶', '❤️', '⭐', '🔒'] },
 ];
 
+/** Every icon Copper offers, once each — for search and suggestions. */
+export function allIcons(): string[] {
+  return distinct([...CATEGORY_ICON_GROUPS.flatMap((g) => g.icons), ...ACCOUNT_ICON_GROUPS.flatMap((g) => g.icons)]);
+}
+
 /** Drops icons with no line drawing, and ones that look like one already kept. */
 function distinct(icons: string[], seen = new Set<LucideIcon>()): string[] {
   return icons.filter((i) => {

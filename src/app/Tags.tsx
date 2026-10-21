@@ -87,7 +87,11 @@ export function Tags() {
     <PageShell
       title="Tags"
       subtitle="Group spending across categories — trips, projects, anything"
-      actions={<Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> New tag</Button>}
+      actions={
+        tags.length > 0 ? (
+          <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> New tag</Button>
+        ) : undefined
+      }
     >
       {tags.length === 0 && !tagsState.loading && (
         <EmptyState

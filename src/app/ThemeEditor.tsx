@@ -6,6 +6,8 @@ import { useDB } from '@/db/DBProvider';
 import { deleteTheme, saveTheme, type CustomTheme } from '@/db/queries/themes';
 import { accentWarning, buildTheme, isHexColor } from '@/lib/customTheme';
 import { applyCustomTheme, applyTheme, useTheme } from '@/lib/theme';
+import { formatMoney } from '@/lib/money';
+import { useAppSettings } from './AppSettingsProvider';
 
 /** A token on the page right now, as #rrggbb — new themes start from what's on screen. */
 function currentColor(token: string): string {
@@ -20,6 +22,7 @@ const rgb = (triplet: string | undefined) => `rgb(${(triplet ?? '0 0 0').split('
 export function ThemeEditor({ open, existing, onClose }: { open: boolean; existing: CustomTheme | null; onClose: () => void }) {
   const db = useDB();
   const active = useTheme();
+  const { defaultCurrency } = useAppSettings();
   const [name, setName] = useState('');
   const [background, setBackground] = useState('#000000');
   const [accent, setAccent] = useState('#000000');
@@ -79,8 +82,8 @@ export function ThemeEditor({ open, existing, onClose }: { open: boolean; existi
               <div className="text-sm font-semibold" style={{ color: rgb(v['--s-50']) }}>Groceries</div>
               <div className="text-xs" style={{ color: rgb(v['--s-400']) }}>Yesterday · Cash</div>
               <div className="mt-2 flex items-center justify-between gap-2 text-sm tabular-nums">
-                <span style={{ color: rgb(v['--clay-400']) }}>−₹1,240</span>
-                <span style={{ color: rgb(v['--mint-400']) }}>+₹52,000</span>
+                <span style={{ color: rgb(v['--clay-400']) }}>{formatMoney(-124000, defaultCurrency, { signed: true })}</span>
+                <span style={{ color: rgb(v['--mint-400']) }}>{formatMoney(5200000, defaultCurrency, { signed: true })}</span>
               </div>
               <div className="mt-3 flex items-center gap-3">
                 <span

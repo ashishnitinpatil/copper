@@ -22,6 +22,7 @@ import {
   deleteTransaction,
   listTransactions,
   searchTransactions,
+  summarizeTransactions,
   updateTransaction,
   type TransactionWithMeta,
 } from '@/db/queries/transactions';
@@ -35,9 +36,10 @@ import {
 import { TagChip, TagPicker } from '@/components/ui/TagPicker';
 import { EntityHistory } from './Activity';
 import { TransferModal } from './TransferModal';
+import { offerUndo } from './Shortcuts';
 import type { Tag, Transaction, TransactionKind } from '@/db/types';
 import { formatMoney, parseAmount, fromMinor } from '@/lib/money';
-import { useDefaultCurrency } from './AppSettingsProvider';
+import { useConvert, useDefaultCurrency } from './AppSettingsProvider';
 import { addDays, formatRelativeDate, toDateString } from '@/lib/dates';
 import { Glyph } from '@/components/ui/Glyph';
 
@@ -131,6 +133,7 @@ export function Transactions() {
   const deleteSelected = async () => {
     if (selected.size === 0) return;
     await bulkDeleteTransactions(db, [...selected]);
+    offerUndo(`Deleted ${selected.size === 1 ? '1 entry' : `${selected.size} entries`}`);
     setConfirmDelete(false);
     setSelected(new Set());
   };
@@ -195,6 +198,39 @@ export function Transactions() {
     ),
     txDeps,
   );
+  // How many past entries match, and what they add up to.
+  const summaryQuery = useQuery(
+    useMemo(
+      () => (db: import('@/db/wasm').DB) =>
+        summarizeTransactions(
+          db,
+          {
+            accountId: filters.accountId || undefined,
+            categoryId: filters.categoryId || undefined,
+            tagId: filters.tagId || undefined,
+            kind: filters.kind || undefined,
+            dateFrom: filters.dateFrom || undefined,
+            dateTo: filters.dateTo && filters.dateTo < today ? filters.dateTo : today,
+          },
+          debouncedSearch,
+          defaultCurrency,
+        ),
+      [filters.accountId, filters.categoryId, filters.tagId, filters.kind, filters.dateFrom, filters.dateTo, today, debouncedSearch, defaultCurrency],
+    ),
+    txDeps,
+  );
+  const toMain = useConvert();
+  const summary = useMemo(() => {
+    let count = 0;
+    let spent = 0;
+    let received = 0;
+    for (const r of summaryQuery.data ?? []) {
+      count += r.n;
+      if (r.kind === 'expense') spent += toMain(r.total, r.currency);
+      if (r.kind === 'income') received += toMain(r.total, r.currency);
+    }
+    return { count, spent, received };
+  }, [summaryQuery.data, toMain]);
   const pastRows = pastQuery.data ?? [];
   const hasMore = pastRows.length > pageLimit;
   const loaded = pastQuery.data !== null && upcomingQuery.data !== null;
@@ -463,6 +499,24 @@ export function Transactions() {
           />
         ))}
 
+      {(activeFilters > 0 || debouncedSearch.trim()) && summary.count > 0 && (
+        <p className="text-sm text-slate-400">
+          {summary.count.toLocaleString()} {summary.count === 1 ? 'entry' : 'entries'}
+          {summary.spent > 0 && (
+            <>
+              {' · '}
+              <span className="text-clay-400">{formatMoney(summary.spent, defaultCurrency)} spent</span>
+            </>
+          )}
+          {summary.received > 0 && (
+            <>
+              {' · '}
+              <span className="text-mint-400">{formatMoney(summary.received, defaultCurrency)} received</span>
+            </>
+          )}
+        </p>
+      )}
+
       {upcoming.length > 0 && (
         // Scheduled entries (e.g. future loan EMIs) stay folded so the list opens
         // on what actually happened. Open by default when nothing else matches.
@@ -481,7 +535,12 @@ export function Transactions() {
 
       <div className="space-y-6">{past.map(renderDay)}</div>
       {hasMore && (
-        <div className="flex justify-center">
+        <div className="flex flex-col items-center gap-2">
+          {summary.count > 0 && (
+            <span className="text-xs text-slate-500">
+              Showing {pageLimit.toLocaleString()} of {summary.count.toLocaleString()}
+            </span>
+          )}
           <Button variant="secondary" onClick={() => setPageLimit((n) => n + PAGE_SIZE)}>
             Load more
           </Button>
@@ -707,6 +766,9 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
     setSubmitting(true);
     try {
       await deleteTransaction(db, existing.id);
+      offerUndo(
+        `Deleted ${existing.category_name ?? (existing.kind === 'transfer' ? 'transfer' : 'entry')} ${formatMoney(Math.abs(existing.amount_minor), existing.account_currency)}`,
+      );
       onClose();
     } finally {
       setSubmitting(false);

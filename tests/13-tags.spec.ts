@@ -20,8 +20,9 @@ test.describe('Tags', () => {
   });
 
   test('create a tag and see it listed', async ({ page }) => {
-    // The empty state also has a "New tag" button; use the page header's.
-    await page.locator('header').getByRole('button', { name: 'New tag' }).click();
+    // Empty: one way in, not two.
+    await expect(page.getByRole('button', { name: 'New tag' })).toHaveCount(1);
+    await page.getByRole('button', { name: 'New tag' }).click();
     await expect(page.getByRole('heading', { name: 'New tag' })).toBeVisible();
 
     await page.getByLabel('Name').fill('Goa trip');
@@ -38,7 +39,7 @@ test.describe('Tags', () => {
     // Create the tag.
     await page.goto('/tags');
     await waitForDB(page);
-    await page.locator('header').getByRole('button', { name: 'New tag' }).click();
+    await page.getByRole('button', { name: 'New tag' }).first().click();
     await page.getByLabel('Name').fill('Goa trip');
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'New tag' })).not.toBeVisible();

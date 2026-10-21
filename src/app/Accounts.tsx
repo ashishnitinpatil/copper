@@ -25,7 +25,8 @@ import { parseAmount, fromMinor, CURRENCY_OPTIONS } from '@/lib/money';
 import { Money } from '@/components/ui/Money';
 import { Combobox } from '@/components/ui/Combobox';
 import { toDateString } from '@/lib/dates';
-import { useConvert, useDefaultCurrency } from './AppSettingsProvider';
+import { useDefaultCurrency } from './AppSettingsProvider';
+import { getSavedOrder, ORDER_OPTIONS, saveOrder, useSortedAccounts, type AccountOrder } from '@/components/accountOrder';
 
 // Offered on top of the default (the account type's own icon).
 
@@ -38,16 +39,7 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
-type AccountOrder = 'used' | 'balance' | 'name' | 'type';
 type CountedFilter = 'all' | 'counted' | 'not-counted';
-
-const ORDER_OPTIONS: { value: AccountOrder; label: string }[] = [
-  { value: 'used', label: 'Most used' },
-  { value: 'balance', label: 'Balance' },
-  { value: 'name', label: 'Name' },
-  { value: 'type', label: 'Type' },
-];
-const ORDER_KEY = 'copper-accounts-order';
 
 const COUNTED_FILTERS: { value: CountedFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -59,33 +51,12 @@ export function Accounts() {
   const [editing, setEditing] = useState<Account | null>(null);
   const [creating, setCreating] = useState(false);
   const [counted, setCounted] = useState<CountedFilter>('all');
-  const [order, setOrder] = useState<AccountOrder>(() => {
-    try {
-      const saved = localStorage.getItem(ORDER_KEY);
-      return ORDER_OPTIONS.some((o) => o.value === saved) ? (saved as AccountOrder) : 'used';
-    } catch {
-      return 'used';
-    }
-  });
+  const [order, setOrder] = useState<AccountOrder>(getSavedOrder);
 
   const accountsQuery = useQuery(useCallback((db) => listAccounts(db, true), []), {
     deps: ['accounts'],
   });
-  // Entries in the last 90 days, for "Most used".
-  const usage = useQuery(
-    useCallback(
-      (db) =>
-        db.execO<{ account_id: string; uses: number }>(
-          `SELECT account_id, COUNT(*) AS uses FROM transactions
-           WHERE occurred_on > date('now', 'localtime', '-90 days') AND occurred_on <= date('now', 'localtime')
-           GROUP BY account_id`,
-        ),
-      [],
-    ),
-    { deps: ['transactions'] },
-  );
   const balances = useAccountBalances();
-  const toMain = useConvert();
 
   const accounts = useMemo(() => accountsQuery.data ?? [], [accountsQuery.data]);
   const archived = accounts.filter((a) => a.archived_at);
@@ -93,28 +64,15 @@ export function Accounts() {
   const anyNotCounted = unarchived.some((a) => a.include_in_total === 0);
   const filter = anyNotCounted ? counted : 'all';
 
-  const active = useMemo(() => {
-    const uses = new Map((usage.data ?? []).map((u) => [u.account_id, u.uses]));
-    const balanceOf = (a: Account) => toMain(balances.get(a.id) ?? a.opening_balance_minor, a.currency);
-    const typeRank = (a: Account) => ACCOUNT_TYPES.findIndex((t) => t.value === a.type);
-    const by: Record<AccountOrder, (a: Account, b: Account) => number> = {
-      used: (a, b) => (uses.get(b.id) ?? 0) - (uses.get(a.id) ?? 0),
-      balance: (a, b) => balanceOf(b) - balanceOf(a),
-      name: () => 0,
-      type: (a, b) => typeRank(a) - typeRank(b),
-    };
-    return unarchived
-      .filter((a) => filter === 'all' || (filter === 'counted') === (a.include_in_total === 1))
-      .sort((a, b) => b.is_main - a.is_main || by[order](a, b) || a.name.localeCompare(b.name));
-  }, [unarchived, filter, order, usage.data, balances, toMain]);
+  const shown = useMemo(
+    () => unarchived.filter((a) => filter === 'all' || (filter === 'counted') === (a.include_in_total === 1)),
+    [unarchived, filter],
+  );
+  const active = useSortedAccounts(shown, order, balances);
 
   const chooseOrder = (next: AccountOrder) => {
     setOrder(next);
-    try {
-      localStorage.setItem(ORDER_KEY, next);
-    } catch {
-      /* remembered for this visit only */
-    }
+    saveOrder(next);
   };
 
   return (

@@ -9,6 +9,7 @@ import { Combobox } from '@/components/ui/Combobox';
 import { Modal } from '@/components/ui/Modal';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { MergeInto } from '@/components/MergeInto';
+import { CategoryIconSuggestions } from './CategoryIconSuggestions';
 import { useDB } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
 import {
@@ -63,6 +64,7 @@ export function Categories() {
       {expenseRoots.length === 0 && incomeRoots.length === 0 && !categoriesQuery.loading && (
         <EmptyState title="No categories yet" description="Start by adding a top-level expense category." />
       )}
+      <CategoryIconSuggestions categories={allCategories} />
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <div className="mb-3 flex items-center justify-between gap-3">
