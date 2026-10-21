@@ -19,6 +19,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { PwaPrompts } from '@/pwa/PwaPrompts';
 import { SyncSetupScreen } from '@/sync/SyncSetupScreen';
+import { CustomThemeKeeper } from './CustomThemeKeeper';
 import { SyncPausedBanner } from '@/sync/SyncPausedBanner';
 import { useAppSettings } from './AppSettingsProvider';
 import { Shortcuts } from './Shortcuts';
@@ -135,6 +136,7 @@ export function AppShell() {
       <main className="flex-1 p-4 pb-24 lg:p-8 lg:pb-8">
         <SyncPausedBanner />
         <SyncSetupScreen />
+        <CustomThemeKeeper />
         <Outlet />
       </main>
       <PwaPrompts />

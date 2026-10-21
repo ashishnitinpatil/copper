@@ -11,7 +11,13 @@
       (function () {
         try {
           var t = localStorage.getItem('et-theme') || 'copper';
-          if (t !== 'warm') document.documentElement.setAttribute('data-theme', t);
+          var root = document.documentElement;
+          if (t.indexOf('custom:') === 0) {
+            // A theme made in Settings: its colours are cached alongside.
+            var c = JSON.parse(localStorage.getItem('et-theme-custom'));
+            root.setAttribute('data-theme', 'custom-' + c.mode);
+            for (var k in c.vars) root.style.setProperty(k, c.vars[k]);
+          } else if (t !== 'warm') root.setAttribute('data-theme', t);
         } catch (e) {}
       })();
     </script>

@@ -172,6 +172,17 @@ CREATE TABLE IF NOT EXISTS devices (
   person     TEXT NOT NULL DEFAULT ''
 );
 
+-- Themes people made themselves (two colours; the rest is derived in
+-- lib/customTheme). They travel with the book so every device can pick them;
+-- which theme a device shows stays in that device's localStorage.
+CREATE TABLE IF NOT EXISTS themes (
+  id         TEXT NOT NULL PRIMARY KEY DEFAULT '',
+  name       TEXT NOT NULL DEFAULT '',
+  background TEXT NOT NULL DEFAULT '',
+  accent     TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT ''
+);
+
 SELECT crsql_as_crr('accounts');
 SELECT crsql_as_crr('categories');
 SELECT crsql_as_crr('transactions');
@@ -182,4 +193,5 @@ SELECT crsql_as_crr('transaction_tags');
 SELECT crsql_as_crr('review_flags');
 SELECT crsql_as_crr('change_log');
 SELECT crsql_as_crr('devices');
+SELECT crsql_as_crr('themes');
 `;

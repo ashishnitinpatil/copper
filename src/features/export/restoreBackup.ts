@@ -50,6 +50,7 @@ const ENTITY_TABLES = [
   'budgets',
   'tags',
   'review_flags',
+  'themes',
   // change_log keys are append-only — minting fresh ones on restore avoids
   // resurrecting tombstoned keys (the same reason every other entity is remapped).
   'change_log',

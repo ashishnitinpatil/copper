@@ -313,7 +313,8 @@
 
   [data-theme='daylight'] .coin-disc,
   [data-theme='copper'] .coin-disc,
-  [data-theme='classic'] .coin-disc {
+  [data-theme='classic'] .coin-disc,
+  [data-theme='custom-light'] .coin-disc {
     background-color: color-mix(in srgb, var(--coin) 13%, transparent);
     color: color-mix(in srgb, var(--coin) 62%, black);
   }

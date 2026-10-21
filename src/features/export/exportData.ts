@@ -16,6 +16,7 @@ export const BACKUP_TABLES = [
   // attribution survive a backup/restore round-trip.
   'change_log',
   'devices',
+  'themes',
 ] as const;
 
 function csvCell(value: unknown): string {

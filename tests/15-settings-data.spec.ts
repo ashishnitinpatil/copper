@@ -25,6 +25,49 @@ test.describe('Settings — appearance & data', () => {
     expect(stored).toBe('slate');
   });
 
+  test('make, use, edit and delete a theme of your own', async ({ page }) => {
+    await resetAndLoad(page, '/settings#preferences');
+    await waitForDB(page);
+    const html = page.locator('html');
+
+    await page.getByRole('button', { name: 'Make your own' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Name').fill('Night sea');
+    await dialog.getByLabel('Background hex').fill('#102030');
+    await dialog.getByLabel('Accent hex').fill('#ff8800');
+    await expect(dialog.getByLabel('Preview')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Save and use' }).click();
+
+    await expect(html).toHaveAttribute('data-theme', 'custom-dark');
+    await expect(page.getByRole('button').filter({ hasText: 'Night sea' }).filter({ hasText: 'Active' })).toBeVisible();
+    const page950 = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--s-950').trim());
+    expect(await page950()).toBe('16 32 48');
+
+    // Painted before the app loads, too (no flash of the default theme).
+    await page.reload();
+    await expect(html).toHaveAttribute('data-theme', 'custom-dark');
+    expect(await page950()).toBe('16 32 48');
+    await waitForDB(page);
+
+    // Editing to a light background flips it to a light theme.
+    await page.getByRole('button', { name: 'Edit Night sea' }).click();
+    await dialog.getByLabel('Background hex').fill('#f4eee3');
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(html).toHaveAttribute('data-theme', 'custom-light');
+
+    // Switching to a built-in theme clears the custom colours.
+    await page.getByRole('button').filter({ hasText: 'Slate' }).click();
+    await expect(html).toHaveAttribute('data-theme', 'slate');
+    expect(await page950()).toBe('2 6 23');
+
+    // Deleting the theme in use goes back to Copper.
+    await page.getByRole('button').filter({ hasText: 'Night sea' }).first().click();
+    await page.getByRole('button', { name: 'Edit Night sea' }).click();
+    await dialog.getByRole('button', { name: 'Delete' }).click();
+    await expect(html).toHaveAttribute('data-theme', 'copper');
+    await expect(page.getByText('Night sea')).toHaveCount(0);
+  });
+
   test('full backup round-trip restores the snapshot and drops later edits', async ({
     page,
   }, testInfo) => {

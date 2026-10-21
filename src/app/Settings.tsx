@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { RefreshCw, Palette, Download, type LucideIcon } from 'lucide-react';
+import { RefreshCw, Palette, Download, Pencil, Plus, type LucideIcon } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -56,7 +56,10 @@ import {
 import type { Device } from '@/db/types';
 import { closeDB, openDB, requestLocalReset } from '@/db/client';
 import type { BackupFile } from '@/features/export/exportData';
-import { useTheme, THEMES } from '@/lib/theme';
+import { useTheme, applyTheme, applyCustomTheme, THEMES } from '@/lib/theme';
+import { buildTheme } from '@/lib/customTheme';
+import { listThemes, type CustomTheme } from '@/db/queries/themes';
+import { ThemeEditor } from './ThemeEditor';
 
 
 type TabId = 'sharing' | 'preferences' | 'data';
@@ -294,11 +297,16 @@ function ResetDeviceSection() {
 }
 
 function AppearanceSection() {
-  const [theme, setTheme] = useTheme();
+  const theme = useTheme();
+  const custom = useQuery<CustomTheme[]>(useCallback((db) => listThemes(db), []), { deps: ['themes'] });
+  const [editing, setEditing] = useState<CustomTheme | null>(null);
+  const [creating, setCreating] = useState(false);
   return (
     <Card>
       <h3 className="mb-1 text-sm font-semibold text-slate-300">Appearance</h3>
-      <p className="mb-3 text-xs text-slate-500">Pick the look. Saved on this device.</p>
+      <p className="mb-3 text-xs text-slate-500">
+        Pick the look for this device. Themes you make are shared with every device in your book.
+      </p>
       <div className="grid gap-3 sm:grid-cols-2">
         {THEMES.map((t) => {
           const active = theme === t.id;
@@ -306,7 +314,7 @@ function AppearanceSection() {
             <button
               key={t.id}
               type="button"
-              onClick={() => setTheme(t.id)}
+              onClick={() => applyTheme(t.id)}
               className={`rounded-xl border p-3 text-left transition ${
                 active
                   ? 'border-brand-400 bg-slate-800/60'
@@ -336,7 +344,65 @@ function AppearanceSection() {
             </button>
           );
         })}
+        {(custom.data ?? []).map((t) => {
+          const active = theme === `custom:${t.id}`;
+          const { mode, vars } = buildTheme(t);
+          const swatch = [t.background, t.accent, vars['--mint-400'], vars['--clay-400']].map((c) =>
+            c.startsWith('#') ? c : `rgb(${c.split(' ').join(',')})`,
+          );
+          return (
+            <div
+              key={t.id}
+              className={`relative rounded-xl border transition ${
+                active ? 'border-brand-400 bg-slate-800/60' : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+              }`}
+            >
+              <button type="button" onClick={() => applyCustomTheme(t)} className="block w-full p-3 text-left">
+                <div className="flex items-center gap-2 pr-8">
+                  <span className="truncate text-sm font-medium text-slate-100">{t.name}</span>
+                  {active ? (
+                    <span className="ml-auto text-xs font-medium text-brand-500">Active</span>
+                  ) : (
+                    <span className="ml-auto rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+                      {mode === 'light' ? 'Light' : 'Dark'}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 flex gap-1.5">
+                  {swatch.map((c, i) => (
+                    <span key={i} className="h-5 w-5 rounded-full ring-1 ring-inset ring-black/10" style={{ backgroundColor: c }} />
+                  ))}
+                </div>
+                <div className="mt-2 text-xs text-slate-500">Made by you</div>
+              </button>
+              <button
+                type="button"
+                aria-label={`Edit ${t.name}`}
+                onClick={() => setEditing(t)}
+                className="absolute right-2 top-2 rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="flex min-h-[6.5rem] items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 p-3 text-sm font-medium text-slate-400 transition hover:border-slate-500 hover:text-slate-100"
+        >
+          <Plus className="h-4 w-4" />
+          Make your own
+        </button>
       </div>
+      <ThemeEditor
+        open={creating || editing !== null}
+        existing={editing}
+        onClose={() => {
+          setCreating(false);
+          setEditing(null);
+        }}
+      />
     </Card>
   );
 }

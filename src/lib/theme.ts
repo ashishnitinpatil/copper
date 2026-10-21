@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { buildTheme, type ThemeColors } from './customTheme';
 
 // Runtime theme switching. Tokens live in src/index.css under :root / [data-theme].
 // The no-flash bootstrap in index.html reads the same localStorage key on load.
@@ -56,34 +57,75 @@ export const THEMES: {
 ];
 
 const KEY = 'et-theme';
+// The active custom theme's colours, so index.html can paint it before the
+// book (where custom themes live) has opened.
+const CUSTOM_KEY = 'et-theme-custom';
+const CHANGED = 'copper-theme-changed';
 const VALID = new Set<string>(['copper', 'warm', 'slate', 'monokai', 'daylight', 'classic']);
 
-export function getTheme(): ThemeId {
+/** What this device shows: a built-in theme id, or `custom:<theme id>`. */
+export function getTheme(): string {
   try {
     const t = localStorage.getItem(KEY);
-    if (t && VALID.has(t)) return t as ThemeId;
+    if (t && (VALID.has(t) || (t.startsWith('custom:') && localStorage.getItem(CUSTOM_KEY)))) return t;
   } catch {
     /* ignore */
   }
   return 'copper';
 }
 
-export function applyTheme(id: ThemeId) {
-  const root = document.documentElement;
-  if (id === 'warm') root.removeAttribute('data-theme');
-  else root.setAttribute('data-theme', id);
+/** The colours the active custom theme was last painted with, if any. */
+export function getCustomColors(): (ThemeColors & { name: string }) | null {
   try {
-    localStorage.setItem(KEY, id);
+    const c = JSON.parse(localStorage.getItem(CUSTOM_KEY) ?? 'null');
+    return c?.colors ? { ...c.colors, name: c.name } : null;
   } catch {
-    /* ignore */
+    return null;
   }
 }
 
+const CUSTOM_VARS = Object.keys(buildTheme({ background: '#000000', accent: '#000000' }).vars);
+
+function remember(id: string, custom: unknown) {
+  try {
+    localStorage.setItem(KEY, id);
+    if (custom) localStorage.setItem(CUSTOM_KEY, JSON.stringify(custom));
+    else localStorage.removeItem(CUSTOM_KEY);
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new Event(CHANGED));
+}
+
+export function applyTheme(id: ThemeId) {
+  const root = document.documentElement;
+  for (const k of CUSTOM_VARS) root.style.removeProperty(k);
+  if (id === 'warm') root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', id);
+  remember(id, null);
+}
+
+export function applyCustomTheme(theme: { id: string; name: string } & ThemeColors) {
+  const { mode, vars } = buildTheme(theme);
+  const root = document.documentElement;
+  root.setAttribute('data-theme', `custom-${mode}`);
+  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  remember(`custom:${theme.id}`, {
+    name: theme.name,
+    colors: { background: theme.background, accent: theme.accent },
+    mode,
+    vars,
+  });
+}
+
 export function useTheme() {
-  const [theme, set] = useState<ThemeId>(() => getTheme());
-  const setTheme = (id: ThemeId) => {
-    applyTheme(id);
-    set(id);
-  };
-  return [theme, setTheme] as const;
+  const [theme, set] = useState(() => getTheme());
+  // Follows changes made elsewhere (another Settings card, or the keeper
+  // re-painting a theme edited on another device).
+  useEffect(() => {
+    const sync = () => set(getTheme());
+    window.addEventListener(CHANGED, sync);
+    return () => window.removeEventListener(CHANGED, sync);
+  }, []);
+  return theme;
 }
