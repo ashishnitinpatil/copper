@@ -4,6 +4,7 @@ import { PauseCircle } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
 import { useFreshToken } from '@/auth/useFreshToken';
 import { useSync } from './SyncProvider';
+import { reloadToUpdate } from '@/pwa/update';
 
 // Sync that stops for a reason only the person can resolve would otherwise fail
 // quietly in the background — the details live in Settings, which nobody visits
@@ -23,7 +24,7 @@ export function SyncPausedBanner() {
     !!auth.google && !freshToken && sync.unsynced && sync.status !== 'syncing' && !!sync.bookId;
 
   const message = sync.newerBook
-    ? 'Another device saved your book with a newer version of Copper. Reload to update, then it syncs again.'
+    ? 'Another device saved your book with a newer version of Copper. Update to keep syncing.'
     : sync.bookReplaced
       ? 'Your shared book was replaced from another device. Load it again on this device to keep syncing.'
       : sync.foundBookId
@@ -48,8 +49,8 @@ export function SyncPausedBanner() {
         </span>
       </div>
       {sync.newerBook ? (
-        <button type="button" className={button} onClick={() => window.location.reload()}>
-          Reload
+        <button type="button" className={button} onClick={() => void reloadToUpdate()}>
+          Update Copper
         </button>
       ) : !sync.bookReplaced && !sync.foundBookId ? (
         // Only the sign-in case is left. A fresh sign-in starts a sync by itself,

@@ -32,6 +32,7 @@ import { useBookPicker } from '@/sync/useBookPicker';
 import { BookIdentity } from '@/sync/BookIdentity';
 import { clearInvite, inviteLink, peekInvite } from '@/sync/invite';
 import type { DriveSnapshot } from '@/sync/driveBackup';
+import { reloadToUpdate } from '@/pwa/update';
 import { useAppSettings } from './AppSettingsProvider';
 import { CURRENCY_OPTIONS } from '@/lib/money';
 import type { Account, AccountType } from '@/db/types';
@@ -748,6 +749,15 @@ function SyncSection() {
                   disabled={reconnecting}
                 >
                   {reconnecting ? 'Reconnecting…' : 'Reconnect to Google'}
+                </button>
+              )}
+              {sync.newerBook && (
+                <button
+                  type="button"
+                  className="self-start rounded border border-warning/50 px-2 py-1 font-medium text-warning hover:bg-warning/20"
+                  onClick={() => void reloadToUpdate()}
+                >
+                  Update Copper
                 </button>
               )}
               {sync.foundBookId && !book.picked && (

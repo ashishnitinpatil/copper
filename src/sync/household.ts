@@ -107,7 +107,7 @@ async function newGeneration(db: DB): Promise<void> {
 
 export class NewerBookError extends Error {
   constructor() {
-    super('This book was last saved by a newer version of Copper. Reload Copper to update it, then sync again.');
+    super('This book was last saved by a newer version of Copper. Update Copper to keep syncing.');
     this.name = 'NewerBookError';
   }
 }
@@ -119,13 +119,15 @@ export class NewerBookError extends Error {
 async function assertKnownColumns(db: DB, rows: ChangeRow[]): Promise<void> {
   const byTable = new Map<string, Set<string>>();
   for (const r of rows) {
-    if (r.cid === '-1') continue;
     const cids = byTable.get(r.table) ?? new Set<string>();
-    cids.add(r.cid);
+    // A deleted row arrives as a '-1' marker with no columns — but its table
+    // must still exist here, or the apply fails on a table this version lacks.
+    if (r.cid !== '-1') cids.add(r.cid);
     byTable.set(r.table, cids);
   }
   for (const [table, cids] of byTable) {
     const cols = await db.execO<{ name: string }>('SELECT name FROM pragma_table_info(?)', [table]);
+    if (cols.length === 0) throw new NewerBookError();
     const known = new Set(cols.map((c) => c.name));
     for (const cid of cids) if (!known.has(cid)) throw new NewerBookError();
   }

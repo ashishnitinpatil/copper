@@ -75,7 +75,7 @@ test.describe('Transactions', () => {
     const future = new Date();
     future.setDate(future.getDate() + 10);
     const iso = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`;
-    await page.getByRole('link', { name: 'Add', exact: true }).first().click();
+    await page.getByRole('link', { name: 'Add entry', exact: true }).first().click();
     await waitForDB(page);
     await pickDate(page.getByRole('button', { name: /^Date:/ }), iso);
     await addExpense(page, '300', /Transport/);

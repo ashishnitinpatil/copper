@@ -95,7 +95,7 @@ test.describe('Transfers', () => {
     await waitForDB(page);
     await addAccount(page, 'Bank', '10000');
 
-    await page.getByRole('link', { name: 'Add', exact: true }).first().click();
+    await page.getByRole('link', { name: 'Add entry', exact: true }).first().click();
     await page.getByRole('tab', { name: 'Transfer' }).click();
     // From defaults to the main account (Cash), To to the other one (Bank).
     await expect(page.getByLabel('From account')).toContainText('Cash');
@@ -115,7 +115,7 @@ test.describe('Transfers', () => {
     await waitForDB(page);
     await addAccount(page, 'Dollar card', '0', 'USD');
 
-    await page.getByRole('link', { name: 'Add', exact: true }).first().click();
+    await page.getByRole('link', { name: 'Add entry', exact: true }).first().click();
     await page.getByRole('tab', { name: 'Transfer' }).click();
     await page.keyboard.type('250');
     await expect(page.getByLabel('To account')).toContainText('Dollar card');

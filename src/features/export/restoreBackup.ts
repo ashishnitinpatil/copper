@@ -183,6 +183,24 @@ export function planRestore(backup: BackupFile, newId: () => string = uuid): Sta
   return stmts;
 }
 
+/**
+ * A backup saved by a newer Copper can hold tables or columns this version
+ * doesn't have. Restoring it would wipe the book and quietly drop them (or fail
+ * halfway on a raw SQL error), so refuse up front. Nothing is ever removed from
+ * the schema, so anything unknown means "newer".
+ */
+async function assertRestorable(db: DB, backup: BackupFile): Promise<void> {
+  const newer = () =>
+    new Error('This backup was saved by a newer version of Copper. Update Copper (close every Copper tab and open it again), then restore.');
+  for (const [table, rows] of Object.entries(backup.tables)) {
+    if (!Array.isArray(rows) || rows.length === 0) continue;
+    if (!(BACKUP_TABLES as readonly string[]).includes(table)) throw newer();
+    const cols = await db.execO<{ name: string }>('SELECT name FROM pragma_table_info(?)', [table]);
+    const known = new Set(cols.map((c) => c.name));
+    for (const row of rows) for (const c of Object.keys(row)) if (!known.has(c)) throw newer();
+  }
+}
+
 // How many statements to run between progress reports. The report also yields
 // to the event loop (see below), so this trades UI smoothness against the cost
 // of the yields — ~200 keeps a 23k-row restore's bar moving without adding
@@ -204,6 +222,7 @@ export async function restoreBackup(
   backup: BackupFile,
   onProgress?: (done: number, total: number) => void,
 ): Promise<RestoreStats> {
+  await assertRestorable(db, backup);
   const stmts = planRestore(backup);
   const total = stmts.length;
   await db.tx(async (tx) => {

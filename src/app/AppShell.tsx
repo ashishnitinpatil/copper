@@ -31,7 +31,7 @@ interface NavItem {
 }
 
 const DASHBOARD: NavItem = { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard };
-const ADD: NavItem = { to: '/add', label: 'Add', icon: PlusCircle };
+const ADD: NavItem = { to: '/add', label: 'Add entry', icon: PlusCircle };
 const TRANSACTIONS: NavItem = { to: '/transactions', label: 'Transactions', icon: List };
 const CASHFLOW: NavItem = { to: '/cashflow', label: 'Cashflow', icon: TrendingUp };
 const REPORTS: NavItem = { to: '/reports', label: 'Reports', icon: BarChart3 };

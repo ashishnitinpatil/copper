@@ -32,6 +32,11 @@ export default {
       // Purposeful micro-interactions only — keyed to the daily add ritual. Gated
       // behind `motion-safe:` at call sites so reduced-motion users get none.
       keyframes: {
+        // The opening screen's mark breathes so a slow start reads as working.
+        'loading-breathe': {
+          '0%, 100%': { transform: 'scale(1)', opacity: '0.85' },
+          '50%': { transform: 'scale(1.08)', opacity: '1' },
+        },
         // Each keypad press gives the running amount a small confident bounce.
         'amount-pop': {
           '0%': { transform: 'scale(0.97)' },
@@ -62,6 +67,7 @@ export default {
         'coin-pop': 'coin-pop 320ms ease-out',
         'snack-in': 'snack-in 220ms cubic-bezier(0.16, 1, 0.3, 1)',
         'progress-slide': 'progress-slide 1.1s ease-in-out infinite',
+        'loading-breathe': 'loading-breathe 1.8s ease-in-out infinite',
       },
     },
   },

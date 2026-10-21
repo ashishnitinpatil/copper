@@ -63,7 +63,7 @@ test.describe('Undo (Ctrl+Z)', () => {
     await page.getByLabel('Starting balance', { exact: true }).fill('10000');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(400);
-    await page.getByRole('link', { name: 'Add', exact: true }).first().click();
+    await page.getByRole('link', { name: 'Add entry', exact: true }).first().click();
     await page.getByRole('tab', { name: 'Transfer' }).click();
     await selectCombobox(page.locator('main'), 'From account', 'Bank');
     await selectCombobox(page.locator('main'), 'To account', 'Cash');

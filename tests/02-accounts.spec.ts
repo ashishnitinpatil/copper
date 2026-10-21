@@ -36,6 +36,28 @@ test.describe('Accounts CRUD', () => {
     await expect(page.getByText(/Payment due day 5/)).toBeVisible();
   });
 
+  test('a card with a limit shows what is owed and what is left', async ({ page }) => {
+    await page.getByRole('button', { name: '+ New account' }).click();
+    await page.getByLabel('Name').fill('HDFC Regalia');
+    await page.getByLabel('Type').selectOption('credit_card');
+    await page.getByRole('textbox', { name: 'Starting balance' }).fill('-5000');
+    await page.getByLabel('Credit limit').fill('20000');
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    const card = page.getByRole('button', { name: /HDFC Regalia/ });
+    await expect(card.getByText('Outstanding')).toBeVisible();
+    await expect(card.getByText('₹5,000.00')).toBeVisible();
+    await expect(card.getByText('Available')).toBeVisible();
+    await expect(card.getByText('₹15,000.00')).toBeVisible();
+
+    // Spent past the limit.
+    await card.click();
+    await page.getByRole('textbox', { name: 'Starting balance' }).fill('-21000');
+    await page.getByRole('button', { name: 'Save' }).click();
+    await expect(card.getByText('Over limit by')).toBeVisible();
+    await expect(card.getByText('₹1,000.00')).toBeVisible();
+  });
+
   test('edit an existing account', async ({ page }) => {
     await page.getByRole('button', { name: /cash Cash Main/ }).click();
     await expect(page.getByRole('heading', { name: 'Edit account' })).toBeVisible();

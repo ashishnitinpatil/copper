@@ -241,18 +241,42 @@ describe('planRestore', () => {
   });
 });
 
+// This app's schema, as far as the backup under test needs it: every column
+// GRAPH uses.
+function fakeRestoreDb(calls: { sql: string; params: unknown[] }[]): DB {
+  const schema = new Map<string, Set<string>>();
+  for (const [table, rows] of Object.entries(makeBackup(GRAPH).tables)) {
+    schema.set(table, new Set(rows.flatMap((r) => Object.keys(r))));
+  }
+  return {
+    execO: async (_sql: string, [table]: string[]) => [...(schema.get(table) ?? [])].map((name) => ({ name })),
+    tx: async (fn: (tx: { exec: (sql: string, params?: unknown[]) => Promise<void> }) => Promise<void>) => {
+      await fn({
+        exec: async (sql: string, params: unknown[] = []) => {
+          calls.push({ sql, params });
+        },
+      });
+    },
+  } as unknown as DB;
+}
+
 describe('restoreBackup', () => {
+  it('refuses a backup from a newer Copper before wiping anything', async () => {
+    const calls: { sql: string; params: unknown[] }[] = [];
+    const withTable = makeBackup(GRAPH);
+    withTable.tables.moods = [{ id: 'm1', name: 'happy' }];
+    await expect(restoreBackup(fakeRestoreDb(calls), withTable)).rejects.toThrow(/newer version of Copper/);
+
+    const withColumn = makeBackup(GRAPH);
+    withColumn.tables.accounts = [{ ...withColumn.tables.accounts[0], nickname: 'wallet' }];
+    await expect(restoreBackup(fakeRestoreDb(calls), withColumn)).rejects.toThrow(/newer version of Copper/);
+    expect(calls).toEqual([]);
+  });
+
+
   it('runs wipe + insert in one transaction and marks onboarding done', async () => {
     const calls: { sql: string; params: unknown[] }[] = [];
-    const fakeDb = {
-      tx: async (fn: (tx: { exec: (sql: string, params?: unknown[]) => Promise<void> }) => Promise<void>) => {
-        await fn({
-          exec: async (sql: string, params: unknown[] = []) => {
-            calls.push({ sql, params });
-          },
-        });
-      },
-    } as unknown as DB;
+    const fakeDb = fakeRestoreDb(calls);
 
     const stats = await restoreBackup(fakeDb, makeBackup(GRAPH));
 
@@ -279,15 +303,7 @@ describe('restoreBackup', () => {
 
   it('preserves data and relationships under remapped ids (round-trip)', async () => {
     const calls: { sql: string; params: unknown[] }[] = [];
-    const fakeDb = {
-      tx: async (fn: (tx: { exec: (sql: string, params?: unknown[]) => Promise<void> }) => Promise<void>) => {
-        await fn({
-          exec: async (sql: string, params: unknown[] = []) => {
-            calls.push({ sql, params });
-          },
-        });
-      },
-    } as unknown as DB;
+    const fakeDb = fakeRestoreDb(calls);
 
     await restoreBackup(fakeDb, makeBackup(GRAPH));
 

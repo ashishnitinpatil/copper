@@ -536,4 +536,16 @@ describe('books from a newer version of Copper', () => {
     await expect(sync(b)).rejects.toBeInstanceOf(NewerBookError);
     expect(b.cells.size).toBe(0);
   });
+
+  it('also stops on a deleted row from a table this version lacks', async () => {
+    const a = makeDevice('aa');
+    edit(a, 't1', 'note', 'lunch');
+    // A newer app made and deleted a theme: only the '-1' delete marker remains.
+    a.cells.set('themes|th1|-1', { ...a.cells.get('transactions|t1|note')!, table: 'themes', pk: 'th1', cid: '-1', val: null, cl: 2 });
+    await sync(a);
+    const b = makeDevice('bb');
+    await joinSharedBook(b.db as never, book().id, 'merge');
+    await expect(sync(b)).rejects.toBeInstanceOf(NewerBookError);
+    expect(b.cells.size).toBe(0);
+  });
 });

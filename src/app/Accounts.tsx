@@ -182,6 +182,9 @@ interface AccountCardProps {
 }
 
 function AccountCard({ account, balanceMinor, onEdit }: AccountCardProps) {
+  const limit = account.type === 'credit_card' ? (account.credit_limit_minor ?? 0) : 0;
+  // A card in credit (paid more than owed) has more than its limit to spend.
+  const available = limit + balanceMinor;
   return (
     <button
       onClick={onEdit}
@@ -211,11 +214,36 @@ function AccountCard({ account, balanceMinor, onEdit }: AccountCardProps) {
           )}
         </div>
       </div>
-      <Money
-        minor={balanceMinor}
-        currency={account.currency}
-        className={`mt-3 block text-2xl font-semibold tabular-nums ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
-      />
+      {limit > 0 ? (
+        // With a limit, a card reads the way the bank shows it: what you owe,
+        // and what you can still spend.
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs text-slate-500">Outstanding</div>
+            <Money
+              minor={Math.max(0, -balanceMinor)}
+              currency={account.currency}
+              className={`block text-2xl font-semibold tabular-nums ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
+            />
+          </div>
+          <div>
+            <div className={`text-xs ${available < 0 ? 'text-danger' : 'text-slate-500'}`}>
+              {available < 0 ? 'Over limit by' : 'Available'}
+            </div>
+            <Money
+              minor={Math.abs(available)}
+              currency={account.currency}
+              className={`block text-2xl font-semibold tabular-nums ${available < 0 ? 'text-danger' : 'text-slate-50'}`}
+            />
+          </div>
+        </div>
+      ) : (
+        <Money
+          minor={balanceMinor}
+          currency={account.currency}
+          className={`mt-3 block text-2xl font-semibold tabular-nums ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
+        />
+      )}
       {account.type === 'credit_card' && account.due_day && (
         <div className="mt-2 text-xs text-slate-500">
           Payment due day {account.due_day}

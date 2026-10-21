@@ -82,10 +82,26 @@ export function useSiteId(): string {
   return ctx.siteId;
 }
 
+// Opening a big book can take a few seconds; a static line then looks stuck.
+const LOADING_STEPS = [
+  { after: 0, text: 'Getting your data ready…' },
+  { after: 4000, text: 'Still opening your book…' },
+  { after: 10000, text: 'Almost there — big books take a little longer.' },
+];
+
 function DefaultLoadingScreen() {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    const timers = LOADING_STEPS.slice(1).map((s, i) => setTimeout(() => setStep(i + 1), s.after));
+    return () => timers.forEach(clearTimeout);
+  }, []);
   return (
-    <div className="flex h-full items-center justify-center bg-slate-950 text-slate-400">
-      <div className="text-sm">Getting your data ready…</div>
+    <div className="flex h-full flex-col items-center justify-center gap-4 bg-slate-950 text-slate-400" role="status">
+      <img src="/icon.svg" alt="" aria-hidden="true" className="h-10 w-10 motion-safe:animate-loading-breathe" />
+      <div className="h-0.5 w-28 overflow-hidden rounded-full bg-slate-800" aria-hidden="true">
+        <div className="h-full w-1/4 rounded-full bg-brand-500 motion-safe:animate-progress-slide" />
+      </div>
+      <div className="text-sm">{LOADING_STEPS[step].text}</div>
     </div>
   );
 }
