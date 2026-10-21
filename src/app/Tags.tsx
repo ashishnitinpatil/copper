@@ -409,6 +409,7 @@ function TagFormModal({ open, existing, onClose }: TagFormModalProps) {
           value={icon ?? ''}
           onChange={(v) => setIcon(v || null)}
           groups={[{ label: 'For trips, events and projects', icons: PRESET_ICONS }]}
+          suggestFrom={name}
           defaultOption={<span className="text-xs">None</span>}
         />
 

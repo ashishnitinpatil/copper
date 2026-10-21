@@ -384,6 +384,7 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
           value={form.icon ?? ''}
           onChange={(icon) => update('icon', icon)}
           groups={ACCOUNT_ICON_GROUPS}
+          suggestFrom={form.name}
           defaultOption={<AccountGlyph account={{ icon: null, type: form.type }} />}
         />
         <div className="grid grid-cols-2 gap-3">

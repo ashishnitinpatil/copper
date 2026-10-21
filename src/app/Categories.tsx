@@ -277,7 +277,7 @@ function CategoryFormModal({
           emptyOption={{ value: '', label: '— None (top level) —' }}
           options={parentOptions.map((o) => ({ value: o.id, label: o.label }))}
         />
-        <IconPicker value={icon} onChange={setIcon} groups={CATEGORY_ICON_GROUPS} />
+        <IconPicker value={icon} onChange={setIcon} groups={CATEGORY_ICON_GROUPS} suggestFrom={name} />
         <div>
           <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">Color</label>
           <div className="mt-2 flex flex-wrap gap-1.5">

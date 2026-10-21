@@ -41,10 +41,27 @@ test.describe('Categories', () => {
   test('pick a line icon from the grid', async ({ page }) => {
     await page.getByRole('button', { name: 'Add expense category' }).click();
     await page.getByLabel('Name', { exact: true }).fill('Pets');
-    await page.getByRole('radio', { name: '🐶' }).click();
-    await expect(page.getByRole('radio', { name: '🐶' })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('radio', { name: 'dog' }).first().click();
+    await expect(page.getByRole('radio', { name: 'dog' }).first()).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('button', { name: 'Create' }).click();
     // Stored as the emoji, drawn as a simple line icon.
     await expect(page.locator('li', { hasText: 'Pets' }).locator('svg.lucide-dog').first()).toBeVisible();
+  });
+
+  test('icons are suggested from the name, and can be searched', async ({ page }) => {
+    await page.getByRole('button', { name: 'Add expense category' }).click();
+    await page.getByLabel('Name', { exact: true }).fill('Petrol');
+    await expect(page.getByText('Suggested for “Petrol”')).toBeVisible();
+    await page.getByRole('radio', { name: 'fuel' }).first().click();
+
+    await page.getByLabel('Search icons').fill('rent');
+    await expect(page.getByRole('radio', { name: 'home' })).toBeVisible();
+    await expect(page.getByText('Suggested for')).toHaveCount(0);
+    await page.getByLabel('Search icons').fill('zzzz');
+    await expect(page.getByText('No icon for “zzzz”. Try another word.')).toBeVisible();
+    await page.getByLabel('Search icons').fill('');
+
+    await page.getByRole('button', { name: 'Create' }).click();
+    await expect(page.locator('li', { hasText: 'Petrol' }).locator('svg.lucide-fuel').first()).toBeVisible();
   });
 });
