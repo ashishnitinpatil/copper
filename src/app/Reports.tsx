@@ -12,6 +12,7 @@ import {
   periodComparison, periodLabel, periodStart, precedingSpan, stepPeriod, type PeriodUnit, type Span,
 } from '@/lib/reportPeriods';
 import { categoryStyle } from '@/lib/categoryStyle';
+import { distinctColors } from '@/lib/distinctColors';
 import { useAppSettings } from './AppSettingsProvider';
 import { CashflowTrendChart } from '@/components/charts/CashflowTrendChart';
 import { CategoryDonut, type DonutSlice } from '@/components/charts/CategoryDonut';
@@ -174,11 +175,16 @@ export function Reports() {
   const slices = useMemo<DonutSlice[]>(() => {
     const top = categories.slice(0, categories.length > DONUT_SLICES ? DONUT_SLICES - 1 : DONUT_SLICES);
     const rest = categories.slice(top.length);
-    const out: DonutSlice[] = top.map((c) => ({
+    // Neighbouring categories can share a colour; keep slices tellable apart.
+    const colors = distinctColors(
+      top.map((c) => categoryStyle(c.category_name, c.category_color, c.category_icon).color),
+      rest.length > 0 ? ['#94a3b8'] : [],
+    );
+    const out: DonutSlice[] = top.map((c, i) => ({
       id: c.category_id,
       label: c.category_name,
       value: c.total,
-      color: categoryStyle(c.category_name, c.category_color, c.category_icon).color,
+      color: colors[i],
     }));
     if (rest.length > 0) {
       out.push({

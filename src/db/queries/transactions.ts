@@ -25,7 +25,22 @@ export interface TransactionWithMeta extends Transaction {
   category_name: string | null;
   category_icon: string | null;
   category_color: string | null;
+  // The other side of a transfer (absent from queries that don't join it).
+  peer_account_name?: string | null;
+  peer_account_currency?: string | null;
+  peer_amount_minor?: number | null;
 }
+
+// A transfer is two rows, one per account. Joined to its other leg so a row
+// can say "Cash → HDFC".
+const PEER_COLUMNS = `pa.name AS peer_account_name, pa.currency AS peer_account_currency, p.amount_minor AS peer_amount_minor`;
+const PEER_JOIN = `LEFT JOIN transactions p ON p.id = t.transfer_peer_id LEFT JOIN accounts pa ON pa.id = p.account_id`;
+// Listing every account, a transfer shows once: keep the sending leg (the
+// negative one; the lower id if a legacy pair has equal amounts).
+const ONE_ROW_PER_TRANSFER = `NOT (p.id IS NOT NULL AND (t.amount_minor > p.amount_minor OR (t.amount_minor = p.amount_minor AND t.id > p.id)))`;
+// Filtered to one account, its own leg is the one to show; a tag sits on one
+// leg only, so dropping either could hide the transfer altogether.
+const showsBothLegs = (filter: TransactionFilter) => !!filter.accountId || !!filter.tagId;
 
 export interface TransactionFilter {
   accountId?: string;
@@ -208,6 +223,7 @@ export async function listTransactions(
     where.push('t.occurred_on <= ?');
     params.push(filter.dateTo);
   }
+  if (!showsBothLegs(filter)) where.push(ONE_ROW_PER_TRANSFER);
   if (filter.search) {
     where.push('(t.note LIKE ? OR c.name LIKE ?)');
     const q = `%${filter.search}%`;
@@ -219,10 +235,11 @@ export async function listTransactions(
 
   const sql = `
     SELECT t.*, a.name AS account_name, a.currency AS account_currency, a.type AS account_type, a.icon AS account_icon,
-           c.name AS category_name, c.icon AS category_icon, c.color AS category_color
+           c.name AS category_name, c.icon AS category_icon, c.color AS category_color, ${PEER_COLUMNS}
     FROM transactions t
     JOIN accounts a ON a.id = t.account_id
     LEFT JOIN categories c ON c.id = t.category_id
+    ${PEER_JOIN}
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY t.occurred_on DESC, t.created_at DESC
     LIMIT ? OFFSET ?
@@ -289,14 +306,16 @@ export async function searchTransactions(
     where.push('t.occurred_on <= ?');
     params.push(filter.dateTo);
   }
+  if (!showsBothLegs(filter)) where.push(ONE_ROW_PER_TRANSFER);
 
   // Pull the filtered candidates (capped for safety) and rank them in JS.
   const candidates = await db.execO<TransactionWithMeta>(
     `SELECT t.*, a.name AS account_name, a.currency AS account_currency, a.type AS account_type, a.icon AS account_icon,
-            c.name AS category_name, c.icon AS category_icon, c.color AS category_color
+            c.name AS category_name, c.icon AS category_icon, c.color AS category_color, ${PEER_COLUMNS}
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id
      LEFT JOIN categories c ON c.id = t.category_id
+     ${PEER_JOIN}
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
      ORDER BY t.occurred_on DESC, t.created_at DESC
      LIMIT 20000`,
@@ -319,7 +338,7 @@ export async function searchTransactions(
         score = 1;
       }
     }
-    const text = `${row.note ?? ''} ${row.category_name ?? ''} ${row.account_name}`;
+    const text = `${row.note ?? ''} ${row.category_name ?? ''} ${row.account_name} ${row.peer_account_name ?? ''}`;
     const textScore = fuzzyScore(q, text);
     if (textScore > score) score = textScore;
     if (score > 0) scored.push({ row, score });
@@ -514,9 +533,11 @@ export async function summarizeTransactions(
     where.push('t.occurred_on <= ?');
     params.push(filter.dateTo);
   }
+  if (!showsBothLegs(filter)) where.push(ONE_ROW_PER_TRANSFER);
   return db.execO<TransactionSummaryRow>(
     `SELECT t.kind AS kind, a.currency AS currency, COUNT(*) AS n, SUM(ABS(t.amount_minor)) AS total
      FROM transactions t JOIN accounts a ON a.id = t.account_id
+     ${PEER_JOIN}
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
      GROUP BY t.kind, a.currency`,
     params,

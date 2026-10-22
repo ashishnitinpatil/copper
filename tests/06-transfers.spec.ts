@@ -25,7 +25,14 @@ test.describe('Transfers', () => {
     await page.getByRole('button', { name: 'Transfer', exact: true }).click();
     await page.waitForTimeout(500);
 
-    await expect(page.locator('main li').getByText('Transfer').first()).toBeVisible();
+    // One row for both sides, saying where the money went.
+    await expect(page.locator('main li').getByText('Transfer', { exact: true })).toHaveCount(1);
+    await expect(page.locator('main li').getByText('Bank → Cash')).toBeVisible();
+    await expect(page.locator('main li').getByText('−₹2,000.00')).toHaveCount(0);
+
+    // One account's view shows its own side, signed.
+    await selectCombobox(page, 'Account', 'Cash');
+    await expect(page.locator('main li').getByText('+₹2,000.00')).toBeVisible();
 
     await page.getByRole('link', { name: 'Accounts', exact: true }).first().click();
     await page.waitForTimeout(500);
@@ -52,7 +59,7 @@ test.describe('Transfers', () => {
     await page.locator('.fixed').getByLabel('Amount', { exact: true }).fill('1500');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Edit transfer' })).toBeHidden();
-    await expect(page.locator('main').getByText('+₹1,500.00')).toBeVisible();
+    await expect(page.locator('main li').getByText('₹1,500.00')).toBeVisible();
 
     await page.getByRole('link', { name: 'Accounts', exact: true }).first().click();
     await page.waitForTimeout(500);

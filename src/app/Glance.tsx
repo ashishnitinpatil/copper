@@ -10,6 +10,7 @@ import type { DB } from '@/db/wasm';
 import { formatMoney } from '@/lib/money';
 import { convert } from '@/lib/fx';
 import { categoryStyle } from '@/lib/categoryStyle';
+import { distinctColors } from '@/lib/distinctColors';
 import { endOfMonth, startOfMonth, toDateString } from '@/lib/dates';
 import { useAppSettings } from './AppSettingsProvider';
 
@@ -175,11 +176,16 @@ export function Glance() {
     const { categories } = summary;
     const top = categories.slice(0, categories.length > TOP + 1 ? TOP : TOP + 1);
     const rest = categories.slice(top.length);
-    const out: DonutSlice[] = top.map((c) => ({
+    // Neighbouring categories can share a colour; keep slices tellable apart.
+    const colors = distinctColors(
+      top.map((c) => categoryStyle(c.name, c.color, c.icon).color),
+      rest.length > 0 ? ['#94a3b8'] : [],
+    );
+    const out: DonutSlice[] = top.map((c, i) => ({
       id: c.id,
       label: c.name,
       value: c.total,
-      color: categoryStyle(c.name, c.color, c.icon).color,
+      color: colors[i],
     }));
     if (rest.length > 0) {
       out.push({ id: 'rest', label: `${rest.length} more`, value: rest.reduce((s, c) => s + c.total, 0), color: '#94a3b8' });

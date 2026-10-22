@@ -42,6 +42,7 @@ import { formatMoney, parseAmount, fromMinor } from '@/lib/money';
 import { useConvert, useDefaultCurrency } from './AppSettingsProvider';
 import { addDays, formatRelativeDate, toDateString } from '@/lib/dates';
 import { Glyph } from '@/components/ui/Glyph';
+import { TransferAmount, transferRoute } from '@/components/transfer';
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -247,24 +248,31 @@ export function Transactions() {
     filters.dateFrom,
     filters.dateTo,
   ].filter(Boolean).length;
+  // Filtered to an account (or tag) the list holds single transfer legs.
+  const bothLegs = !!filters.accountId || !!filters.tagId;
   const upcomingCount = upcoming.reduce((n, [, items]) => n + items.length, 0);
 
   // A day's heading and its entries; used for both past and upcoming days.
   const renderDay = ([date, items]: [string, TransactionWithMeta[]]) => {
-    const dayTotal = items.reduce((sum, t) => sum + t.amount_minor, 0);
+    // A transfer shown once moves money between accounts; it isn't spending.
+    const counted = items.filter((t) => !(transferRoute(t) && !bothLegs));
+    const dayTotal = counted.reduce((sum, t) => sum + t.amount_minor, 0);
     return (
       <div key={date}>
         <div className="mb-2 flex items-baseline justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{formatRelativeDate(date)}</h3>
-          <span className={`text-xs tabular-nums ${dayTotal < 0 ? 'text-clay-400' : 'text-mint-400'}`}>
-            {formatMoney(dayTotal, items[0].account_currency, { signed: true })}
-          </span>
+          {counted.length > 0 && (
+            <span className={`text-xs tabular-nums ${dayTotal < 0 ? 'text-clay-400' : 'text-mint-400'}`}>
+              {formatMoney(dayTotal, counted[0].account_currency, { signed: true })}
+            </span>
+          )}
         </div>
         <Card className="!p-0">
           <ul className="divide-y divide-slate-800">
             {items.map((t) => {
               const txTags = tagsByTx.get(t.id) ?? [];
               const isSel = selected.has(t.id);
+              const route = transferRoute(t);
               return (
                 <li key={t.id}>
                   <button
@@ -300,9 +308,9 @@ export function Transactions() {
                           {t.category_name ?? (t.kind === 'transfer' ? 'Transfer' : 'Uncategorised')}
                         </div>
                         <div className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
-                          <AccountGlyph account={{ icon: t.account_icon, type: t.account_type }} size="xs" />
+                          {!route && <AccountGlyph account={{ icon: t.account_icon, type: t.account_type }} size="xs" />}
                           <span className="truncate">
-                            {t.account_name}
+                            {route ?? t.account_name}
                             {t.note ? ` · ${t.note}` : ''}
                           </span>
                         </div>
@@ -315,13 +323,18 @@ export function Transactions() {
                         )}
                       </div>
                     </div>
-                    <div
-                      className={`shrink-0 text-sm font-semibold tabular-nums ${
-                        t.amount_minor < 0 ? 'text-clay-400' : 'text-mint-400'
-                      }`}
-                    >
-                      {formatMoney(t.amount_minor, t.account_currency, { signed: true })}
-                    </div>
+                    {/* Both sides in one row: no sign. One account's own side keeps it. */}
+                    {route && !bothLegs ? (
+                      <TransferAmount t={t} />
+                    ) : (
+                      <div
+                        className={`shrink-0 text-sm font-semibold tabular-nums ${
+                          t.amount_minor < 0 ? 'text-clay-400' : 'text-mint-400'
+                        }`}
+                      >
+                        {formatMoney(t.amount_minor, t.account_currency, { signed: true })}
+                      </div>
+                    )}
                   </button>
                 </li>
               );

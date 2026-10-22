@@ -14,6 +14,7 @@ import {
   type CurrencyTotal,
 } from '@/db/queries/accounts';
 import { listTransactions, type TransactionWithMeta } from '@/db/queries/transactions';
+import { TransferAmount, transferRoute } from '@/components/transfer';
 import { getBudgetsWithSpent, type BudgetWithSpent } from '@/db/queries/budgets';
 import type { Account } from '@/db/types';
 import { formatMoney } from '@/lib/money';
@@ -310,7 +311,9 @@ export function Dashboard() {
           />
         ) : (
           <div className="divide-y divide-slate-800">
-            {recent.map((tx) => (
+            {recent.map((tx) => {
+              const route = transferRoute(tx);
+              return (
               <div key={tx.id} className="flex items-center justify-between py-2.5">
                 <div className="flex min-w-0 items-center gap-3">
                   {tx.kind === 'transfer' ? (
@@ -331,14 +334,19 @@ export function Dashboard() {
                     </div>
                     <div className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
                       <span className="shrink-0">{formatRelativeDate(tx.occurred_on)} ·</span>
-                      <AccountGlyph account={{ icon: tx.account_icon, type: tx.account_type }} size="xs" />
+                      {!route && <AccountGlyph account={{ icon: tx.account_icon, type: tx.account_type }} size="xs" />}
                       <span className="truncate">
-                        {tx.account_name}
+                        {route ?? tx.account_name}
                         {tx.note ? ` · ${tx.note}` : ''}
                       </span>
                     </div>
                   </div>
                 </div>
+                {route ? (
+                  <div className="pl-2">
+                    <TransferAmount t={tx} className="font-display" />
+                  </div>
+                ) : (
                 <div
                   className={`shrink-0 pl-2 font-display tabular-nums text-sm font-semibold ${
                     tx.amount_minor < 0 ? 'text-clay-400' : 'text-mint-400'
@@ -346,8 +354,10 @@ export function Dashboard() {
                 >
                   {formatMoney(tx.amount_minor, tx.account_currency, { signed: true })}
                 </div>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
