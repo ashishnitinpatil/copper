@@ -1,10 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
+import { promptInstall, useInstall } from './install';
 
 export function PwaPrompts() {
   const {
@@ -13,35 +9,10 @@ export function PwaPrompts() {
     updateServiceWorker,
   } = useRegisterSW();
 
-  const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installed, setInstalled] = useState(false);
-
-  useEffect(() => {
-    const onBeforeInstall = (e: Event) => {
-      e.preventDefault();
-      setInstallEvent(e as BeforeInstallPromptEvent);
-    };
-    const onInstalled = () => {
-      setInstallEvent(null);
-      setInstalled(true);
-    };
-    window.addEventListener('beforeinstallprompt', onBeforeInstall);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
-  }, []);
-
-  const handleInstall = async () => {
-    if (!installEvent) return;
-    await installEvent.prompt();
-    const { outcome } = await installEvent.userChoice;
-    if (outcome === 'accepted') setInstalled(true);
-    setInstallEvent(null);
-  };
-
-  const showInstall = !installed && !!installEvent;
+  const { canPrompt } = useInstall();
+  // "Not now" hides this notice only; Settings → Preferences still offers it.
+  const [installHidden, setInstallHidden] = useState(false);
+  const showInstall = canPrompt && !installHidden;
 
   if (!needRefresh && !offlineReady && !showInstall) return null;
 
@@ -83,14 +54,14 @@ export function PwaPrompts() {
           <span className="text-slate-200">Install this app</span>
           <button
             type="button"
-            onClick={handleInstall}
+            onClick={() => void promptInstall()}
             className="rounded-md bg-brand-500 px-3 py-1 text-xs font-semibold text-white hover:bg-brand-400"
           >
             Install
           </button>
           <button
             type="button"
-            onClick={() => setInstallEvent(null)}
+            onClick={() => setInstallHidden(true)}
             className="text-xs text-slate-400 hover:text-slate-200"
           >
             Not now

@@ -33,6 +33,7 @@ import { BookIdentity } from '@/sync/BookIdentity';
 import { clearInvite, inviteLink, peekInvite } from '@/sync/invite';
 import type { DriveSnapshot } from '@/sync/driveBackup';
 import { reloadToUpdate } from '@/pwa/update';
+import { isIOS, isPhone, promptInstall, useInstall } from '@/pwa/install';
 import { useAppSettings } from './AppSettingsProvider';
 import { CURRENCY_OPTIONS } from '@/lib/money';
 import type { Account, AccountType } from '@/db/types';
@@ -69,7 +70,7 @@ type TabId = 'sharing' | 'preferences' | 'data';
 // Each section keeps its own id so deep links (/settings#sync) still land on it.
 const TABS: { id: TabId; label: string; Icon: LucideIcon; sections: string[] }[] = [
   { id: 'sharing', label: 'Sync & sharing', Icon: RefreshCw, sections: ['signin', 'sync', 'device'] },
-  { id: 'preferences', label: 'Preferences', Icon: Palette, sections: ['appearance', 'currency', 'rates', 'review'] },
+  { id: 'preferences', label: 'Preferences', Icon: Palette, sections: ['install', 'appearance', 'currency', 'rates', 'review'] },
   { id: 'data', label: 'Your data', Icon: Download, sections: ['export', 'import', 'restore', 'reset'] },
 ];
 
@@ -128,6 +129,8 @@ export function Settings() {
       )}
       {tab === 'preferences' && (
         <>
+          {/* Renders its own #install anchor, or nothing once Copper runs installed. */}
+          <InstallSection />
           <Section id="appearance"><AppearanceSection /></Section>
           <Section id="currency"><DefaultCurrencySection /></Section>
           {/* Renders its own #rates anchor, or nothing when all accounts share a currency. */}
@@ -165,6 +168,48 @@ function Section({ id, children }: { id: string; children: ReactNode }) {
     <section id={id} className="scroll-mt-24">
       {children}
     </section>
+  );
+}
+
+// On a phone Copper works best installed: its own icon, full screen, offline.
+// The bottom notice can be dismissed, so the offer lives here too.
+function InstallSection() {
+  const { canPrompt, installed } = useInstall();
+  const [asking, setAsking] = useState(false);
+  if (installed || (!canPrompt && !isPhone)) return null;
+  return (
+    <Section id="install">
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="mb-1 text-sm font-semibold text-slate-300">Install Copper</h3>
+            <p className="text-xs text-slate-500">
+              {canPrompt
+                ? 'Add Copper to your home screen. It opens full screen like any other app, and works offline.'
+                : isIOS
+                  ? 'In Safari, tap Share, then Add to Home Screen. Copper then opens full screen like any other app, and works offline.'
+                  : 'Open your browser’s menu (⋮) and choose Install app or Add to Home screen. Copper then opens full screen like any other app, and works offline.'}
+            </p>
+          </div>
+          {canPrompt && (
+            <Button
+              className="shrink-0"
+              disabled={asking}
+              onClick={async () => {
+                setAsking(true);
+                try {
+                  await promptInstall();
+                } finally {
+                  setAsking(false);
+                }
+              }}
+            >
+              Install
+            </Button>
+          )}
+        </div>
+      </Card>
+    </Section>
   );
 }
 
