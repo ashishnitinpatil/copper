@@ -26,6 +26,7 @@ import {
   type Lookups,
 } from '@/features/activity/describe';
 import { toDateString } from '@/lib/dates';
+import { isRestorable, restoreDeleted } from '@/features/undo/restoreDeleted';
 
 const PAGE_SIZE = 100;
 
@@ -120,8 +121,38 @@ export function Activity() {
     // 'devices' too, so a rename or a new sign-in re-labels rows without a reload.
     { deps: ['change_log', 'devices'] },
   );
-  const groups = state.data?.groups ?? [];
+  const groups = useMemo(() => state.data?.groups ?? [], [state.data]);
   const hasMore = state.data?.hasMore ?? false;
+
+  // Deleted entries that are back (restored here, or re-added by undo or sync)
+  // stop offering Restore.
+  // Keyed by the ids' text so the query only reruns when they change.
+  const deletedKey = useMemo(
+    () => groups.filter(isRestorable).flatMap((g) => g.entries.map((e) => e.entity_id)).join(','),
+    [groups],
+  );
+  const backState = useQuery(
+    useCallback(
+      async (d) => {
+        const deletedIds = deletedKey ? deletedKey.split(',') : [];
+        if (deletedIds.length === 0) return new Set<string>();
+        const found = new Set<string>();
+        for (let i = 0; i < deletedIds.length; i += 500) {
+          const chunk = deletedIds.slice(i, i + 500);
+          const rows = await d.execO<{ id: string }>(
+            `SELECT id FROM transactions WHERE id IN (${chunk.map(() => '?').join(',')})`,
+            chunk,
+          );
+          rows.forEach((r) => found.add(r.id));
+        }
+        return found;
+      },
+      [deletedKey],
+    ),
+    { deps: ['transactions'] },
+  );
+  const canRestore = (g: ActivityGroup) =>
+    isRestorable(g) && !!backState.data && !g.entries.every((e) => backState.data!.has(e.entity_id));
 
   // Device names only help when changes come from more than one device.
   const showDevice = useMemo(() => new Set(groups.map((g) => g.site_id)).size > 1, [groups]);
@@ -183,6 +214,7 @@ export function Activity() {
                       lookups={lookups}
                       who={actor(g)}
                       showDevice={showDevice}
+                      restorable={canRestore(g)}
                     />
                   ))}
                 </ol>
@@ -307,12 +339,27 @@ function GroupRow({
   lookups,
   who,
   showDevice,
+  restorable,
 }: {
   group: ActivityGroup;
   lookups: Lookups;
   who: string;
   showDevice: boolean;
+  restorable: boolean;
 }) {
+  const db = useDB();
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const restore = async () => {
+    setRestoring(true);
+    setRestoreError(null);
+    try {
+      const res = await restoreDeleted(db, group.key);
+      if (!res.ok) setRestoreError(res.reason);
+    } finally {
+      setRestoring(false);
+    }
+  };
   const d = group.batch_id ? describeGroup(lookups, group) : describeEntry(lookups, group.entries[0]);
   const expandable = group.batch_id && group.source && EXPANDABLE.has(group.source);
   const hidden = group.total - group.entries.length;
@@ -328,7 +375,21 @@ function GroupRow({
         <p className="mt-1 text-xs text-slate-600">
           {timeLabel(group.at)}
           {showDevice && device !== who && <> · on {device}</>}
+          {restorable && (
+            <>
+              {' · '}
+              <button
+                type="button"
+                onClick={() => void restore()}
+                disabled={restoring}
+                className="font-medium text-brand-400 hover:underline disabled:opacity-50"
+              >
+                {restoring ? 'Restoring…' : 'Restore'}
+              </button>
+            </>
+          )}
         </p>
+        {restoreError && <p className="mt-1 text-xs text-danger">{restoreError}</p>}
         {expandable && (
           <details className="mt-1.5">
             <summary className="cursor-pointer list-none text-xs text-slate-500 hover:text-slate-300">

@@ -163,6 +163,14 @@ export function Settings() {
 
 // Anchor wrapper for a settings section. scroll-mt clears the sticky tab bar so
 // a jumped-to heading isn't hidden behind it.
+// Said the same way before every big change. Connected, the book is copied to
+// Drive right before the change reaches it; otherwise nothing is saved for you.
+function safetyNote(reason: string, connected: boolean): string {
+  return connected
+    ? `A copy of your book is saved to your Drive right before this. If anything looks wrong afterwards, go to Your data › Restore from Drive and pick the one marked “${reason}”.`
+    : 'This device isn’t syncing, so no backup is made for you. Use Download backup above first if you might want to go back.';
+}
+
 function Section({ id, children }: { id: string; children: ReactNode }) {
   return (
     <section id={id} className="scroll-mt-24">
@@ -1016,8 +1024,7 @@ function SyncSection() {
             <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
               Merging adds this device's copy on top — if it's the same book you just restored,
               you'll get duplicates. If you only want what's already in the book, choose{' '}
-              <span className="font-medium">Start fresh</span> instead. A backup of the book is saved
-              before merging.
+              <span className="font-medium">Start fresh</span> instead. {safetyNote('before merge', true)}
             </div>
           )}
 
@@ -1043,8 +1050,7 @@ function SyncSection() {
                 {joinMode === 'replace' && (
                   <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
                     Your partner's devices lose any changes they haven't synced yet, and will ask to
-                    load the book again. A backup of the book is saved to your Drive first, so you can
-                    undo this with Restore from Drive.
+                    load the book again. {safetyNote('before overwrite', true)}
                   </div>
                 )}
               </div>
@@ -1769,8 +1775,9 @@ function RestoreSection() {
               <span className="font-medium text-slate-100">
                 {pending.rows.toLocaleString()} entries
               </span>{' '}
-              in this backup.{!sync.bookId && " This can't be undone."}
+              in this backup.
             </p>
+            {!busy && !sync.bookId && <p className="text-xs text-slate-400">{safetyNote('before restore', false)}</p>}
             {!busy && pending.rows > LARGE_RESTORE_ROWS && (
               <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
                 This is a large backup — restoring can take a few minutes. Once you start, keep this
@@ -1780,9 +1787,8 @@ function RestoreSection() {
             {!busy && sync.bookId && (
               <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
                 This device syncs to a shared book, so the restored data replaces the book for
-                {sync.peers.length > 0 ? ' everyone using it' : ' all your devices'} on the next sync. A
-                backup of the book is saved to your Drive first, so you can undo this with Restore from
-                Drive.
+                {sync.peers.length > 0 ? ' everyone using it' : ' all your devices'} on the next sync.{' '}
+                {safetyNote('before restore', true)}
               </div>
             )}
             {busy && phase && (
@@ -2015,7 +2021,8 @@ function ImportSection() {
       const res = await runMonefyImport(db, plan, overrides, (done, total) => setProgress({ done, total }));
       await settings.refresh();
       setResult(
-        `Imported ${res.accountsCreated} accounts, ${res.categoriesCreated} categories, ${res.transactionsCreated} transactions, ${res.transfersCreated} transfers.`,
+        `Imported ${res.accountsCreated} accounts, ${res.categoriesCreated} categories, ${res.transactionsCreated} transactions, ${res.transfersCreated} transfers.` +
+          (sync.bookId ? ' A copy of your book from just before goes to Drive as it syncs — find it in Restore from Drive, marked “before import”.' : ''),
       );
       setPlan(null);
       setFileName(null);
@@ -2135,9 +2142,10 @@ function ImportSection() {
                   {!wipeFirst
                     ? 'The file’s accounts and categories are added next to yours. Ones with the same name will appear twice.'
                     : sync.bookId
-                      ? 'Everything in your book is deleted first, on every device that shares it. A backup is saved to your Google Drive before anything changes.'
-                      : 'Everything on this device is deleted first. Download a backup above if you might want it back.'}
+                      ? 'Everything in your book is deleted first, on every device that shares it.'
+                      : 'Everything on this device is deleted first.'}
                 </p>
+                <p className="mt-1 pl-6 text-xs text-slate-500">{safetyNote('before import', !!sync.bookId)}</p>
               </div>
             </div>
 

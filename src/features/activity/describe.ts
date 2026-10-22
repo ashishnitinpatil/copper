@@ -507,6 +507,18 @@ export function describeGroup(L: Lookups, group: DescribableGroup): Description 
   const { entries } = group;
   const txs = count(group, 'transaction');
 
+  // Brought back from Activity: said like the delete it reverses.
+  if (group.source === 'restore') {
+    if (group.total === 1 && entries[0]) {
+      const d = describeEntry(L, entries[0]);
+      return { ...d, text: d.text.replace(/^added /, 'restored ') };
+    }
+    const legs = entries.length === 2 && entries.every((e) => subjectOf(e).kind === 'transfer');
+    const t = legs ? describeTransfer(L, entries) : null;
+    if (t) return { ...t, text: t.text.replace(/^moved /, 'restored the transfer of ') };
+    return { text: `restored ${plural(txs, 'transaction')}`, detail: null, changes: [] };
+  }
+
   const isTransfer =
     entries.length === 2 &&
     entries.every((e) => e.entity === 'transaction' && subjectOf(e).kind === 'transfer');

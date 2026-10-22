@@ -128,6 +128,19 @@ describe('transfers', () => {
     );
   });
 
+  it('says a restored transfer was restored', () => {
+    expect(plain(describeGroup(L, group(legs('insert'), 'restore')).text)).toBe(
+      'restored the transfer of ₹1,000.00 from HDFC to Cash',
+    );
+  });
+
+  it('says a restored entry was restored', () => {
+    const one = [entry({ entity: 'transaction', op: 'insert', source: 'restore' }, { after: tx() })];
+    expect(plain(describeGroup(L, { source: 'restore', total: 1, counts: [], entries: one }).text)).toMatch(
+      /^restored an expense of ₹500\.00 in Food & Dining/,
+    );
+  });
+
   it('recognises a deleted transfer (logged without a source)', () => {
     expect(plain(describeGroup(L, group(legs('delete'), null)).text)).toBe(
       'deleted the transfer of ₹1,000.00 from HDFC to Cash',

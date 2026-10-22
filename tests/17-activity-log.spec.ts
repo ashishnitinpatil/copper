@@ -29,6 +29,18 @@ test.describe('Activity log', () => {
     await page.waitForTimeout(500);
   });
 
+  test('a deleted entry can be restored from Activity', async ({ page }) => {
+    await page.getByRole('link', { name: 'Activity', exact: true }).first().click();
+    await expect(page.getByText(/deleted an expense of ₹600\.00/)).toBeVisible();
+    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await expect(page.getByText(/restored an expense of ₹600\.00/)).toBeVisible();
+    // Back now, so nothing left to restore.
+    await expect(page.getByRole('button', { name: 'Restore', exact: true })).toHaveCount(0);
+
+    await page.getByRole('link', { name: 'Transactions', exact: true }).first().click();
+    await expect(page.locator('main li').getByText('−₹600.00')).toBeVisible();
+  });
+
   test('writes a change_log row for each create/update/delete', async ({ page }) => {
     await page.goto('/sql');
     await waitForDB(page);

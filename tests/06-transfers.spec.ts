@@ -67,6 +67,29 @@ test.describe('Transfers', () => {
     await expect(page.getByText('₹1,500.00').first()).toBeVisible();
   });
 
+  test('a deleted transfer comes back whole from Activity', async ({ page }) => {
+    await resetAndLoad(page, '/accounts');
+    await waitForDB(page);
+    await addAccount(page, 'Bank', '10000');
+    await page.getByRole('link', { name: 'Transactions', exact: true }).first().click();
+    await page.getByRole('button', { name: '↔ Transfer' }).click();
+    await selectCombobox(page.locator('.fixed'), 'From', 'Bank');
+    await selectCombobox(page.locator('.fixed'), 'To', 'Cash');
+    await page.locator('.fixed').getByLabel('Amount', { exact: true }).fill('2000');
+    await page.getByRole('button', { name: 'Transfer', exact: true }).click();
+    await page.locator('main li').getByText('Bank → Cash').click();
+    await page.getByRole('button', { name: 'Delete' }).click();
+    await expect(page.locator('main li').getByText('Bank → Cash')).toHaveCount(0);
+
+    await page.getByRole('link', { name: 'Activity', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await expect(page.getByText(/restored the transfer of ₹2,000\.00 from Bank to Cash/)).toBeVisible();
+
+    await page.getByRole('link', { name: 'Accounts', exact: true }).first().click();
+    await expect(page.getByText('₹8,000.00').first()).toBeVisible();
+    await expect(page.getByText('₹2,000.00').first()).toBeVisible();
+  });
+
   test('a transfer between currencies records the amount received', async ({ page }) => {
     await resetAndLoad(page, '/accounts');
     await waitForDB(page);
