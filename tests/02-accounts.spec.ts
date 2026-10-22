@@ -49,6 +49,10 @@ test.describe('Accounts CRUD', () => {
     await expect(card.getByText('₹5,000.00')).toBeVisible();
     await expect(card.getByText('Available')).toBeVisible();
     await expect(card.getByText('₹15,000.00')).toBeVisible();
+    await expect(page.getByText('25% of limit used', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Why the colours' }).click();
+    await expect(page.getByText(/under about 30% is commonly seen as healthy/)).toBeVisible();
+    await page.keyboard.press('Escape');
 
     // Spent past the limit.
     await card.click();
@@ -56,6 +60,7 @@ test.describe('Accounts CRUD', () => {
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(card.getByText('Over limit by')).toBeVisible();
     await expect(card.getByText('₹1,000.00')).toBeVisible();
+    await expect(page.getByText('105% of limit used · high use can lower your credit score')).toBeVisible();
   });
 
   test('edit an existing account', async ({ page }) => {
@@ -80,8 +85,8 @@ test.describe('Accounts CRUD', () => {
     await page.getByLabel('Starting balance', { exact: true }).fill('100');
     await page.getByRole('button', { name: 'Create' }).click();
 
-    const names = page.locator('main .grid > button .text-base');
-    const loanCard = page.locator('main .grid > button', { hasText: 'Home loan' });
+    const names = page.locator('main .grid > div > button .text-base');
+    const loanCard = page.locator('main .grid > div > button', { hasText: 'Home loan' });
     await expect(loanCard.getByText('not counted')).toBeVisible();
 
     await page.getByRole('button', { name: 'Not counted', exact: true }).click();

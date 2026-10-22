@@ -185,72 +185,118 @@ function AccountCard({ account, balanceMinor, onEdit }: AccountCardProps) {
   const limit = account.type === 'credit_card' ? (account.credit_limit_minor ?? 0) : 0;
   // A card in credit (paid more than owed) has more than its limit to spend.
   const available = limit + balanceMinor;
+  // The usage row has its own "why" button, so it sits outside the card's
+  // edit button (a button can't hold another).
   return (
-    <button
-      onClick={onEdit}
-      className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-left transition hover:-translate-y-0.5 hover:border-brand-500 hover:bg-slate-900/70"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <AccountGlyph account={account} size="md" />
-          <div className="min-w-0">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{account.type.replace('_', ' ')}</div>
-            <div className="mt-0.5 truncate text-base font-semibold text-slate-50">{account.name}</div>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {account.include_in_total === 0 && (
-            <span
-              title="Not included in your total balance"
-              className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
-            >
-              not counted
-            </span>
-          )}
-          {account.is_main === 1 && (
-            <span className="rounded-md bg-brand-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
-              Main
-            </span>
-          )}
-        </div>
-      </div>
-      {limit > 0 ? (
-        // With a limit, a card reads the way the bank shows it: what you owe,
-        // and what you can still spend.
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div>
-            <div className="text-xs text-slate-500">Outstanding</div>
-            <Money
-              minor={Math.max(0, -balanceMinor)}
-              currency={account.currency}
-              className={`block text-2xl font-semibold tabular-nums ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
-            />
-          </div>
-          <div>
-            <div className={`text-xs ${available < 0 ? 'text-danger' : 'text-slate-500'}`}>
-              {available < 0 ? 'Over limit by' : 'Available'}
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 transition hover:-translate-y-0.5 hover:border-brand-500 hover:bg-slate-900/70">
+      <button onClick={onEdit} className="block w-full rounded-xl p-4 text-left">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <AccountGlyph account={account} size="md" />
+            <div className="min-w-0">
+              <div className="text-xs uppercase tracking-wide text-slate-500">{account.type.replace('_', ' ')}</div>
+              <div className="mt-0.5 truncate text-base font-semibold text-slate-50">{account.name}</div>
             </div>
-            <Money
-              minor={Math.abs(available)}
-              currency={account.currency}
-              className={`block text-2xl font-semibold tabular-nums ${available < 0 ? 'text-danger' : 'text-slate-50'}`}
-            />
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {account.include_in_total === 0 && (
+              <span
+                title="Not included in your total balance"
+                className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
+              >
+                not counted
+              </span>
+            )}
+            {account.is_main === 1 && (
+              <span className="rounded-md bg-brand-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
+                Main
+              </span>
+            )}
           </div>
         </div>
-      ) : (
-        <Money
-          minor={balanceMinor}
-          currency={account.currency}
-          className={`mt-3 block text-2xl font-semibold tabular-nums ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
-        />
-      )}
-      {account.type === 'credit_card' && account.due_day && (
-        <div className="mt-2 text-xs text-slate-500">
-          Payment due day {account.due_day}
-          {account.statement_day && ` · Statement closes day ${account.statement_day}`}
+        {limit > 0 ? (
+          // With a limit, a card reads the way the bank shows it: what you owe,
+          // and what you can still spend.
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs text-slate-500">Outstanding</div>
+              <Money
+                minor={Math.max(0, -balanceMinor)}
+                currency={account.currency}
+                className={`block text-2xl font-semibold tabular-nums ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
+              />
+            </div>
+            <div>
+              <div className={`text-xs ${available < 0 ? 'text-danger' : 'text-slate-500'}`}>
+                {available < 0 ? 'Over limit by' : 'Available'}
+              </div>
+              <Money
+                minor={Math.abs(available)}
+                currency={account.currency}
+                className={`block text-2xl font-semibold tabular-nums ${available < 0 ? 'text-danger' : 'text-slate-50'}`}
+              />
+            </div>
+          </div>
+        ) : (
+          <Money
+            minor={balanceMinor}
+            currency={account.currency}
+            className={`mt-3 block text-2xl font-semibold tabular-nums ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
+          />
+        )}
+        {account.type === 'credit_card' && account.due_day && (
+          <div className="mt-2 text-xs text-slate-500">
+            Payment due day {account.due_day}
+            {account.statement_day && ` · Statement closes day ${account.statement_day}`}
+          </div>
+        )}
+      </button>
+      {limit > 0 && (
+        <div className="-mt-2 px-4 pb-4">
+          <LimitUsage owed={Math.max(0, -balanceMinor)} limit={limit} />
         </div>
       )}
-    </button>
+    </div>
+  );
+}
+
+// Using much of a card's limit tends to lower a credit score; past these
+// shares the bar warns, then turns red.
+const USAGE_WARN = 0.6;
+const USAGE_HIGH = 0.9;
+
+function LimitUsage({ owed, limit }: { owed: number; limit: number }) {
+  const share = owed / limit;
+  const pct = Math.round(share * 100);
+  const tone = share >= USAGE_HIGH ? 'danger' : share >= USAGE_WARN ? 'warning' : null;
+  return (
+    <div>
+      <div
+        role="meter"
+        aria-label="Credit limit used"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.min(pct, 100)}
+        className="h-1.5 overflow-hidden rounded-full bg-slate-800"
+      >
+        <div
+          className={`h-full rounded-full ${tone === 'danger' ? 'bg-danger' : tone === 'warning' ? 'bg-warning' : 'bg-slate-500'}`}
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
+      </div>
+      <div className="mt-1 flex items-center gap-1">
+        <span className={`text-xs ${tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-warning' : 'text-slate-500'}`}>
+          {pct}% of limit used
+          {tone && ' · high use can lower your credit score'}
+        </span>
+        <InfoHint label="Why the colours" title="Credit limit used">
+          Lenders and credit bureaus look at how much of your card limits you use. Lower is
+          usually better: under about 30% is commonly seen as healthy. The bar turns amber from
+          60% and red from 90%, where it tends to weigh on a credit score most. Paying the card
+          down before the statement closes lowers the amount that gets reported.
+        </InfoHint>
+      </div>
+    </div>
   );
 }
 

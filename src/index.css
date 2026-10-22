@@ -127,7 +127,7 @@
 
     /* darker status shades for the cream canvas */
     --ok: 21 105 70;
-    --warn: 146 64 14;
+    --warn: 180 83 9;
     --danger: 159 35 26;
     --info: 30 80 160;
 
@@ -250,7 +250,7 @@
 
     /* darker status shades so banners stay legible on warm paper */
     --ok: 21 105 70;
-    --warn: 146 64 14;
+    --warn: 180 83 9;
     --danger: 159 35 26;
     --info: 30 80 160;
 
