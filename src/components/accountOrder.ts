@@ -1,20 +1,19 @@
 import { useCallback, useMemo } from 'react';
 import { useQuery } from '@/db/useQuery';
 import { useConvert } from '@/app/AppSettingsProvider';
-import type { Account, AccountType } from '@/db/types';
+import type { Account } from '@/db/types';
 
 // How accounts are listed, chosen on the Accounts page and remembered on this
 // device; the Dashboard shows its first few in the same order.
-export type AccountOrder = 'used' | 'balance' | 'name' | 'type';
+// (No "by type": the Accounts page groups by type already.)
+export type AccountOrder = 'used' | 'balance' | 'name';
 
 export const ORDER_OPTIONS: { value: AccountOrder; label: string }[] = [
   { value: 'used', label: 'Most used' },
   { value: 'balance', label: 'Balance' },
   { value: 'name', label: 'Name' },
-  { value: 'type', label: 'Type' },
 ];
 const ORDER_KEY = 'copper-accounts-order';
-const TYPE_ORDER: AccountType[] = ['cash', 'bank', 'credit_card', 'wallet', 'loan', 'other'];
 
 export function getSavedOrder(): AccountOrder {
   try {
@@ -56,7 +55,6 @@ export function useSortedAccounts(accounts: Account[], order: AccountOrder, bala
       used: (a, b) => (uses.get(b.id) ?? 0) - (uses.get(a.id) ?? 0),
       balance: (a, b) => balanceOf(b) - balanceOf(a),
       name: () => 0,
-      type: (a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type),
     };
     return [...accounts].sort((a, b) => b.is_main - a.is_main || by[order](a, b) || a.name.localeCompare(b.name));
   }, [accounts, order, usage.data, balances, toMain]);

@@ -41,6 +41,15 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
 
 type CountedFilter = 'all' | 'counted' | 'not-counted';
 
+// What you have, then what you owe. Cash and wallets are both everyday money.
+const ACCOUNT_GROUPS: { label: string; types: AccountType[] }[] = [
+  { label: 'Bank accounts', types: ['bank'] },
+  { label: 'Cash & wallets', types: ['cash', 'wallet'] },
+  { label: 'Credit cards', types: ['credit_card'] },
+  { label: 'Loans', types: ['loan'] },
+  { label: 'Other', types: ['other'] },
+];
+
 const COUNTED_FILTERS: { value: CountedFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'counted', label: 'In total' },
@@ -69,6 +78,10 @@ export function Accounts() {
     [unarchived, filter],
   );
   const active = useSortedAccounts(shown, order, balances);
+  // Headings only once there's more than one kind.
+  const groups = ACCOUNT_GROUPS.map((g) => ({ ...g, accounts: active.filter((a) => g.types.includes(a.type)) })).filter(
+    (g) => g.accounts.length > 0,
+  );
 
   const chooseOrder = (next: AccountOrder) => {
     setOrder(next);
@@ -125,18 +138,27 @@ export function Accounts() {
         />
       )}
 
-      {active.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {active.map((acct) => (
-            <AccountCard
-              key={acct.id}
-              account={acct}
-              balanceMinor={balances.get(acct.id) ?? acct.opening_balance_minor}
-              onEdit={() => setEditing(acct)}
-            />
-          ))}
-        </div>
-      )}
+      {groups.map((g) => (
+        <section key={g.label} className="space-y-2">
+          {groups.length > 1 && (
+            <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {g.label} <span className="font-normal">· {g.accounts.length}</span>
+            </h2>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {g.accounts.map((acct) => (
+              <AccountCard
+                key={acct.id}
+                account={acct}
+                balanceMinor={balances.get(acct.id) ?? acct.opening_balance_minor}
+                onEdit={() => setEditing(acct)}
+                // The heading already names the type, unless the group mixes them.
+                showType={groups.length === 1 || g.types.length > 1}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
 
       {archived.length > 0 && (
         <Card>
@@ -179,9 +201,10 @@ interface AccountCardProps {
   account: Account;
   balanceMinor: number;
   onEdit: () => void;
+  showType: boolean;
 }
 
-function AccountCard({ account, balanceMinor, onEdit }: AccountCardProps) {
+function AccountCard({ account, balanceMinor, onEdit, showType }: AccountCardProps) {
   const limit = account.type === 'credit_card' ? (account.credit_limit_minor ?? 0) : 0;
   // A card in credit (paid more than owed) has more than its limit to spend.
   const available = limit + balanceMinor;
@@ -194,7 +217,9 @@ function AccountCard({ account, balanceMinor, onEdit }: AccountCardProps) {
           <div className="flex min-w-0 items-center gap-3">
             <AccountGlyph account={account} size="md" />
             <div className="min-w-0">
-              <div className="text-xs uppercase tracking-wide text-slate-500">{account.type.replace('_', ' ')}</div>
+              {showType && (
+                <div className="text-xs uppercase tracking-wide text-slate-500">{account.type.replace('_', ' ')}</div>
+              )}
               <div className="mt-0.5 truncate text-base font-semibold text-slate-50">{account.name}</div>
             </div>
           </div>

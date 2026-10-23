@@ -73,6 +73,20 @@ test.describe('Accounts CRUD', () => {
     await expect(page.getByText('Petty Cash')).toBeVisible();
   });
 
+  test('groups accounts by what they are', async ({ page }) => {
+    // One kind only: no headings.
+    await expect(page.locator('main h2')).toHaveCount(0);
+    for (const [name, type] of [['Home loan', 'loan'], ['HDFC Savings', 'bank'], ['Amex', 'credit_card'], ['Paytm', 'wallet']]) {
+      await page.getByRole('button', { name: '+ New account' }).click();
+      await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill(name);
+      await page.getByRole('dialog').getByLabel('Type', { exact: true }).selectOption(type);
+      await page.getByRole('dialog').getByRole('button', { name: 'Create' }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    }
+    await expect(page.locator('main h2')).toHaveText(['Bank accounts · 1', 'Cash & wallets · 2', 'Credit cards · 1', 'Loans · 1']);
+    await expect(page.locator('section', { has: page.getByRole('heading', { name: /Credit cards/ }) }).getByText('Amex')).toBeVisible();
+  });
+
   test('filter out not-counted accounts and change the order', async ({ page }) => {
     await page.getByRole('button', { name: '+ New account' }).click();
     await page.getByLabel('Name').fill('Home loan');
@@ -95,13 +109,16 @@ test.describe('Accounts CRUD', () => {
     await expect(loanCard).toHaveCount(0);
     await page.getByRole('button', { name: 'All', exact: true }).click();
 
-    // Main stays first; the rest follow the chosen order.
+    // Within a group, main stays first and the rest follow the chosen order.
+    const everyday = page.locator('section', { has: page.getByRole('heading', { name: /Cash & wallets/ }) });
+    const everydayNames = everyday.locator('.grid > div > button .text-base');
+    await page.getByRole('button', { name: '+ New account' }).click();
+    await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('Alpha Wallet');
+    await page.getByRole('dialog').getByRole('button', { name: 'Create' }).click();
     await page.getByLabel('Order by').selectOption('name');
-    const byName = await names.allTextContents();
-    expect(byName[0]).toBe('Cash');
-    expect(byName.slice(1)).toEqual([...byName.slice(1)].sort((x, y) => x.localeCompare(y)));
+    await expect(everydayNames).toHaveText(['Cash', 'Alpha Wallet', 'Zeta Wallet']);
     await page.getByLabel('Order by').selectOption('balance');
-    await expect(names.last()).toHaveText('Home loan');
+    await expect(everydayNames).toHaveText(['Cash', 'Zeta Wallet', 'Alpha Wallet']);
 
     // The order is remembered.
     await page.reload();

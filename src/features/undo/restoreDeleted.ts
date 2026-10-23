@@ -63,7 +63,7 @@ export async function restoreDeleted(db: DB, groupKey: string): Promise<RestoreR
   };
   const accounts = await existing('accounts', missing.map((b) => b.account_id));
   if (missing.some((b) => !accounts.has(b.account_id as string))) {
-    return { ok: false, reason: 'Its account has been deleted since, so it can’t come back here.' };
+    return { ok: false, reason: 'Its account isn’t in this book any more (merged or replaced since). To go back, restore a backup from Settings › Your data.' };
   }
   const categories = await existing('categories', missing.map((b) => b.category_id));
   const rules = await existing('recurring_rules', missing.map((b) => b.recurring_id));
