@@ -9,6 +9,9 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  // Copper's own port (Cu = 29), clear of other dev servers; Google's OAuth
+  // origins and API key allow exactly this one, so never fall back to another.
+  server: { port: 2929, strictPort: true },
   plugins: [
     react(),
     VitePWA({

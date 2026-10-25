@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { DB } from './wasm';
-import { openDB } from './client';
+import { isWaitingForErase, openDB, stopWaitingForErase } from './client';
 
 interface DBContextValue {
   db: DB;
@@ -57,6 +57,8 @@ export function DBProvider({ children, fallback, errorFallback }: DBProviderProp
     };
   }, []);
 
+  if (isWaitingForErase()) return <ReleasedScreen />;
+
   if (state.error) {
     return <>{errorFallback ? errorFallback(state.error) : <DefaultErrorScreen error={state.error} />}</>;
   }
@@ -111,6 +113,23 @@ function DefaultErrorScreen({ error }: { error: Error }) {
     <div className="flex h-full flex-col items-center justify-center gap-2 bg-slate-950 p-6 text-center text-slate-300">
       <div className="text-lg font-semibold text-danger">Couldn't start the app — try refreshing</div>
       <div className="max-w-md text-xs text-slate-500">{error.message}</div>
+    </div>
+  );
+}
+
+function ReleasedScreen() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-950 p-6 text-center" role="status">
+      <img src="/icon.svg" alt="" aria-hidden="true" className="h-10 w-10 motion-safe:animate-loading-breathe" />
+      <div className="text-base font-semibold text-slate-100">Your book is being reloaded in another tab</div>
+      <div className="max-w-sm text-sm text-slate-400">This tab picks it up as soon as that’s done.</div>
+      <button
+        type="button"
+        onClick={stopWaitingForErase}
+        className="mt-1 text-sm font-medium text-brand-400 hover:text-brand-300"
+      >
+        Reload now
+      </button>
     </div>
   );
 }

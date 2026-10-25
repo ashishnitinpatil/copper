@@ -55,7 +55,7 @@ and [terms](https://copper.ashishnitinpatil.com/terms).
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:2929
 ```
 
 Copper works without any configuration in local-only mode. To enable Google
@@ -63,7 +63,7 @@ sign-in and Drive sync, copy `.env.example` to `.env.local` and fill in:
 
 | Variable | What it is |
 |---|---|
-| `VITE_GOOGLE_CLIENT_ID` | OAuth 2.0 Web client ID. Add `http://localhost:5173` (and your production origin) to its authorized JavaScript origins. |
+| `VITE_GOOGLE_CLIENT_ID` | OAuth 2.0 Web client ID. Add `http://localhost:2929` (and your production origin) to its authorized JavaScript origins. |
 | `VITE_GOOGLE_API_KEY` | API key restricted to the Google Picker API — used to connect a book a partner shared with you. |
 | `VITE_GOOGLE_APP_ID` | The Google Cloud project number. |
 

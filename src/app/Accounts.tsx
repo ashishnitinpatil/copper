@@ -343,9 +343,15 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
 
   const title = existing ? 'Edit account' : 'New account';
 
-  useEffect(() => {
+  // Fill the form as the dialog opens, during render: an effect would first
+  // show the last account's values, and re-running it later (the default
+  // currency is re-derived after each save) would wipe what's being typed.
+  const [shownFor, setShownFor] = useState<Account | null | undefined>(undefined);
+  const openedFor = open ? (existing ?? null) : undefined;
+  if (openedFor !== shownFor) {
+    setShownFor(openedFor);
     if (open) setForm(existing ? toForm(existing) : emptyForm(defaultCurrency));
-  }, [open, existing, defaultCurrency]);
+  }
 
   useEffect(() => {
     if (!open || !existing) return;

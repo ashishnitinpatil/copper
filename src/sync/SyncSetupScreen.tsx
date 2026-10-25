@@ -17,8 +17,12 @@ const SETTING_UP_THRESHOLD = 20_000;
  * "record your first transaction" while thousands are streaming in.
  */
 export function useIsFirstPull(): boolean {
-  const { progress } = useSync();
-  return !!progress && progress.total >= BLOCKING_THRESHOLD;
+  const { progress, bookId, lastSyncAt, status } = useSync();
+  if (progress) return progress.total >= BLOCKING_THRESHOLD;
+  // Linked to a book but never synced (it was just loaded or joined): the book
+  // is still downloading, so hold the app rather than show it empty. Signed
+  // out, offline or failed, nothing is coming — let the app and its banner show.
+  return !!bookId && !lastSyncAt && (status === 'idle' || status === 'syncing');
 }
 
 /** Keeps a phone's screen on while `active`, so it doesn't sleep mid-setup. */
@@ -57,11 +61,12 @@ export function SyncSetupScreen() {
   const show = useIsFirstPull();
   const { progress } = useSync();
   useWakeLock(show);
-  if (!show || !progress) return null;
+  if (!show) return null;
 
-  const { done, total } = progress;
-  const pct = Math.min(100, Math.round((done / total) * 100));
-  const settingUp = total >= SETTING_UP_THRESHOLD;
+  // Before any progress, the book file itself is still coming down from Drive.
+  const downloading = !progress;
+  const pct = progress ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
+  const settingUp = downloading || progress.total >= SETTING_UP_THRESHOLD;
 
   return (
     <div
@@ -83,16 +88,20 @@ export function SyncSetupScreen() {
             : 'This device has been away for a while. Copper opens as soon as it’s up to date.'}
         </p>
 
-        <p className="mt-5 text-sm text-slate-300">{pct}% done</p>
+        <p className="mt-5 text-sm text-slate-300">{downloading ? 'Downloading your book…' : `${pct}% done`}</p>
         <div
           className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={pct}
+          aria-valuenow={downloading ? undefined : pct}
           aria-label="Sync progress"
         >
-          <div className="h-full rounded-full bg-brand-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+          {downloading ? (
+            <div className="h-full w-1/4 rounded-full bg-brand-500 motion-safe:animate-progress-slide" />
+          ) : (
+            <div className="h-full rounded-full bg-brand-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+          )}
         </div>
 
         <ul className="mt-6 space-y-2.5 text-sm text-slate-300">
