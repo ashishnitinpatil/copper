@@ -17,10 +17,32 @@ const PAD_R = 8;
 const PAD_TOP = 16;
 const PAD_BOTTOM = 28;
 
-function monthLabel(ym: string): string {
-  const m = Number(ym.slice(5, 7));
-  const name = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1] ?? ym;
-  return m === 1 ? `${name} ${ym.slice(0, 4)}` : name;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// Month names fit ~8 across; bare years are short enough for ~10.
+const MAX_LABELS = 8;
+const MAX_YEAR_LABELS = 10;
+
+/** "Feb 2024". */
+function monthYear(ym: string): string {
+  return `${MONTHS[Number(ym.slice(5, 7)) - 1] ?? ym} ${ym.slice(0, 4)}`;
+}
+
+/**
+ * Axis labels, a handful at most, on calendar boundaries so a thinned axis never
+ * reads "Jan 2019, Feb, Mar…" across years: every 1/2/3/6 months with the year
+ * on January and the first label, or just the years over a long range.
+ */
+export function axisLabels(yms: string[]): (string | null)[] {
+  const step = [1, 2, 3, 6, 12, 24, 36, 60].find((s) => yms.length / s <= (s >= 12 ? MAX_YEAR_LABELS : MAX_LABELS)) ?? 120;
+  let first = true;
+  return yms.map((ym) => {
+    const year = Number(ym.slice(0, 4));
+    const month = Number(ym.slice(5, 7));
+    if (((year * 12 + month - 1) % step) !== 0) return null;
+    const label = step >= 12 ? String(year) : month === 1 || first ? monthYear(ym) : MONTHS[month - 1];
+    first = false;
+    return label;
+  });
 }
 
 /**
@@ -64,15 +86,14 @@ export function BalanceTrendChart({ data, currency, windowMonths }: Props) {
   const hasProjection = firstProjected !== -1;
   const nowX = lastActualIdx >= 0 ? x(lastActualIdx) : null;
 
-  // Thin out x labels so they stay readable.
-  const labelEvery = Math.ceil(data.length / 8);
+  const labels = axisLabels(data.map((p) => p.ym));
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-wide text-slate-500">
-            {monthLabel(sel.ym)} {sel.projected ? '· projected' : ''}
+            {monthYear(sel.ym)} {sel.projected ? '· projected' : ''}
           </div>
           <div
             className={`font-display text-2xl font-semibold tabular-nums ${
@@ -152,15 +173,16 @@ export function BalanceTrendChart({ data, currency, windowMonths }: Props) {
               r={i === active ? 4 : 2}
               className={`pointer-events-none ${p.projected ? 'fill-slate-400' : 'fill-brand-500'}`}
             />
-            {i % labelEvery === 0 && (
+            {labels[i] && (
               <text
                 x={x(i)}
                 y={VB_H - 9}
-                textAnchor="middle"
+                // Labels at the very edges grow inward so they aren't cut off.
+                textAnchor={x(i) < PAD_L + 24 ? 'start' : x(i) > VB_W - PAD_R - 24 ? 'end' : 'middle'}
                 className={`pointer-events-none fill-slate-500 ${i === active ? 'fill-slate-300' : ''}`}
                 fontSize={12}
               >
-                {monthLabel(p.ym)}
+                {labels[i]}
               </text>
             )}
           </g>
