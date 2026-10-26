@@ -62,10 +62,12 @@ const PERIOD_CHOICES: { id: PeriodChoice; label: string }[] = [
   { id: 'custom', label: 'Custom dates' },
 ];
 
-const CATEGORY_SPEND_SQL = `SELECT c.id AS category_id, c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
+// Uncategorized spend is its own row, so the total is everything spent.
+const CATEGORY_SPEND_SQL = `SELECT COALESCE(c.id, '') AS category_id, COALESCE(c.name, 'Uncategorized') AS category_name,
+          c.icon AS category_icon, c.color AS category_color,
           a.currency AS currency, SUM(ABS(t.amount_minor)) AS total
    FROM transactions t
-   JOIN categories c ON c.id = t.category_id
+   LEFT JOIN categories c ON c.id = t.category_id
    JOIN accounts a ON a.id = t.account_id
    WHERE t.kind = 'expense' AND t.occurred_on >= ? AND t.occurred_on <= ?
    GROUP BY c.id, a.currency`;
@@ -123,9 +125,12 @@ export function Reports() {
            FROM transactions t
            JOIN accounts a ON a.id = t.account_id
            WHERE t.kind IN ('expense', 'income')
+             -- This month only up to today; later months are shown as upcoming.
+             AND (t.occurred_on <= ? OR substr(t.occurred_on, 1, 7) > substr(?, 1, 7))
            GROUP BY month, t.kind, a.currency`,
+          [today, today],
         ),
-      [],
+      [today],
     ),
     { deps: ['transactions', 'accounts'] },
   );

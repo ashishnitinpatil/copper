@@ -119,4 +119,22 @@ test.describe('Reports', () => {
     await expect(table).toContainText('₹777.00');
     await expect(page.getByText(/only entries already scheduled/)).toBeVisible();
   });
+
+  test('this month’s trend counts only up to today', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-10-10T09:00:00'));
+    await resetAndLoad(page, '/add');
+    await waitForDB(page);
+    await addExpense(page, '100', /Other/);
+    await pickDate(page.getByRole('button', { name: /^Date:/ }), '2026-10-25');
+    await addExpense(page, '777', /Other/);
+
+    await page.getByRole('link', { name: 'Reports', exact: true }).first().click();
+    await waitForDB(page);
+    await page.getByRole('button', { name: 'Monthly trend' }).click();
+    const table = page.locator('table');
+    await expect(table).toContainText('₹100.00');
+    await expect(table).not.toContainText('₹877.00');
+    await expect(table).not.toContainText('₹777.00');
+  });
 });
+

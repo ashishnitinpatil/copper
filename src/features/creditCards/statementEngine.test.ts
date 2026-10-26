@@ -28,12 +28,15 @@ function card(over: Partial<Account>): Account {
   };
 }
 
-function fakeDB(cards: Account[], balanceMinorById: Record<string, number> = {}): DB {
+type Sums = { closed?: number; paid?: number; open?: number };
+
+function fakeDB(cards: Account[], sumsById: Record<string, Sums> = {}): DB {
   return {
     execO: async (sql: string, params?: unknown[]) => {
       if (sql.includes('FROM accounts')) return cards as unknown[];
-      const id = params?.[0] as string;
-      return [{ total: balanceMinorById[id] ?? 0 }];
+      const id = params?.[params.length - 1] as string;
+      const s = sumsById[id] ?? {};
+      return [{ closed: s.closed ?? 0, paid: s.paid ?? 0, open: s.open ?? 0 }];
     },
   } as unknown as DB;
 }
@@ -81,11 +84,36 @@ describe('getCreditCardStatements', () => {
     expect(info.dueDate).toBe('2026-07-15');
   });
 
-  it('passes the summed statement balance through from the DB', async () => {
-    const db = fakeDB([{ ...card({}), id: 'visa' }], { visa: 1234500 });
-    const [info] = await getCreditCardStatements(db, '2026-06-10');
+  it('shows the open cycle once the closed statement is paid', async () => {
+    const db = fakeDB([{ ...card({}), id: 'visa' }], { visa: { closed: 500, paid: 500, open: 1234500 } });
+    const [info] = await getCreditCardStatements(db, '2026-06-20');
     expect(info.statementBalance).toBe(1234500);
+    expect(info.cycleEnd).toBe('2026-07-15');
     expect(info.account.id).toBe('visa');
+  });
+
+  it('keeps showing the closed statement until payments cover it', async () => {
+    const db = fakeDB([card({})], { cc1: { closed: 10000, paid: 4000, open: 2500 } });
+    const [info] = await getCreditCardStatements(db, '2026-06-20');
+    expect(info.cycleStart).toBe('2026-05-16');
+    expect(info.cycleEnd).toBe('2026-06-15');
+    expect(info.statementBalance).toBe(6000); // what's left to pay
+    expect(info.dueDate).toBe('2026-07-05');
+  });
+
+  it('an unpaid statement past its due date is past due', async () => {
+    const db = fakeDB([card({})], { cc1: { closed: 10000 } });
+    const [info] = await getCreditCardStatements(db, '2026-07-08');
+    expect(info.cycleEnd).toBe('2026-06-15');
+    expect(info.isPastDue).toBe(true);
+    expect(info.daysUntilDue).toBe(-3);
+  });
+
+  it('paying more than the statement counts toward the open cycle', async () => {
+    const db = fakeDB([card({})], { cc1: { closed: 10000, paid: 12000, open: 5000 } });
+    const [info] = await getCreditCardStatements(db, '2026-06-20');
+    expect(info.cycleEnd).toBe('2026-07-15');
+    expect(info.statementBalance).toBe(3000);
   });
 
   it('reports multiple cards independently', async () => {

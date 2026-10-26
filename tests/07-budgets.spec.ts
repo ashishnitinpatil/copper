@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAndLoad, waitForDB, selectCombobox } from './helpers';
+import { resetAndLoad, waitForDB, selectCombobox, pickDate } from './helpers';
 
 async function addExpense(page: import('@playwright/test').Page, amount: string, category: RegExp) {
   for (const ch of amount) {
@@ -45,5 +45,23 @@ test.describe('Budgets', () => {
     await page.waitForTimeout(300);
 
     await expect(page.getByText(/Over by/).first()).toBeVisible();
+  });
+
+  test('an expense scheduled later this month doesn’t count yet', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-10-10T09:00:00'));
+    await resetAndLoad(page, '/add');
+    await waitForDB(page);
+    await addExpense(page, '500', /Food & Dining/);
+    await pickDate(page.getByRole('button', { name: /^Date:/ }), '2026-10-25');
+    await addExpense(page, '700', /Food & Dining/);
+
+    await page.getByRole('link', { name: 'Budgets', exact: true }).first().click();
+    await page.getByRole('button', { name: '+ New budget' }).first().click();
+    await selectCombobox(page, 'Category', 'Food & Dining');
+    await page.getByLabel('Monthly cap').fill('2000');
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    await expect(page.getByText('₹500.00').first()).toBeVisible();
+    await expect(page.getByText('₹1,200.00')).toHaveCount(0);
   });
 });

@@ -43,7 +43,10 @@ export async function getBudgetsWithSpent(
 ): Promise<BudgetWithSpent[]> {
   const ref = month ? new Date(month + 'T00:00:00') : new Date();
   const from = toDateString(startOfMonth(ref));
-  const to = toDateString(endOfMonth(ref));
+  // This month counts only up to today: later entries are scheduled, not spent.
+  const today = toDateString();
+  const monthEnd = toDateString(endOfMonth(ref));
+  const to = from <= today && today < monthEnd ? today : monthEnd;
 
   const budgets = await db.execO<BudgetWithSpent>(
     `SELECT b.*, c.name AS category_name, c.icon AS category_icon, 0 AS spent_minor

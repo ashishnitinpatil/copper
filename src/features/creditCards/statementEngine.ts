@@ -29,16 +29,32 @@ export async function getCreditCardStatements(
     const stDay = card.statement_day!;
     const dueDay = card.due_day ?? stDay;
 
-    const { cycleStart, cycleEnd } = getCycleDates(todayDate, stDay);
-    const dueDate = getNextDueDate(todayDate, cycleEnd, dueDay);
+    const open = getCycleDates(todayDate, stDay);
+    const closedEnd = dayBefore(open.cycleStart);
+    const closed = getCycleDates(new Date(closedEnd + 'T00:00:00'), stDay);
 
-    const rows = await db.execO<{ total: number }>(
-      `SELECT COALESCE(SUM(ABS(amount_minor)), 0) AS total
-       FROM transactions
-       WHERE account_id = ? AND kind IN ('expense', 'transfer') AND amount_minor < 0 AND occurred_on >= ? AND occurred_on <= ?`,
-      [card.id, cycleStart, cycleEnd],
+    // A cycle's bill is its charges less refunds. Payments into the card after
+    // the statement closes go to that statement first; anything over it counts
+    // toward the open cycle.
+    const cycleNet = `COALESCE(SUM(CASE WHEN occurred_on >= ? AND occurred_on <= ? AND (
+         (amount_minor < 0 AND kind IN ('expense', 'transfer')) OR (amount_minor > 0 AND kind = 'income')
+       ) THEN -amount_minor END), 0)`;
+    const rows = await db.execO<{ closed: number; paid: number; open: number }>(
+      `SELECT ${cycleNet} AS closed, ${cycleNet} AS open,
+              COALESCE(SUM(CASE WHEN occurred_on > ? AND occurred_on <= ? AND amount_minor > 0 AND kind = 'transfer'
+                THEN amount_minor END), 0) AS paid
+       FROM transactions WHERE account_id = ?`,
+      [closed.cycleStart, closed.cycleEnd, open.cycleStart, open.cycleEnd, closedEnd, todayStr, card.id],
     );
-    const statementBalance = rows[0]?.total ?? 0;
+    const sums = rows[0] ?? { closed: 0, paid: 0, open: 0 };
+    const closedBill = Math.max(0, sums.closed);
+    // The closed statement stays up until payments cover it.
+    const showClosed = closedBill > sums.paid;
+    const { cycleStart, cycleEnd } = showClosed ? closed : open;
+    const statementBalance = showClosed
+      ? closedBill - sums.paid
+      : Math.max(0, sums.open - (sums.paid - closedBill));
+    const dueDate = getNextDueDate(todayDate, cycleEnd, dueDay);
 
     const dueDateObj = new Date(dueDate + 'T00:00:00');
     const diffMs = dueDateObj.getTime() - todayDate.getTime();
@@ -78,6 +94,12 @@ function getCycleDates(today: Date, statementDay: number): { cycleStart: string;
     cycleStart: toDateString(cycleStartDate),
     cycleEnd: toDateString(cycleEndDate),
   };
+}
+
+function dayBefore(date: string): string {
+  const d = new Date(date + 'T00:00:00');
+  d.setDate(d.getDate() - 1);
+  return toDateString(d);
 }
 
 function clampToMonth(year: number, month: number, day: number): Date {
