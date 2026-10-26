@@ -148,7 +148,12 @@ export function Transactions() {
   // Past entries come a page at a time; "Load more" asks for another page.
   const [pageLimit, setPageLimit] = useState(PAGE_SIZE);
   const filterKey = JSON.stringify([filters.accountId, filters.categoryId, filters.tagId, filters.kind, filters.dateFrom, filters.dateTo, debouncedSearch]);
-  useEffect(() => setPageLimit(PAGE_SIZE), [filterKey]);
+  // New filters also drop the selection: a bulk delete must only ever touch
+  // entries that are on screen.
+  useEffect(() => {
+    setPageLimit(PAGE_SIZE);
+    setSelected(new Set());
+  }, [filterKey]);
 
   // Past and upcoming are queried separately: scheduled entries (years of loan
   // EMIs, say) sort first, and in one capped query they crowded out the past.
@@ -238,6 +243,10 @@ export function Transactions() {
   const nothing = loaded && pastRows.length === 0 && upcomingQuery.data!.length === 0;
 
   const past = useMemo(() => groupByDate(pastRows.slice(0, pageLimit)), [pastRows, pageLimit]);
+  const selectedKinds = useMemo(
+    () => new Set([...pastRows, ...(upcomingQuery.data ?? [])].filter((t) => selected.has(t.id)).map((t) => t.kind)),
+    [pastRows, upcomingQuery.data, selected],
+  );
   // Soonest first: "what's coming next" reads top-down.
   const upcoming = useMemo(() => groupByDate(upcomingQuery.data ?? []).reverse(), [upcomingQuery.data]);
   const activeFilters = [
@@ -610,7 +619,7 @@ export function Transactions() {
       <RecategorizeModal
         open={showRecat}
         count={selected.size}
-        categories={categoriesQuery.data ?? []}
+        categories={(categoriesQuery.data ?? []).filter((c) => selectedKinds.has(c.kind))}
         onApply={recategorizeSelected}
         onClose={() => setShowRecat(false)}
       />
@@ -681,8 +690,8 @@ function RecategorizeModal({ open, count, categories, onApply, onClose }: Recate
     <Modal open={open} onClose={onClose} title="Change category">
       <div className="space-y-4">
         <p className="text-sm text-slate-300">
-          Set a category for {count} selected {count === 1 ? 'entry' : 'entries'}. Transfers are left
-          unchanged.
+          Set a category for {count} selected {count === 1 ? 'entry' : 'entries'}. Transfers, and
+          entries of the other kind (expense or income), are left unchanged.
         </p>
         <Combobox
           label="Category"
@@ -730,18 +739,28 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
   const [tagIds, setTagIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
 
+  // Fill the form as the dialog opens for an entry, during render. Keyed on the
+  // id: the list hands over a new object whenever it refreshes (after a sync,
+  // say), and refilling then would wipe what's being typed.
+  const [shownFor, setShownFor] = useState<string | undefined>(undefined);
+  const openedFor = open ? existing?.id : undefined;
+  if (openedFor !== shownFor) {
+    setShownFor(openedFor);
+    if (open && existing) {
+      setForm({
+        account_id: existing.account_id,
+        category_id: existing.category_id ?? '',
+        amount_input: String(fromMinor(Math.abs(existing.amount_minor), existing.account_currency)),
+        kind: existing.kind,
+        occurred_on: existing.occurred_on,
+        note: existing.note ?? '',
+      });
+    }
+  }
   useEffect(() => {
-    if (!open || !existing) return;
-    setForm({
-      account_id: existing.account_id,
-      category_id: existing.category_id ?? '',
-      amount_input: String(fromMinor(Math.abs(existing.amount_minor), existing.account_currency)),
-      kind: existing.kind,
-      occurred_on: existing.occurred_on,
-      note: existing.note ?? '',
-    });
-    getTagIdsForTransaction(db, existing.id).then((ids) => setTagIds(new Set(ids)));
-  }, [open, existing, db]);
+    if (open && existing) getTagIdsForTransaction(db, existing.id).then((ids) => setTagIds(new Set(ids)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per entry, not per list refresh
+  }, [open, existing?.id, db]);
 
   const toggleTag = (id: string) =>
     setTagIds((cur) => {
@@ -755,9 +774,13 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
     return <Modal open={open} onClose={onClose} />;
   }
 
+  // Parse in the currency of the account it's moving to: minor units differ
+  // (¥100 is 100, ₹100 is 10000).
+  const currency = accounts.find((a) => a.id === form.account_id)?.currency ?? existing.account_currency;
+  const amount = parseAmount(form.amount_input, currency);
+
   const handleSave = async () => {
-    const amount = parseAmount(form.amount_input, existing.account_currency);
-    if (amount == null) return;
+    if (!amount) return;
     setSubmitting(true);
     try {
       await updateTransaction(db, existing.id, {
@@ -802,7 +825,8 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
           <Select
             label="Kind"
             value={form.kind}
-            onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as TransactionKind }))}
+            // The category list is per kind, so the old category no longer fits.
+            onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as TransactionKind, category_id: '' }))}
           >
             <option value="expense">Expense</option>
             <option value="income">Income</option>
@@ -851,7 +875,7 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={submitting}>
+            <Button onClick={handleSave} disabled={submitting || !amount}>
               Save
             </Button>
           </div>

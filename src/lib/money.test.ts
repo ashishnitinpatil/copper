@@ -72,6 +72,17 @@ describe('parseAmount', () => {
     expect(parseAmount('1 000', 'INR')).toBe(100000);
   });
 
+  it('reads Indian grouping and drops currency symbols', () => {
+    expect(parseAmount('1,00,000', 'INR')).toBe(10000000);
+    expect(parseAmount('₹1,000.50', 'INR')).toBe(100050);
+  });
+
+  it('takes a final comma as the decimal mark when it is not a thousands group', () => {
+    expect(parseAmount('1,5', 'EUR')).toBe(150);
+    expect(parseAmount('12,50', 'EUR')).toBe(1250);
+    expect(parseAmount('1.000,50', 'EUR')).toBe(100050);
+  });
+
   it('returns null for empty / invalid input', () => {
     expect(parseAmount('', 'INR')).toBeNull();
     expect(parseAmount('abc', 'INR')).toBeNull();

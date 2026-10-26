@@ -22,6 +22,14 @@ const FOCUSABLE =
 export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // Callers pass a fresh onClose on every render. Kept in a ref so a parent
+  // re-render (say, a sync refreshing the list behind the dialog) doesn't re-run
+  // the effect below and pull focus out of the field being typed in.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  // Where the press began: a text selection dragged out of the dialog ends on
+  // the backdrop, and that must not close it and lose what was typed.
+  const pressedBackdrop = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -34,7 +42,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
         return;
       }
       // Trap Tab within the dialog.
@@ -60,7 +68,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
       window.removeEventListener('keydown', onKey);
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -73,7 +81,10 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-4 backdrop-blur-sm sm:items-center"
-      onClick={onClose}
+      onMouseDown={(e) => (pressedBackdrop.current = e.target === e.currentTarget)}
+      onClick={(e) => {
+        if (pressedBackdrop.current && e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         ref={dialogRef}

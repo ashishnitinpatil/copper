@@ -30,6 +30,16 @@ test.describe('SQL Console', () => {
     await expect(page.getByText(/Only SELECT/)).toBeVisible();
   });
 
+  test('a write hidden behind WITH changes nothing', async ({ page }) => {
+    await page.locator('textarea').fill('WITH x AS (SELECT 1) DELETE FROM accounts');
+    await page.getByRole('button', { name: /Run/ }).click();
+    await expect(page.getByText('No rows returned.')).toBeVisible();
+
+    await page.locator('textarea').fill('SELECT name FROM accounts');
+    await page.getByRole('button', { name: /Run/ }).click();
+    await expect(page.getByText('1 row')).toBeVisible();
+  });
+
   test('shows all seeded tables', async ({ page }) => {
     await page.getByRole('button', { name: 'All tables' }).click();
     await page.getByRole('button', { name: /Run/ }).click();

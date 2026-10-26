@@ -148,6 +148,9 @@ export async function bulkAddTag(db: DB, txIds: string[], tagId: string): Promis
   const batchId = txIds.length > 1 ? newBatchId() : null;
   await db.tx(async (tx) => {
     for (const txId of txIds) {
+      // Already tagged: nothing to add, and nothing for undo to take away.
+      const has = await tx.execO('SELECT 1 FROM transaction_tags WHERE transaction_id = ? AND tag_id = ?', [txId, tagId]);
+      if (has.length > 0) continue;
       await tx.exec(
         'INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id, created_at) VALUES (?, ?, ?)',
         [txId, tagId, now],

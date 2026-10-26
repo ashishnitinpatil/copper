@@ -141,7 +141,15 @@ export function encodeBook(rows: ChangeRow[], updatedBy: string, generation?: st
   };
 }
 
+export class NewerBookError extends Error {
+  constructor() {
+    super('This book was last saved by a newer version of Copper. Update Copper to keep syncing.');
+    this.name = 'NewerBookError';
+  }
+}
+
 export function decodeBook(book: BookFile): ChangeRow[] {
+  if (book?.format === 'copper-book' && book.version > 2) throw new NewerBookError();
   if (book?.format !== 'copper-book' || book.version !== 2) {
     throw new Error("This doesn't look like a Copper shared book.");
   }

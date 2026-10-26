@@ -81,6 +81,10 @@ interface SyncContextValue {
   backupIntervalDays: number;
   setBackupIntervalDays: (n: number) => Promise<void>;
   backupNow: () => Promise<void>;
+  // Run a restore or import with sync held off: waits for a running sync to
+  // finish, and none starts until it's done — so the safety backup it queues is
+  // taken before any of its rows can reach the shared book.
+  withSyncPaused: <T>(fn: () => Promise<T>) => Promise<T>;
   listBackups: () => Promise<DriveSnapshot[]>;
   fetchBackup: (snap: DriveSnapshot) => Promise<BackupFile>;
 }
@@ -348,6 +352,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     await refreshStatus();
   }, [db, auth, refreshStatus]);
 
+  const withSyncPaused = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
+    while (running.current) await running.current;
+    inFlight.current = true;
+    try {
+      return await fn();
+    } finally {
+      inFlight.current = false;
+    }
+  }, []);
+
   const listBackups = useCallback(async () => {
     const token = await auth.getGoogleAccessToken();
     if (!token) throw new Error('Your Google sign-in has expired. Tap Reconnect, then try again.');
@@ -388,6 +402,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         backupIntervalDays,
         setBackupIntervalDays,
         backupNow,
+        withSyncPaused,
         listBackups,
         fetchBackup,
       }}

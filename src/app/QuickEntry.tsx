@@ -272,7 +272,9 @@ export function QuickEntry() {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      // Typing in a dialog (say, a new category) isn't meant for the amount.
+      if (document.querySelector('[aria-modal="true"]')) return;
       if (/^[0-9]$/.test(e.key)) press(e.key);
       else if (e.key === '.' || e.key === ',') press('.');
       else if (e.key === 'Backspace') press('⌫');

@@ -1,6 +1,6 @@
 import type { DB } from '../wasm';
 import type { Account, Budget, Category, RecurringRule, Transaction } from '../types';
-import { logUpdate, newBatchId, recordChange, snapshotEntity, type LogOptions } from '../changeLog';
+import { logDelete, logUpdate, newBatchId, recordChange, snapshotEntity, type LogOptions } from '../changeLog';
 import type { RecurringTemplate } from './recurring';
 import { getAccountBalances } from './accounts';
 import { toDateString } from '@/lib/dates';
@@ -79,9 +79,21 @@ export async function mergeCategory(db: DB, sourceId: string, targetId: string):
   ]);
   for (const row of txns) await logUpdate(db, 'transaction', row.id, asRow(row), opts);
 
+  // The target keeps its own budget; one of the source's for the same period
+  // would count the same spending twice, so it goes.
   const budgets = await db.execO<Budget>('SELECT * FROM budgets WHERE category_id = ?', [sourceId]);
-  await db.exec('UPDATE budgets SET category_id = ? WHERE category_id = ?', [targetId, sourceId]);
-  for (const row of budgets) await logUpdate(db, 'budget', row.id, asRow(row), opts);
+  const targetPeriods = new Set(
+    (await db.execO<Budget>('SELECT * FROM budgets WHERE category_id = ? AND archived_at IS NULL', [targetId])).map((b) => b.period),
+  );
+  for (const row of budgets) {
+    if (!row.archived_at && targetPeriods.has(row.period)) {
+      await db.exec('DELETE FROM budgets WHERE id = ?', [row.id]);
+      await logDelete(db, 'budget', asRow(row), opts);
+    } else {
+      await db.exec('UPDATE budgets SET category_id = ? WHERE id = ?', [targetId, row.id]);
+      await logUpdate(db, 'budget', row.id, asRow(row), opts);
+    }
+  }
 
   const children = await db.execO<Category>('SELECT * FROM categories WHERE parent_id = ?', [
     sourceId,

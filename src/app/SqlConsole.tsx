@@ -12,6 +12,8 @@ const EXAMPLE_QUERIES = [
   { label: 'All tables', sql: `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name` },
 ];
 
+const ROLLBACK = new Error('rollback');
+
 export function SqlConsole() {
   const db = useDB();
   const [sql, setSql] = useState(EXAMPLE_QUERIES[0].sql);
@@ -41,7 +43,17 @@ export function SqlConsole() {
     setRunning(true);
     setError(null);
     try {
-      const rows = await db.execO<Record<string, unknown>>(cleaned);
+      // The prefix check above doesn't make it read-only ("WITH … DELETE" is
+      // valid SQL), so run it in a transaction that is always rolled back.
+      let rows: Record<string, unknown>[] = [];
+      await db
+        .tx(async (tx) => {
+          rows = (await tx.execO<Record<string, unknown>>(cleaned)) ?? [];
+          throw ROLLBACK;
+        })
+        .catch((e: unknown) => {
+          if (e !== ROLLBACK) throw e;
+        });
       if (rows.length === 0) {
         setResult({ columns: [], rows: [] });
       } else {

@@ -24,6 +24,7 @@ import {
   encodeBook,
   gunzipJson,
   gzipJson,
+  NewerBookError,
   type BookFile,
 } from './bookFile';
 import { uuid } from '@/db/uuid';
@@ -105,12 +106,7 @@ async function newGeneration(db: DB): Promise<void> {
   await setSetting(db, SYNC_KEYS.BOOK_GENERATION, uuid());
 }
 
-export class NewerBookError extends Error {
-  constructor() {
-    super('This book was last saved by a newer version of Copper. Update Copper to keep syncing.');
-    this.name = 'NewerBookError';
-  }
-}
+export { NewerBookError };
 
 // A newer Copper on another device may have added a table or column this
 // version doesn't have yet. Applying those cells fails deep in SQLite with a

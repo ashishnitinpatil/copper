@@ -1703,22 +1703,26 @@ function RestoreSection() {
     setPhase('inserting');
     setRowsDone(0);
     try {
-      await restoreBackup(db, pending.backup, (done) => setRowsDone(done));
       // The restore deletes the old rows and inserts the backup's, and the next
       // sync carries both to the shared book. Back the book up first so this
-      // can be undone. No-op when not connected.
-      await markSafetyBackup(db, 'before restore');
-      // The VFS persists with "relaxed" durability, so the write isn't
-      // guaranteed flushed to IndexedDB when restoreBackup resolves — reloading
-      // here can tear the page down mid-flush and leave a malformed file.
-      // close() then a fresh open() is a durability barrier: IndexedDB orders
-      // the reopen's reads after all pending writes, so once open() resolves
-      // the file is fully written. Only then is it safe to reload. This flush
-      // can't be measured, so the UI shows an unquantified "Finishing up…".
-      setPhase('finishing');
-      setNote('Restored — reloading…');
-      await closeDB();
-      await openDB();
+      // can be undone (no-op when not connected) — queued before the restore,
+      // with sync held off so one already running can't upload restored rows
+      // ahead of the copy, or lose its database handle to the close below.
+      await sync.withSyncPaused(async () => {
+        await markSafetyBackup(db, 'before restore');
+        await restoreBackup(db, pending.backup, (done) => setRowsDone(done));
+        // The VFS persists with "relaxed" durability, so the write isn't
+        // guaranteed flushed to IndexedDB when restoreBackup resolves — reloading
+        // here can tear the page down mid-flush and leave a malformed file.
+        // close() then a fresh open() is a durability barrier: IndexedDB orders
+        // the reopen's reads after all pending writes, so once open() resolves
+        // the file is fully written. Only then is it safe to reload. This flush
+        // can't be measured, so the UI shows an unquantified "Finishing up…".
+        setPhase('finishing');
+        setNote('Restored — reloading…');
+        await closeDB();
+        await openDB();
+      });
       // Reload so every reactive query re-reads the freshly rebuilt tables.
       window.location.reload();
     } catch (e) {
@@ -2017,8 +2021,10 @@ function ImportSection() {
       };
       // Back the shared book up before any imported row can reach it — set before
       // the import starts, since a sync could otherwise run mid-import.
-      await markSafetyBackup(db, 'before import');
-      const res = await runMonefyImport(db, plan, overrides, (done, total) => setProgress({ done, total }));
+      const res = await sync.withSyncPaused(async () => {
+        await markSafetyBackup(db, 'before import');
+        return runMonefyImport(db, plan, overrides, (done, total) => setProgress({ done, total }));
+      });
       await settings.refresh();
       setResult(
         `Imported ${res.accountsCreated} accounts, ${res.categoriesCreated} categories, ${res.transactionsCreated} transactions, ${res.transfersCreated} transfers.` +

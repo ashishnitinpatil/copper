@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  NewerBookError,
   bookToBackup,
   decodeBook,
   diffBook,
@@ -65,6 +66,13 @@ describe('book encode/decode', () => {
   it('survives gzip', async () => {
     const book = encodeBook([cell({})], 'aa');
     expect(await gunzipJson(await gzipJson(book))).toEqual(book);
+  });
+});
+
+describe('decodeBook versions', () => {
+  it('says a book from a newer Copper needs an update, not that it is foreign', () => {
+    const book = { ...encodeBook([], 'aa'), version: 3 } as unknown as BookFile;
+    expect(() => decodeBook(book)).toThrow(NewerBookError);
   });
 });
 

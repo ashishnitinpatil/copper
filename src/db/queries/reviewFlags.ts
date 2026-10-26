@@ -1,7 +1,8 @@
 import type { DB } from '../wasm';
 import type { ReviewFlag, Transaction } from '../types';
 import { uuid } from '../uuid';
-import { nowIso, toDateString } from '@/lib/dates';
+import { addDays, nowIso, toDateString } from '@/lib/dates';
+import { deleteTransaction } from './transactions';
 
 export interface ReviewFlagWithTx extends ReviewFlag {
   tx_amount: number;
@@ -49,33 +50,33 @@ export async function resolveFlag(db: DB, id: string): Promise<void> {
 }
 
 export async function resolveDuplicate(db: DB, flagId: string, _keepTxId: string, deleteTxId: string): Promise<void> {
-  await db.tx(async (tx) => {
-    await tx.exec('DELETE FROM transactions WHERE id = ?', [deleteTxId]);
-    await tx.exec('UPDATE review_flags SET status = ?, resolved_at = ? WHERE id = ?', [
-      'resolved',
-      nowIso(),
-      flagId,
-    ]);
-  });
+  // The usual delete, so it shows in Activity and can be restored from there.
+  await deleteTransaction(db, deleteTxId);
+  // This flag, and any other still pointing at the deleted entry.
+  await db.exec(
+    `UPDATE review_flags SET status = 'resolved', resolved_at = ?
+     WHERE status = 'open' AND (id = ? OR transaction_id = ? OR related_transaction_id = ?)`,
+    [nowIso(), flagId, deleteTxId, deleteTxId],
+  );
 }
 
 export async function runDuplicateScanner(db: DB, windowDays = 30): Promise<number> {
   const recent = await db.execO<Transaction>(
     `SELECT * FROM transactions
-     WHERE occurred_on >= date('now', ?)
+     WHERE occurred_on >= ?
        AND kind != 'transfer'
      ORDER BY occurred_on DESC, created_at DESC`,
-    [`-${windowDays} days`],
+    [toDateString(addDays(new Date(), -windowDays))],
   );
 
   let flagged = 0;
   for (const tx of recent) {
     const candidates = await db.execO<Transaction>(
       `SELECT * FROM transactions
-       WHERE id != ? AND ABS(amount_minor) = ABS(?) AND account_id = ?
+       WHERE id != ? AND amount_minor = ? AND kind = ? AND account_id = ?
          AND occurred_on >= date(?, '-1 day') AND occurred_on <= date(?, '+1 day')
          AND NOT (recurring_id IS NOT NULL AND recurring_id = ?)`,
-      [tx.id, tx.amount_minor, tx.account_id, tx.occurred_on, tx.occurred_on, tx.recurring_id ?? ''],
+      [tx.id, tx.amount_minor, tx.kind, tx.account_id, tx.occurred_on, tx.occurred_on, tx.recurring_id ?? ''],
     );
 
     for (const cand of candidates) {

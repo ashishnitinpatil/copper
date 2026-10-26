@@ -145,17 +145,19 @@ export async function getTotalsByCurrency(
   db: DB,
   asOf: string = toDateString(),
 ): Promise<CurrencyTotal[]> {
-  // As-of-today, matching getAccountBalances: exclude future-dated transactions.
+  // Counted exactly like getAccountBalances (from each account's starts_on, up
+  // to today), so the total always equals the sum of the account cards.
   return db.execO<CurrencyTotal>(
     `SELECT a.currency,
             SUM(a.opening_balance_minor + COALESCE(tx_sum.total, 0)) AS balance_minor,
             COUNT(*) AS account_count
      FROM accounts a
      LEFT JOIN (
-       SELECT account_id, SUM(amount_minor) AS total
-       FROM transactions
-       WHERE occurred_on <= ?
-       GROUP BY account_id
+       SELECT t.account_id, SUM(t.amount_minor) AS total
+       FROM transactions t
+       JOIN accounts acc ON acc.id = t.account_id
+       WHERE t.occurred_on <= ? AND (acc.starts_on = '' OR t.occurred_on >= acc.starts_on)
+       GROUP BY t.account_id
      ) tx_sum ON tx_sum.account_id = a.id
      WHERE a.archived_at IS NULL AND a.include_in_total = 1
      GROUP BY a.currency

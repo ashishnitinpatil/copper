@@ -123,7 +123,16 @@ export function formatMoneyParts(
 
 /** Parse a free-form user-typed amount into minor units. */
 export function parseAmount(input: string, currency: string): number | null {
-  const cleaned = input.replace(/[, _]/g, '').trim();
+  // Drop currency symbols and spaces ("₹1,000", "1 000").
+  let cleaned = input.replace(/[^\d.,-]/g, '');
+  // A comma that comes last is the decimal mark ("1,5", "1.000,50") unless it
+  // groups thousands ("1,000", "1,00,000").
+  const comma = cleaned.lastIndexOf(',');
+  const dot = cleaned.lastIndexOf('.');
+  if (comma > dot && (dot >= 0 || !/,\d{3}$/.test(cleaned))) {
+    cleaned = cleaned.replace(/\./g, '').replace(/,(?=\d*$)/, '.');
+  }
+  cleaned = cleaned.replace(/,/g, '');
   if (cleaned === '' || cleaned === '-') return null;
   const n = Number(cleaned);
   if (!Number.isFinite(n)) return null;

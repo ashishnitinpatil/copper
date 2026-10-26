@@ -43,6 +43,32 @@ test.describe('Consolidation — merge', () => {
     expect(Number(await page.locator('td').first().innerText())).toBeGreaterThanOrEqual(2);
   });
 
+  test('merging two budgeted categories keeps one budget, the target’s', async ({ page }) => {
+    await resetAndLoad(page, '/budgets');
+    await waitForDB(page);
+    for (const [category, cap] of [['Food & Dining', '2000'], ['Transport', '700']]) {
+      await page.getByRole('button', { name: '+ New budget' }).first().click();
+      await selectCombobox(page, 'Category', category);
+      await page.getByLabel('Monthly cap').fill(cap);
+      await page.getByRole('button', { name: 'Create' }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    }
+
+    await navigateTo(page, 'Categories');
+    await page.getByRole('button', { name: 'Transport' }).first().click();
+    await page.getByText('Merge into another category').click();
+    await selectCombobox(page, 'Move everything into', 'Food & Dining');
+    await page.getByRole('button', { name: /Merge & delete/ }).click();
+    await page.getByRole('button', { name: 'Yes, merge & delete' }).click();
+    await expect(page.getByRole('button', { name: 'Transport' })).toHaveCount(0);
+
+    await page.goto('/sql');
+    await page.locator('textarea').fill('SELECT amount_minor FROM budgets');
+    await page.getByRole('button', { name: /Run/ }).click();
+    await expect(page.getByText('1 row')).toBeVisible();
+    await expect(page.locator('td').first()).toHaveText('200000');
+  });
+
   test('merging an account moves its transactions and preserves the combined balance', async ({
     page,
   }) => {

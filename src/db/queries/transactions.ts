@@ -138,17 +138,21 @@ export async function bulkSetCategory(
 ): Promise<void> {
   if (ids.length === 0) return;
   const placeholders = ids.map(() => '?').join(', ');
+  // Only rows of the category's own kind change: an income category on an
+  // expense would count it in the wrong reports.
+  const kindMatches = categoryId ? 'kind = (SELECT kind FROM categories WHERE id = ?)' : "kind != 'transfer'";
+  const kindParams = categoryId ? [categoryId] : [];
   // Snapshot the rows that will actually change (transfers are excluded) so we
   // can log a per-row update for each — keeping every transaction's history
   // complete even when the category is set in bulk.
   const before = await db.execO<Transaction>(
-    `SELECT * FROM transactions WHERE id IN (${placeholders}) AND kind != 'transfer'`,
-    ids,
+    `SELECT * FROM transactions WHERE id IN (${placeholders}) AND ${kindMatches}`,
+    [...ids, ...kindParams],
   );
   await db.exec(
     `UPDATE transactions SET category_id = ?
-     WHERE id IN (${placeholders}) AND kind != 'transfer'`,
-    [categoryId, ...ids],
+     WHERE id IN (${placeholders}) AND ${kindMatches}`,
+    [categoryId, ...ids, ...kindParams],
   );
   const batchId = before.length > 1 ? newBatchId() : null;
   for (const row of before) {

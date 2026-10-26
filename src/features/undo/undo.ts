@@ -166,6 +166,15 @@ export async function undoLast(db: DB, defaultCurrency: string): Promise<UndoRes
           conflict = conflict || !!now;
           continue;
         }
+        // Its account is gone (merged, or replaced by a restore): putting the
+        // entry back would leave it invisible.
+        if (r.entity === 'transaction') {
+          const acct = await tx.execO('SELECT 1 FROM accounts WHERE id = ?', [before.account_id as string]);
+          if (acct.length === 0) {
+            conflict = true;
+            continue;
+          }
+        }
         const keys = Object.keys(before).filter((k) => cols.has(k));
         await tx.exec(
           `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`,
