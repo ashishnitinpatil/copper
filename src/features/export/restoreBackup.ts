@@ -169,6 +169,17 @@ export function planRestore(backup: BackupFile, newId: () => string = uuid): Sta
         }
       }
 
+      // A recurring rule keeps the entry it adds as JSON; point that at the new
+      // ids too, or every entry it adds lands in an account that no longer exists.
+      // A rule whose account is gone is dropped like any other orphan.
+      if (table === 'recurring_rules' && typeof row.template_json === 'string') {
+        const tpl = JSON.parse(row.template_json) as { account_id?: string; category_id?: string | null };
+        const accountId = tpl.account_id && idMaps.accounts.get(tpl.account_id);
+        if (!accountId) continue;
+        const categoryId = tpl.category_id ? (idMaps.categories.get(tpl.category_id) ?? null) : null;
+        values.template_json = JSON.stringify({ ...tpl, account_id: accountId, category_id: categoryId });
+      }
+
       // Drop orphans: a required parent that vanished in the remap.
       if (required.some((c) => c in values && (values[c] == null || values[c] === ''))) continue;
 

@@ -153,6 +153,27 @@ describe('planRestore', () => {
     expect(link.transaction_id).toBe('n4');
   });
 
+  it('points recurring rules at the new account and category', () => {
+    const tpl = (account_id: string, category_id: string | null) =>
+      JSON.stringify({ account_id, category_id, amount_minor: 100, kind: 'expense', note: 'Rent' });
+    const stmts = planRestore(
+      makeBackup({
+        ...GRAPH,
+        recurring_rules: [
+          { id: 'r1', template_json: tpl('a2', 'c1'), rrule: 'FREQ=MONTHLY', next_run_on: '2026-07-01' },
+          { id: 'r2', template_json: tpl('a1', 'gone'), rrule: 'FREQ=MONTHLY', next_run_on: '2026-07-01' },
+          { id: 'r3', template_json: tpl('ghost', null), rrule: 'FREQ=MONTHLY', next_run_on: '2026-07-01' },
+        ],
+      }),
+      counter(),
+    );
+    const rules = decodeInserts(stmts, 'recurring_rules').map((r) => JSON.parse(r.template_json as string));
+    expect(rules).toEqual([
+      { account_id: 'n1', category_id: 'n2', amount_minor: 100, kind: 'expense', note: 'Rent' },
+      { account_id: 'n0', category_id: null, amount_minor: 100, kind: 'expense', note: 'Rent' },
+    ]);
+  });
+
   it('keeps a null nullable foreign key as null', () => {
     const stmts = planRestore(makeBackup(GRAPH), counter());
     const food = decodeInserts(stmts, 'categories').find((o) => o.name === 'Food')!;

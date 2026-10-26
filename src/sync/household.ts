@@ -133,6 +133,16 @@ async function assertKnownColumns(db: DB, rows: ChangeRow[]): Promise<void> {
   }
 }
 
+// Edits made on this device since `dbVersion` (merged-in cells keep their
+// origin device's site id).
+async function countOwnChangesSince(db: DB, dbVersion: number): Promise<number> {
+  const rows = await db.execO<{ n: number }>(
+    'SELECT count(*) AS n FROM crsql_changes WHERE db_version > ? AND site_id = crsql_site_id()',
+    [dbVersion],
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
 async function countLocalChangesSince(db: DB, dbVersion: number): Promise<number> {
   const rows = await db.execO<{ n: number }>(
     'SELECT count(*) AS n FROM crsql_changes WHERE db_version > ?',
@@ -164,9 +174,12 @@ async function resolveBook(db: DB, token: string): Promise<string | null> {
   return null;
 }
 
-async function recordSynced(db: DB, version: string | undefined): Promise<void> {
+// `dbVersion` is the local version the book now holds, read before the export
+// (or merge) began — not after, or an edit made while the book uploaded would
+// count as synced and never reach it.
+async function recordSynced(db: DB, version: string | undefined, dbVersion: number): Promise<void> {
   await setSetting(db, SYNC_KEYS.BOOK_VERSION, version ?? '');
-  await setSetting(db, SYNC_KEYS.SYNCED_DB_VERSION, String(await getLocalDbVersion(db)));
+  await setSetting(db, SYNC_KEYS.SYNCED_DB_VERSION, String(dbVersion));
   await setSetting(db, SYNC_KEYS.LAST_SYNC_AT, new Date().toISOString());
 }
 
@@ -200,6 +213,7 @@ export async function syncNow(
   if (!bookId) {
     await newGeneration(db);
     const folderId = await ensureAppFolder(db, token);
+    const dbv = await getLocalDbVersion(db);
     const file = await createBinaryFile(
       token,
       folderId,
@@ -214,7 +228,7 @@ export async function syncNow(
     const winner = await findBook(token);
     if (!winner || winner.id === file.id) {
       await setSetting(db, SYNC_KEYS.BOOK_FILE_ID, file.id);
-      await recordSynced(db, file.version);
+      await recordSynced(db, file.version, dbv);
       return { pushed: 1, pulled, peers: 0, uploadedFile: BOOK_FILE_NAME, wrote: 'created' };
     }
     await deleteFile(token, file.id);
@@ -238,9 +252,10 @@ export async function syncNow(
   // rows back in as duplicates.
   if (await getSetting(db, SYNC_KEYS.PENDING_OVERWRITE)) {
     await newGeneration(db);
+    const dbv = await getLocalDbVersion(db);
     const file = await updateBinaryFile(token, bookId, BOOK_MIME, await encodeLocalBook(db, siteHex));
     await setSetting(db, SYNC_KEYS.PENDING_OVERWRITE, '');
-    await recordSynced(db, file.version);
+    await recordSynced(db, file.version, dbv);
     return { pushed: 1, pulled, peers: 0, uploadedFile: BOOK_FILE_NAME, wrote: 'replaced' };
   }
 
@@ -255,6 +270,7 @@ export async function syncNow(
     if (!remoteChanged && !localChanged) break;
 
     let needsUpload = localChanged;
+    let mergedDbv = 0;
     if (remoteChanged) {
       const book = await readBook(token, bookId);
       const mine = await getSetting(db, SYNC_KEYS.BOOK_GENERATION);
@@ -268,6 +284,7 @@ export async function syncNow(
       await assertKnownColumns(db, diff.toApply);
       const total = diff.toApply.length;
       onProgress?.({ done: 0, total });
+      const beforeApply = await getLocalDbVersion(db);
       pulled += await applyRemoteChanges(db, diff.toApply, (done) => onProgress?.({ done, total }));
       // Before the merge, a local cell that's about to lose to a newer remote
       // value also looks "different". Re-compare after cr-sqlite has merged, so
@@ -275,20 +292,26 @@ export async function syncNow(
       // trigger an upload — a pure pull must not re-upload the whole book.
       pushed =
         diff.localAhead > 0 ? diffBook(await exportAllChanges(db), remoteCells).localAhead : 0;
+      // Anything added here while the merge ran is ahead of the book too.
+      mergedDbv = await getLocalDbVersion(db);
+      pushed = Math.max(pushed, await countOwnChangesSince(db, beforeApply));
       needsUpload = pushed > 0;
     } else {
       pushed = await countLocalChangesSince(db, syncedDbv);
     }
 
     if (!needsUpload) {
-      await recordSynced(db, meta.version);
+      await recordSynced(db, meta.version, mergedDbv);
       break;
     }
-    // Someone wrote while we merged: merge their write too before uploading.
+    const dbv = await getLocalDbVersion(db);
+    const body = await encodeLocalBook(db, siteHex);
+    // Someone wrote while we merged (or encoded): merge their write too before
+    // uploading. Checked after encoding, which takes seconds on a big book.
     const latest = await getFileMeta(token, bookId);
     if (latest.version !== meta.version && attempt < MAX_MERGE_ATTEMPTS) continue;
-    const file = await updateBinaryFile(token, bookId, BOOK_MIME, await encodeLocalBook(db, siteHex));
-    await recordSynced(db, file.version);
+    const file = await updateBinaryFile(token, bookId, BOOK_MIME, body);
+    await recordSynced(db, file.version, dbv);
     return { pushed, pulled, peers: await peerCount(db, siteHex), uploadedFile: BOOK_FILE_NAME };
   }
   await setSetting(db, SYNC_KEYS.LAST_SYNC_AT, new Date().toISOString());

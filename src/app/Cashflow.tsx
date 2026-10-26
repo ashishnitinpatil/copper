@@ -8,6 +8,7 @@ import { useQuery } from '@/db/useQuery';
 import { listAccounts, getAccountBalances, type AccountBalance } from '@/db/queries/accounts';
 import { listRecurringRules } from '@/db/queries/recurring';
 import type { RecurringTemplate } from '@/db/queries/recurring';
+import { upcomingOccurrences } from '@/features/recurring/frequencies';
 import { getCreditCardStatements, type StatementInfo } from '@/features/creditCards/statementEngine';
 import type { Account, RecurringRule } from '@/db/types';
 import { formatMoney } from '@/lib/money';
@@ -136,11 +137,11 @@ export function Cashflow() {
         const acct = nonCreditAccounts.find((a) => a.id === tpl.account_id);
         if (!acct) continue;
 
-        let occurrences: Date[];
+        let occurrences: string[];
         try {
           // Occurrences strictly after today (past ones are already materialized
           // into the balance) up to the horizon.
-          occurrences = rruleLib.RRule.fromString(rule.rrule).between(today, endDate, false);
+          occurrences = upcomingOccurrences(rruleLib, rule.rrule, todayStr, toDateString(endDate));
         } catch {
           continue;
         }
@@ -149,7 +150,7 @@ export function Cashflow() {
         const amount = convert(signed, acct.currency, defaultCurrency, defaultCurrency, fxRates);
         for (const occ of occurrences) {
           events.push({
-            date: occ.toISOString().slice(0, 10),
+            date: occ,
             label: `${tpl.kind === 'expense' ? '−' : '+'} Recurring`,
             amount,
           });

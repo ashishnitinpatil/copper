@@ -46,6 +46,9 @@ const h = vi.hoisted(() => ({
   grants: new Set<string>(),
   // Hidden from the next lookup only, to stage a race with another device.
   hideOnce: new Set<string>(),
+  // Runs mid-sync, to stage an edit made while a sync is in flight.
+  duringUpload: null as (() => void) | null,
+  duringApply: null as (() => void) | null,
 }));
 
 // Columns this (fake) app version knows; a book cell outside these came from a newer version.
@@ -114,6 +117,8 @@ vi.mock('./googleDrive', () => {
     },
     updateBinaryFile: async (_t: string, id: string, _m: string, bytes: Uint8Array) => {
       h.calls.push(`upload:${id}`);
+      h.duringUpload?.();
+      h.duringUpload = null;
       const f = get(id);
       f.bytes = bytes;
       f.version++;
@@ -155,6 +160,8 @@ vi.mock('./changesets', () => {
     exportAllChanges: async () => [...h.cur!.cells.values()].map((c) => ({ ...c })),
     applyRemoteChanges: async (_db: unknown, rows: ChangeRow[], onProgress?: (n: number) => void) => {
       for (const r of rows) merge(h.cur!, r);
+      h.duringApply?.();
+      h.duringApply = null;
       onProgress?.(rows.length);
       return rows.length;
     },
@@ -196,7 +203,8 @@ function makeDevice(siteHex: string, account = 'a'): Device {
       async execO(sql: string, params?: unknown[]) {
         if (sql.includes('count(*)')) {
           const since = Number(params?.[0] ?? 0);
-          return [{ n: [...d.cells.values()].filter((c) => c.db_version > since).length }];
+          const own = sql.includes('crsql_site_id()');
+          return [{ n: [...d.cells.values()].filter((c) => c.db_version > since && (!own || c.site_id === d.siteB64)).length }];
         }
         if (sql.includes('pragma_table_info')) {
           return (SCHEMA[String(params?.[0])] ?? []).map((name) => ({ name }));
@@ -274,6 +282,8 @@ beforeEach(() => {
   h.cur = null;
   h.grants = new Set();
   h.hideOnce = new Set();
+  h.duringUpload = null;
+  h.duringApply = null;
 });
 
 describe('single-file sync', () => {
@@ -339,6 +349,31 @@ describe('single-file sync', () => {
     await sync(b);
     expect(valueOf(b, 't1', 'note')).toBe('y');
     expect(h.calls.some((c) => c.startsWith('upload:'))).toBe(false);
+  });
+
+  it('an entry added while the book uploads goes up on the next sync', async () => {
+    const a = makeDevice('aa');
+    edit(a, 't1', 'note', 'x');
+    await sync(a);
+    edit(a, 't1', 'note', 'y');
+    h.duringUpload = () => edit(a, 't2', 'note', 'added mid-upload');
+    await sync(a);
+    await sync(a);
+    expect((await bookCells()).map((c) => c.val)).toContain('added mid-upload');
+  });
+
+  it('an entry added while a pull merges is uploaded, not marked synced', async () => {
+    const a = makeDevice('aa');
+    const b = makeDevice('bb');
+    edit(a, 't1', 'note', 'x');
+    await sync(a);
+    await joinSharedBook(b.db as never, book().id, 'merge');
+    await sync(b);
+    edit(a, 't2', 'note', 'new from A'); // only new rows arrive, nothing of B's changes
+    await sync(a);
+    h.duringApply = () => edit(b, 't3', 'note', 'added mid-pull');
+    await sync(b);
+    expect((await bookCells()).map((c) => c.val)).toContain('added mid-pull');
   });
 
   it('self-heals a lost write race: the loser re-uploads on its next sync', async () => {

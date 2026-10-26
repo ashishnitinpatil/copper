@@ -335,7 +335,7 @@ interface AccountFormModalProps {
 function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModalProps) {
   const db = useDB();
   const defaultCurrency = useDefaultCurrency();
-  const [form, setForm] = useState<AccountInput & { opening_input: string }>(() =>
+  const [form, setForm] = useState<FormState>(() =>
     emptyForm(defaultCurrency),
   );
   const [submitting, setSubmitting] = useState(false);
@@ -374,7 +374,7 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
         opening_balance_minor: parseAmount(form.opening_input || '0', form.currency) ?? 0,
         is_main: form.is_main,
         include_in_total: form.include_in_total,
-        credit_limit_minor: form.credit_limit_minor ?? null,
+        credit_limit_minor: form.limit_input.trim() ? parseAmount(form.limit_input, form.currency) : null,
         statement_day: form.statement_day ?? null,
         due_day: form.due_day ?? null,
         pay_from_account_id: form.pay_from_account_id ?? null,
@@ -499,11 +499,8 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
             <Input
               label="Credit limit"
               inputMode="decimal"
-              value={form.credit_limit_minor != null ? String(fromMinor(form.credit_limit_minor, form.currency)) : ''}
-              onChange={(e) => {
-                const parsed = parseAmount(e.target.value, form.currency);
-                update('credit_limit_minor', parsed);
-              }}
+              value={form.limit_input}
+              onChange={(e) => update('limit_input', e.target.value)}
             />
             <Combobox
               label="Pay bill from"
@@ -578,6 +575,7 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
 
 interface FormState extends AccountInput {
   opening_input: string;
+  limit_input: string;
   is_main: boolean;
   include_in_total: boolean;
   starts_on: string;
@@ -597,6 +595,7 @@ function emptyForm(currency: string): FormState {
     due_day: null,
     pay_from_account_id: null,
     opening_input: '',
+    limit_input: '',
     starts_on: toDateString(),
     icon: '',
   };
@@ -615,6 +614,7 @@ function toForm(a: Account): FormState {
     due_day: a.due_day,
     pay_from_account_id: a.pay_from_account_id,
     opening_input: String(fromMinor(a.opening_balance_minor, a.currency)),
+    limit_input: a.credit_limit_minor != null ? String(fromMinor(a.credit_limit_minor, a.currency)) : '',
     starts_on: a.starts_on,
     icon: a.icon ?? '',
   };

@@ -45,3 +45,40 @@ test.describe('Recurring rules', () => {
     await expect(row.getByText('₹500.00')).toBeVisible();
   });
 });
+
+test.describe('Recurring rules over time', () => {
+  test('a rule on the 31st lands on shorter months’ last day, and a deleted entry stays deleted', async ({ page }) => {
+    // setFixedTime only fixes Date; timers keep running, so the app works normally.
+    await page.clock.setFixedTime(new Date('2026-08-31T09:00:00'));
+    await resetAndLoad(page, '/transactions?view=recurring');
+    await waitForDB(page);
+    await createRule(page, { category: 'Groceries', amount: '500' });
+
+    const entries = page.locator('main li', { hasText: 'Groceries' });
+    const openAll = async (date: string) => {
+      await page.clock.setFixedTime(new Date(`${date}T09:00:00`));
+      await page.reload();
+      await waitForDB(page);
+      await page.getByRole('tab', { name: 'All transactions' }).click();
+    };
+
+    const day = (name: string) => page.locator('main').getByRole('heading', { name, exact: true });
+
+    // September has no 31st: the entry falls on the 30th ("Yesterday") instead of being skipped.
+    await openAll('2026-10-01');
+    await expect(entries).toHaveCount(2);
+    await expect(day('Yesterday')).toBeVisible();
+    await expect(day('Aug 31, 2026')).toBeVisible();
+
+    // Delete September's; next month must not bring it back.
+    await entries.first().click();
+    await page.getByRole('button', { name: 'Delete' }).click();
+    await expect(entries).toHaveCount(1);
+
+    await openAll('2026-11-15');
+    await expect(day('Oct 31, 2026')).toBeVisible();
+    await expect(day('Aug 31, 2026')).toBeVisible();
+    await expect(day('Sep 30, 2026')).toHaveCount(0);
+    await expect(entries).toHaveCount(2);
+  });
+});

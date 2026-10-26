@@ -3,6 +3,7 @@ import type { RecurringRule, TransactionKind } from '../types';
 import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
 import { logCreate, logUpdate, snapshotEntity } from '../changeLog';
+import { dueOccurrences } from '@/features/recurring/frequencies';
 
 export interface RecurringTemplate {
   account_id: string;
@@ -71,23 +72,14 @@ export async function materializeDueRecurrences(db: DB): Promise<number> {
   );
 
   let created = 0;
-  const { RRule } = await import('rrule');
+  const lib = await import('rrule');
 
   for (const rule of rules) {
     const tpl: RecurringTemplate = JSON.parse(rule.template_json);
-    const rr = RRule.fromString(rule.rrule);
-
-    const after = rule.last_run_on ? new Date(rule.last_run_on + 'T00:00:00Z') : new Date(rule.next_run_on + 'T00:00:00Z');
-    after.setUTCDate(after.getUTCDate() - 1);
-    const until = new Date(today + 'T23:59:59Z');
-    const dates = rr.between(after, until, true);
-
-    const nextDates = rr.between(until, new Date(until.getTime() + 400 * 86400000), false);
-    const nextRun = nextDates[0] ? nextDates[0].toISOString().slice(0, 10) : null;
+    const { dates, nextRun } = dueOccurrences(lib, rule, today);
 
     await db.tx(async (tx) => {
-      for (const d of dates) {
-        const occDate = d.toISOString().slice(0, 10);
+      for (const occDate of dates) {
         // Deterministic PK per (rule, occurrence date). If two devices both
         // materialize this occurrence, they generate the SAME id, so cr-sqlite
         // merges them into one row instead of keeping two duplicates. OR IGNORE

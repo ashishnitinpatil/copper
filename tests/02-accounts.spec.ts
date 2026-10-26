@@ -41,14 +41,15 @@ test.describe('Accounts CRUD', () => {
     await page.getByLabel('Name').fill('HDFC Regalia');
     await page.getByLabel('Type').selectOption('credit_card');
     await page.getByRole('textbox', { name: 'Starting balance' }).fill('-5000');
-    await page.getByLabel('Credit limit').fill('20000');
+    // Typed key by key, so a decimal survives each keystroke.
+    await page.getByLabel('Credit limit').pressSequentially('20000.50');
     await page.getByRole('button', { name: 'Create' }).click();
 
     const card = page.getByRole('button', { name: /HDFC Regalia/ });
     await expect(card.getByText('Outstanding')).toBeVisible();
     await expect(card.getByText('₹5,000.00')).toBeVisible();
     await expect(card.getByText('Available')).toBeVisible();
-    await expect(card.getByText('₹15,000.00')).toBeVisible();
+    await expect(card.getByText('₹15,000.50')).toBeVisible();
     await expect(page.getByText('25% of limit used', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Why the colours' }).click();
     await expect(page.getByText(/under about 30% is commonly seen as healthy/)).toBeVisible();
@@ -59,7 +60,7 @@ test.describe('Accounts CRUD', () => {
     await page.getByRole('textbox', { name: 'Starting balance' }).fill('-21000');
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(card.getByText('Over limit by')).toBeVisible();
-    await expect(card.getByText('₹1,000.00')).toBeVisible();
+    await expect(card.getByText('₹999.50')).toBeVisible();
     await expect(page.getByText('105% of limit used · high use can lower your credit score')).toBeVisible();
   });
 
