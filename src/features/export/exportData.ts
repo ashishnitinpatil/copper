@@ -100,5 +100,5 @@ export function downloadText(filename: string, content: string, mime: string): v
 }
 
 export function exportFileName(kind: 'transactions' | 'backup', ext: string): string {
-  return `expense-${kind}-${toDateString()}.${ext}`;
+  return `copper-${kind}-${toDateString()}.${ext}`;
 }

@@ -22,7 +22,7 @@ export const CATEGORY_ICON_GROUPS: { label: string; icons: string[] }[] = [
 export const ACCOUNT_ICON_GROUPS: { label: string; icons: string[] }[] = [
   { label: 'Money', icons: ['🏦', '💳', '💵', '👛', '💰', '🪙', '💶', '💷', '💴', '🧧', '🐷', '🏧'] },
   { label: 'Savings & loans', icons: ['📈', '📊', '🏠', '🚗', '🎓', '🏥', '💍', '🌴', '🛡️', '🧾', '📜', '🤝'] },
-  { label: 'Other', icons: ['✈️', '🛒', '📱', '💼', '👶', '❤️', '⭐', '🔒'] },
+  { label: 'More', icons: ['✈️', '🛒', '📱', '💼', '👶', '❤️', '⭐', '🔒'] },
 ];
 
 /** Every icon Copper offers, once each — for search and suggestions. */

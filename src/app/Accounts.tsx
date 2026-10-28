@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ACCOUNT_ICON_GROUPS, IconPicker } from '@/components/ui/IconPicker';
+import { ACCOUNT_ICON_GROUPS, CATEGORY_ICON_GROUPS, IconPicker } from '@/components/ui/IconPicker';
 import { AccountGlyph, accountOptions, useAccountBalances } from '@/components/accountOptions';
 import { DateField } from '@/components/ui/DateField';
 import { PageShell } from './PageShell';
@@ -446,7 +446,8 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
         <IconPicker
           value={form.icon ?? ''}
           onChange={(icon) => update('icon', icon)}
-          groups={ACCOUNT_ICON_GROUPS}
+          // Account icons first, then every other icon, so the choice isn't limited to a few.
+          groups={[...ACCOUNT_ICON_GROUPS, ...CATEGORY_ICON_GROUPS]}
           suggestFrom={form.name}
           defaultOption={<AccountGlyph account={{ icon: null, type: form.type }} />}
         />
