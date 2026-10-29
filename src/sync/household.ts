@@ -382,9 +382,9 @@ export async function syncNow(
       full = !known || bookRegressed(known.cells, remoteCells);
       // From the copy: everything here is the copy plus local changes, so only
       // what changed in the book since the copy needs merging.
-      const diff = full
-        ? diffBook(await exportAllChanges(db), remoteCells)
-        : { toApply: diffBook(known.cells, remoteCells).toApply, localAhead: 0 };
+      const diff = !full && known
+        ? { toApply: diffBook(known.cells, remoteCells).toApply, localAhead: 0 }
+        : diffBook(await exportAllChanges(db), remoteCells);
       await assertKnownColumns(db, diff.toApply);
       const total = diff.toApply.length;
       onProgress?.({ stage: 'apply', done: 0, total });
