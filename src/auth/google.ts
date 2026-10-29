@@ -101,7 +101,9 @@ export async function signInWithGoogle(hint?: string, remember = false): Promise
       },
       error_callback: (err) => reject(err),
     });
-    client.requestAccessToken({ prompt: 'consent' });
+    // No forced consent: Google skips its screen when access was already
+    // granted, and still shows it when something (like Drive) is missing.
+    client.requestAccessToken({ prompt: '' });
   });
 
   return sessionFromToken(token);
