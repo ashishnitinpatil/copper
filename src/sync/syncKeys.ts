@@ -26,4 +26,9 @@ export const SYNC_KEYS = {
   // This device's identity before a reset/Start fresh. Retired (see
   // retireDevice) after the first sync brings the book's devices back in.
   RETIRE_SITE: 'sync.retire_site',
+  // Set while a merge big enough for the setup screen is under way, cleared
+  // when it's done. Still set at start-up means the last one was cut short and
+  // this device holds a half-merged book: keep the setup screen up from the
+  // start, not only once the merge resumes.
+  MERGE_PENDING: 'sync.merge_pending',
 } as const;

@@ -34,6 +34,12 @@ import { SYNC_KEYS } from './syncKeys';
 
 export { SYNC_KEYS };
 
+/**
+ * A merge of this many cells or more holds the app behind the setup screen
+ * (one entry is ~20 cells with its audit row, so roughly 100 entries).
+ */
+export const BIG_MERGE_CELLS = 2000;
+
 export interface SyncResult {
   /** Local cells the book was missing (0 when nothing was uploaded). */
   pushed: number;
@@ -186,6 +192,7 @@ async function recordSynced(db: DB, version: string | undefined, dbVersion: numb
   await setSetting(db, SYNC_KEYS.BOOK_VERSION, version ?? '');
   await setSetting(db, SYNC_KEYS.SYNCED_DB_VERSION, String(dbVersion));
   await setSetting(db, SYNC_KEYS.LAST_SYNC_AT, new Date().toISOString());
+  await setSetting(db, SYNC_KEYS.MERGE_PENDING, '');
 }
 
 // Other devices in the book, as lower-case hex site ids. Read from the synced
@@ -272,7 +279,11 @@ export async function syncNow(
     const localChanged = (await getLocalDbVersion(db)) !== syncedDbv;
 
     // The common case: nothing changed anywhere — one metadata request, done.
-    if (!remoteChanged && !localChanged) break;
+    if (!remoteChanged && !localChanged) {
+      // Never leave the setup screen up over a book that's up to date.
+      if (await getSetting(db, SYNC_KEYS.MERGE_PENDING)) await setSetting(db, SYNC_KEYS.MERGE_PENDING, '');
+      break;
+    }
 
     let needsUpload = localChanged;
     let mergedDbv = 0;
@@ -289,8 +300,12 @@ export async function syncNow(
       await assertKnownColumns(db, diff.toApply);
       const total = diff.toApply.length;
       onProgress?.({ stage: 'apply', done: 0, total });
+      if (total >= BIG_MERGE_CELLS) await setSetting(db, SYNC_KEYS.MERGE_PENDING, '1');
       const beforeApply = await getLocalDbVersion(db);
       pulled += await applyRemoteChanges(db, diff.toApply, (done) => onProgress?.({ stage: 'apply', done, total }));
+      // Cleared whatever this merge's size: one resumed after being cut short
+      // can be under the threshold.
+      await setSetting(db, SYNC_KEYS.MERGE_PENDING, '');
       // Before the merge, a local cell that's about to lose to a newer remote
       // value also looks "different". Re-compare after cr-sqlite has merged, so
       // only cells that are genuinely ahead (local-only, or won the merge)
@@ -329,6 +344,8 @@ export interface SyncStatusInfo {
   lastSyncAt: string | null;
   bookId: string | null;
   appFolderId: string | null;
+  /** A big merge was cut short; this device's book is only partly merged. */
+  mergePending: boolean;
 }
 
 /** True when this device holds changes the shared book doesn't have yet. */
@@ -339,12 +356,13 @@ export async function hasUnsyncedChanges(db: DB): Promise<boolean> {
 }
 
 export async function getSyncStatus(db: DB): Promise<SyncStatusInfo> {
-  const [lastSyncAt, bookId, appFolderId] = await Promise.all([
+  const [lastSyncAt, bookId, appFolderId, mergePending] = await Promise.all([
     getSetting(db, SYNC_KEYS.LAST_SYNC_AT),
     getSetting(db, SYNC_KEYS.BOOK_FILE_ID),
     getSetting(db, SYNC_KEYS.APP_FOLDER_ID),
+    getSetting(db, SYNC_KEYS.MERGE_PENDING),
   ]);
-  return { lastSyncAt, bookId: bookId || null, appFolderId: appFolderId || null };
+  return { lastSyncAt, bookId: bookId || null, appFolderId: appFolderId || null, mergePending: !!mergePending };
 }
 
 export interface KnownPeer {

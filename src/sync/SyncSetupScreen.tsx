@@ -1,13 +1,12 @@
 import { useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useSync } from './SyncProvider';
+import { BIG_MERGE_CELLS } from './household';
 
-// Progress counts merged cells (one entry is ~20 with its audit row), so this
-// is roughly 100 entries. Routine syncs between devices that are in regular use
-// stay well under it and merge silently in the background; past it, the app is
-// held behind the setup screen until the merge is done — otherwise every page
-// keeps redrawing as partial data streams in.
-const BLOCKING_THRESHOLD = 2000;
+// Progress counts merged cells. Routine syncs between devices that are in
+// regular use stay well under BIG_MERGE_CELLS and merge silently in the
+// background; past it, the app is held behind the setup screen until the merge
+// is done — otherwise every page keeps redrawing as partial data streams in.
 // Roughly a thousand entries or more: almost always a first-time adoption.
 const SETTING_UP_THRESHOLD = 20_000;
 
@@ -17,12 +16,15 @@ const SETTING_UP_THRESHOLD = 20_000;
  * "record your first transaction" while thousands are streaming in.
  */
 export function useIsFirstPull(): boolean {
-  const { progress, bookId, lastSyncAt, status } = useSync();
-  if (progress?.stage === 'apply') return progress.total >= BLOCKING_THRESHOLD;
-  // Linked to a book but never synced (it was just loaded or joined): the book
-  // is still downloading, so hold the app rather than show it empty. Signed
-  // out, offline or failed, nothing is coming — let the app and its banner show.
-  return !!bookId && !lastSyncAt && (status === 'idle' || status === 'syncing');
+  const { progress, bookId, lastSyncAt, mergePending, status } = useSync();
+  // Finishing a merge that was cut short holds the app whatever is left of it.
+  if (progress?.stage === 'apply') return mergePending || progress.total >= BIG_MERGE_CELLS;
+  // Linked to a book but never synced (it was just loaded or joined), or a big
+  // merge was cut short (the app was closed or reloaded mid-way): the book here
+  // is empty or half-merged until the sync gets going again, so hold the app
+  // rather than show it. Signed out, offline or failed, nothing is coming — let
+  // the app and its banner show.
+  return !!bookId && (!lastSyncAt || mergePending) && (status === 'idle' || status === 'syncing');
 }
 
 /** Keeps a phone's screen on while `active`, so it doesn't sleep mid-setup. */
@@ -68,7 +70,8 @@ export function SyncSetupScreen() {
   // comparing it with what's on this device, which can take a while on a phone.
   const merging = progress?.stage === 'apply';
   const sized = merging || (progress?.stage === 'download' && progress.total > 0);
-  const pct = progress && sized ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
+  // A resumed merge can find nothing left to do (0 of 0): that's done, not NaN.
+  const pct = !progress || !sized ? 0 : progress.total ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 100;
   const settingUp = !merging || progress.total >= SETTING_UP_THRESHOLD;
   const mb = (bytes: number) => (bytes / 1_000_000).toFixed(1);
   const label = merging

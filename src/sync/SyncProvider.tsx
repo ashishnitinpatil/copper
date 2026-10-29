@@ -45,6 +45,8 @@ export type SyncStatus = 'idle' | 'syncing' | 'error' | 'offline' | 'signed-out'
 interface SyncContextValue {
   status: SyncStatus;
   lastSyncAt: string | null;
+  // A big merge was cut short last time: the book here is only partly merged.
+  mergePending: boolean;
   lastResult: SyncResult | null;
   // Non-null only while a sync is applying the shared book's changes. Drives the
   // "N of M" progress banner during a large first pull.
@@ -101,6 +103,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const [status, setStatus] = useState<SyncStatus>('idle');
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [mergePending, setMergePending] = useState(false);
   const [lastResult, setLastResult] = useState<SyncResult | null>(null);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +134,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       getSettingNumber(db, SETTINGS_KEYS.BACKUP_INTERVAL_DAYS, DEFAULT_BACKUP_INTERVAL_DAYS),
     ]);
     setLastSyncAt(s.lastSyncAt);
+    setMergePending(s.mergePending);
     setBookId(s.bookId);
     setAppFolderId(s.appFolderId);
     setPeers(p);
@@ -384,6 +388,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       value={{
         status,
         lastSyncAt,
+        mergePending,
         lastResult,
         progress,
         error,

@@ -187,6 +187,8 @@ import {
   BookReplacedError,
   NewerBookError,
   SYNC_KEYS,
+  BIG_MERGE_CELLS,
+  getSyncStatus,
 } from './household';
 import { BOOK_FILE_NAME, decodeBook, gunzipJson, type BookFile } from './bookFile';
 import { APP_FOLDER_NAME } from './driveFolders';
@@ -374,6 +376,31 @@ describe('single-file sync', () => {
     h.duringApply = () => edit(b, 't3', 'note', 'added mid-pull');
     await sync(b);
     expect((await bookCells()).map((c) => c.val)).toContain('added mid-pull');
+  });
+
+  it('a big pull cut short is remembered until a later sync finishes the merge', async () => {
+    const a = makeDevice('aa');
+    const b = makeDevice('bb');
+    edit(a, 't0', 'note', 'x');
+    await sync(a);
+    await joinSharedBook(b.db as never, book().id, 'merge');
+    await sync(b);
+    for (let i = 1; i <= BIG_MERGE_CELLS; i++) edit(a, `t${i}`, 'note', `entry ${i}`);
+    await sync(a);
+
+    // The page closes mid-merge.
+    h.duringApply = () => {
+      h.duringApply = null;
+      throw new Error('page closed');
+    };
+    await expect(sync(b)).rejects.toThrow('page closed');
+    h.cur = b;
+    expect((await getSyncStatus(b.db as never)).mergePending).toBe(true);
+
+    // Reopened: what's left to merge is small now, and it still clears the mark.
+    await sync(b);
+    expect((await getSyncStatus(b.db as never)).mergePending).toBe(false);
+    expect(valueOf(b, `t${BIG_MERGE_CELLS}`, 'note')).toBe(`entry ${BIG_MERGE_CELLS}`);
   });
 
   it('self-heals a lost write race: the loser re-uploads on its next sync', async () => {
