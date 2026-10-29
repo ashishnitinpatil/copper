@@ -217,6 +217,55 @@ export function diffBook(local: ChangeRow[], remote: ChangeRow[]): BookDiff {
   return { toApply, localAhead };
 }
 
+// cr-sqlite's row-existence cell. Its causal length (cl) is odd while the row
+// exists and even once it's deleted; a column cell only counts while its cl
+// matches the row's.
+const SENTINEL = '-1';
+const rowKey = (r: ChangeRow) => `${r.table}\u0000${r.pk}`;
+const older = (a: ChangeRow, b: ChangeRow) => a.cl < b.cl || (a.cl === b.cl && a.col_version < b.col_version);
+
+/**
+ * Whether `next` lost something `prev` (a book this device merged or wrote)
+ * had: a cell that went back to an older version, or one that vanished without
+ * its row being deleted. Books only move forward, so this means a write was
+ * lost (two devices uploading at the same moment) — and the device must
+ * compare its whole state with the book to put it back.
+ */
+export function bookRegressed(prev: ChangeRow[], next: ChangeRow[]): boolean {
+  const cells = new Map<string, ChangeRow>();
+  const rows = new Map<string, number>();
+  for (const r of next) {
+    cells.set(cellKey(r), r);
+    if (r.cid === SENTINEL) rows.set(rowKey(r), r.cl);
+  }
+  for (const p of prev) {
+    const n = cells.get(cellKey(p));
+    if (n ? older(n, p) : (rows.get(rowKey(p)) ?? 0) <= p.cl) return true;
+  }
+  return false;
+}
+
+/**
+ * `base` (a book) with `changes` (local cells changed since that book) laid
+ * over it: the same cells a full read of the local database would give. Where a
+ * row was deleted or brought back, the base's column cells from its earlier
+ * life are dropped, as cr-sqlite drops them locally.
+ */
+export function overlayBook(base: ChangeRow[], changes: ChangeRow[]): ChangeRow[] {
+  const cells = new Map<string, ChangeRow>();
+  for (const r of base) cells.set(cellKey(r), r);
+  const rowCl = new Map<string, number>();
+  for (const r of changes) {
+    cells.set(cellKey(r), r);
+    if (r.cid === SENTINEL) rowCl.set(rowKey(r), r.cl);
+  }
+  if (rowCl.size === 0) return [...cells.values()];
+  return [...cells.values()].filter((r) => {
+    const cl = rowCl.get(rowKey(r));
+    return cl === undefined || r.cid === SENTINEL || r.cl >= cl;
+  });
+}
+
 /** Distinct site ids (hex) that have written cells in the book. */
 // ── gzip ────────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   NewerBookError,
+  bookRegressed,
   bookToBackup,
+  overlayBook,
   decodeBook,
   diffBook,
   encodeBook,
@@ -94,6 +96,52 @@ describe('diffBook', () => {
 
   it('counts cells the book lacks as local-ahead', () => {
     expect(diffBook([cell({})], []).localAhead).toBe(1);
+  });
+});
+
+describe('overlayBook', () => {
+  const row = (pk: string, cl: number, cols: Record<string, unknown>, cv = 1): ChangeRow[] => [
+    cell({ pk: textPk(pk), cid: '-1', val: null, cl, col_version: cl }),
+    ...Object.entries(cols).map(([cid, val]) => cell({ pk: textPk(pk), cid, val, cl, col_version: cv })),
+  ];
+
+  it('lays local changes over the book', () => {
+    const base = [...row('t1', 1, { note: 'a', kind: 'expense' }), ...row('t2', 1, { note: 'b' })];
+    const out = overlayBook(base, [cell({ pk: textPk('t1'), cid: 'note', val: 'edited', col_version: 2 })]);
+    expect(sortRows(out)).toEqual(
+      sortRows([...base.filter((r) => !(r.pk === textPk('t1') && r.cid === 'note')), cell({ pk: textPk('t1'), cid: 'note', val: 'edited', col_version: 2 })]),
+    );
+  });
+
+  it('drops a deleted row’s columns, as a full read would', () => {
+    const base = [...row('t1', 1, { note: 'a', kind: 'expense' }), ...row('t2', 1, { note: 'b' })];
+    const deleted = cell({ pk: textPk('t1'), cid: '-1', val: null, cl: 2, col_version: 2 });
+    const out = overlayBook(base, [deleted]);
+    expect(out.filter((r) => r.pk === textPk('t1'))).toEqual([deleted]);
+    expect(out.filter((r) => r.pk === textPk('t2'))).toHaveLength(2);
+  });
+
+  it('keeps only a revived row’s new columns', () => {
+    const base = row('t1', 1, { note: 'old', kind: 'expense' });
+    const revived = row('t1', 3, { note: 'new' });
+    const out = overlayBook(base, revived);
+    expect(sortRows(out)).toEqual(sortRows(revived));
+  });
+});
+
+describe('bookRegressed', () => {
+  it('is false when the book only moved forward', () => {
+    const prev = [cell({ val: 'a' })];
+    expect(bookRegressed(prev, [cell({ val: 'b', col_version: 2 }), cell({ cid: 'kind' })])).toBe(false);
+    // Deleting the row drops its columns: that's forward too.
+    expect(bookRegressed(prev, [cell({ cid: '-1', val: null, cl: 2, col_version: 2 })])).toBe(false);
+  });
+
+  it('is true when a cell went back or vanished (a lost write)', () => {
+    const prev = [cell({ val: 'b', col_version: 2 })];
+    expect(bookRegressed(prev, [cell({ val: 'a', col_version: 1 })])).toBe(true);
+    expect(bookRegressed(prev, [])).toBe(true);
+    expect(bookRegressed(prev, [cell({ cid: '-1', val: null, cl: 1 })])).toBe(true);
   });
 });
 

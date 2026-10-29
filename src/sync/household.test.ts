@@ -49,6 +49,9 @@ const h = vi.hoisted(() => ({
   // Runs mid-sync, to stage an edit made while a sync is in flight.
   duringUpload: null as (() => void) | null,
   duringApply: null as (() => void) | null,
+  copies: new Map<string, unknown>(),
+  // Counts full reads of a device's database (the slow path the copy avoids).
+  fullReads: 0,
 }));
 
 // Columns this (fake) app version knows; a book cell outside these came from a newer version.
@@ -157,7 +160,12 @@ vi.mock('./changesets', () => {
   return {
     getLocalSiteIdHex: async () => h.cur!.siteHex,
     getLocalDbVersion: async () => h.cur!.dbv,
-    exportAllChanges: async () => [...h.cur!.cells.values()].map((c) => ({ ...c })),
+    exportAllChanges: async () => {
+      h.fullReads++;
+      return [...h.cur!.cells.values()].map((c) => ({ ...c }));
+    },
+    exportChangesSince: async (_db: unknown, since: number) =>
+      [...h.cur!.cells.values()].filter((c) => c.db_version > since).map((c) => ({ ...c })),
     applyRemoteChanges: async (_db: unknown, rows: ChangeRow[], onProgress?: (n: number) => void) => {
       for (const r of rows) merge(h.cur!, r);
       h.duringApply?.();
@@ -167,6 +175,17 @@ vi.mock('./changesets', () => {
     },
   };
 });
+
+// Each device's copy of the last book it synced (IndexedDB in the app).
+vi.mock('./bookCache', () => ({
+  loadBookCache: async () => h.copies.get(h.cur!.siteHex) ?? null,
+  saveBookCache: async (c: unknown) => {
+    h.copies.set(h.cur!.siteHex, c);
+  },
+  clearBookCache: async () => {
+    h.copies.delete(h.cur!.siteHex);
+  },
+}));
 
 vi.mock('@/db/queries/settings', () => ({
   SETTINGS_KEYS: { BACKUP_RETENTION: 'backup.retention', BACKUP_INTERVAL_DAYS: 'backup.interval_days' },
@@ -286,6 +305,8 @@ beforeEach(() => {
   h.hideOnce = new Set();
   h.duringUpload = null;
   h.duringApply = null;
+  h.copies = new Map();
+  h.fullReads = 0;
 });
 
 describe('single-file sync', () => {
@@ -428,6 +449,79 @@ describe('single-file sync', () => {
     const vals = (await bookCells()).map((c) => c.val);
     expect(vals).toContain('B edit');
     expect(vals).toContain('A edit');
+  });
+});
+
+describe('syncing from the device’s copy of the book', () => {
+  // The book's cells, minus the per-device bookkeeping a full read also differs in.
+  const sigs = (rows: ChangeRow[]) =>
+    rows.map((c) => `${c.table}|${c.pk}|${c.cid}|${c.col_version}|${c.site_id}|${String(c.val)}`).sort();
+
+  async function pair() {
+    const a = makeDevice('aa');
+    const b = makeDevice('bb');
+    register(a);
+    register(b);
+    edit(a, 't1', 'note', 'x');
+    await sync(a);
+    await joinSharedBook(b.db as never, book().id, 'merge');
+    await sync(b);
+    await sync(a);
+    return { a, b };
+  }
+
+  it('routine edits and pulls never read the whole database', async () => {
+    const { a, b } = await pair();
+    h.fullReads = 0;
+    edit(a, 't2', 'note', 'from A');
+    await sync(a);
+    await sync(b);
+    edit(b, 't1', 'note', 'B changed it');
+    await sync(b);
+    await sync(a);
+    expect(h.fullReads).toBe(0);
+    expect(valueOf(b, 't2', 'note')).toBe('from A');
+    expect(valueOf(a, 't1', 'note')).toBe('B changed it');
+    // The book built from the copy is exactly what a full read would upload.
+    expect(sigs(await bookCells())).toEqual(sigs([...a.cells.values()]));
+  });
+
+  it('an edit made while pulling goes up, built on the new book', async () => {
+    const { a, b } = await pair();
+    h.fullReads = 0;
+    edit(a, 't2', 'note', 'from A');
+    await sync(a);
+    edit(b, 't3', 'note', 'B before the pull');
+    h.duringApply = () => edit(b, 't4', 'note', 'B during the pull');
+    await sync(b);
+    expect(h.fullReads).toBe(0);
+    expect(sigs(await bookCells())).toEqual(sigs([...b.cells.values()]));
+  });
+
+  it('falls back to a full read when the copy doesn’t match this device', async () => {
+    const { a } = await pair();
+    // As after a restore or an interrupted save: the settings moved on, the copy didn't.
+    a.db.meta.set(SYNC_KEYS.SYNCED_DB_VERSION, String(a.dbv - 1));
+    h.fullReads = 0;
+    edit(a, 't2', 'note', 'y');
+    await sync(a);
+    expect(h.fullReads).toBe(1);
+    // …and trusts the copy it just wrote.
+    h.fullReads = 0;
+    edit(a, 't3', 'note', 'z');
+    await sync(a);
+    expect(h.fullReads).toBe(0);
+  });
+
+  it('compares the whole database once a week anyway', async () => {
+    const { a } = await pair();
+    const copy = h.copies.get('aa') as { checkedAt: number };
+    copy.checkedAt -= 8 * 24 * 60 * 60 * 1000;
+    h.fullReads = 0;
+    edit(a, 't2', 'note', 'y');
+    await sync(a);
+    expect(h.fullReads).toBe(1);
+    expect((h.copies.get('aa') as { checkedAt: number }).checkedAt).toBeGreaterThan(Date.now() - 60_000);
   });
 });
 

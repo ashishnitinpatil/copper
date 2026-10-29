@@ -91,6 +91,20 @@ export async function exportAllChanges(db: DB): Promise<ChangeRow[]> {
   return raw.map(toChangeRow);
 }
 
+/**
+ * Cells changed on this device (its own edits and merged ones) after
+ * `dbVersion`. cr-sqlite indexes db_version, so this costs what changed, not
+ * the size of the book.
+ */
+export async function exportChangesSince(db: DB, dbVersion: number): Promise<ChangeRow[]> {
+  const raw = await db.execO<RawChangeRow>(
+    `SELECT "table", pk, cid, val, col_version, db_version, site_id, cl, seq FROM crsql_changes
+     WHERE db_version > ?`,
+    [dbVersion],
+  );
+  return raw.map(toChangeRow);
+}
+
 // How many merge rows to apply per transaction. Each INSERT INTO crsql_changes
 // is a CRDT merge that cr-sqlite expands into writes across its internal clock
 // tables, and the IDBBatchAtomicVFS holds every dirty page of an open
