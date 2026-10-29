@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Repeat } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, EmptyState } from '@/components/ui/Card';
@@ -173,9 +173,14 @@ function RecurringFormModal({ open, existing, onClose, accounts, categories }: R
 
   const filteredCats = useMemo(() => categories.filter((c) => c.kind === kind), [categories, kind]);
 
-  useEffect(() => {
-    if (!open) return;
-    if (existing) {
+  // Fill the form as the dialog opens, during render. Keyed on the rule's id:
+  // the list hands over a new object whenever it refreshes (after a sync, say),
+  // and refilling then would wipe what's being edited.
+  const [shownFor, setShownFor] = useState<string | undefined>(undefined);
+  const openedFor = open ? (existing?.id ?? 'new') : undefined;
+  if (openedFor !== shownFor) {
+    setShownFor(openedFor);
+    if (open && existing) {
       const tpl: RecurringTemplate = JSON.parse(existing.template_json);
       const acct = accounts.find((a) => a.id === tpl.account_id);
       setKind(tpl.kind === 'income' ? 'income' : 'expense');
@@ -185,18 +190,16 @@ function RecurringFormModal({ open, existing, onClose, accounts, categories }: R
       setNote(tpl.note ?? '');
       setFreq(frequencyOf(existing.rrule));
       setStartDate(existing.next_run_on);
-      return;
+    } else if (open) {
+      setKind('expense');
+      setAccountId(accounts.find((a) => a.is_main)?.id ?? accounts[0]?.id ?? '');
+      setCategoryId('');
+      setAmountInput('');
+      setNote('');
+      setFreq(MONTHLY);
+      setStartDate(toDateString());
     }
-    setKind('expense');
-    setAccountId(accounts.find((a) => a.is_main)?.id ?? accounts[0]?.id ?? '');
-    setCategoryId('');
-    setAmountInput('');
-    setNote('');
-    setFreq(MONTHLY);
-    setStartDate(toDateString());
-    // Seed only when opening.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, existing]);
+  }
 
   const currency = accounts.find((a) => a.id === accountId)?.currency ?? defaultCurrency;
   const minor = parseAmount(amountInput, currency);

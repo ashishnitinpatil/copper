@@ -45,9 +45,13 @@ export async function updateRecurringRule(
   input: RecurringRuleInput,
 ): Promise<void> {
   const before = await snapshotEntity(db, 'recurring', id);
+  // Moving the start back before the last run means the dates in between are
+  // due now; forget the last run so they're added rather than skipped.
   await db.exec(
-    `UPDATE recurring_rules SET template_json = ?, rrule = ?, next_run_on = ? WHERE id = ?`,
-    [JSON.stringify(input.template), input.rrule, input.next_run_on, id],
+    `UPDATE recurring_rules SET template_json = ?, rrule = ?, next_run_on = ?,
+       last_run_on = CASE WHEN last_run_on >= ? THEN NULL ELSE last_run_on END
+     WHERE id = ?`,
+    [JSON.stringify(input.template), input.rrule, input.next_run_on, input.next_run_on, id],
   );
   await logUpdate(db, 'recurring', id, before);
   await materializeDueRecurrences(db);

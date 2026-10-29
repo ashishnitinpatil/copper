@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAndLoad, waitForDB, selectCombobox } from './helpers';
+import { resetAndLoad, waitForDB, selectCombobox, pickDate } from './helpers';
 
 // Creates a recurring entry from Transactions › Recurring. The category/account pickers
 // are custom Comboboxes; the search input is portalled to <body>, so selectCombobox
@@ -80,5 +80,22 @@ test.describe('Recurring rules over time', () => {
     await expect(day('Aug 31, 2026')).toBeVisible();
     await expect(day('Sep 30, 2026')).toHaveCount(0);
     await expect(entries).toHaveCount(2);
+  });
+
+  test('moving a rule’s date back adds the dates it now covers', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-08-31T09:00:00'));
+    await resetAndLoad(page, '/transactions?view=recurring');
+    await waitForDB(page);
+    await createRule(page, { category: 'Groceries', amount: '500' });
+
+    // Ran today (Aug 31); now say it really started on Aug 1.
+    await page.locator('main li', { hasText: 'Groceries' }).first().click();
+    const modal = page.locator('.fixed');
+    await pickDate(modal.getByRole('button', { name: /^Date:/ }), '2026-08-01');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+    await page.getByRole('tab', { name: 'All transactions' }).click();
+    await expect(page.locator('main').getByRole('heading', { name: 'Aug 1, 2026', exact: true })).toBeVisible();
+    await expect(page.locator('main li', { hasText: 'Groceries' })).toHaveCount(2);
   });
 });

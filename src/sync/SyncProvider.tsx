@@ -117,8 +117,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [backupIntervalDays, setBackupIntervalState] = useState<number>(DEFAULT_BACKUP_INTERVAL_DAYS);
   const { onboarded } = useAppSettings();
   const inFlight = useRef(false);
-  // Settles when the running sync finishes, so backupNow can wait its turn
-  // rather than run a second syncNow alongside it.
+  // Settles when the running sync (or backup, restore or import) finishes, so
+  // the next one waits its turn rather than running alongside it.
   const running = useRef<Promise<void> | null>(null);
   const lastErrorAt = useRef<number>(0);
 
@@ -335,32 +335,34 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   // Manual "Back up now": sync first so the copy includes this device's latest
   // changes, then copy the book into Backups.
-  const backupNow = useCallback(async () => {
-    const token = await auth.getGoogleAccessToken();
-    if (!token) throw new Error('Your Google sign-in has expired. Tap Reconnect, then try again.');
-    // Never run two syncs at once (two could each create a book on first sync).
-    while (running.current) await running.current;
-    inFlight.current = true;
-    try {
-      await syncNow(db, async () => token);
-      const { bookId: bid } = await getSyncStatus(db);
-      if (!bid) throw new Error('Tap Sync now first, then back up.');
-      await backupBook(db, token, bid, 'manual');
-    } finally {
-      inFlight.current = false;
-    }
-    await refreshStatus();
-  }, [db, auth, refreshStatus]);
-
+  // Runs fn once no sync is running, and holds off syncs (and other callers of
+  // this) until it's done — including a restore waiting on a "Back up now".
   const withSyncPaused = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
     while (running.current) await running.current;
     inFlight.current = true;
+    let done!: () => void;
+    running.current = new Promise<void>((r) => (done = r));
     try {
       return await fn();
     } finally {
       inFlight.current = false;
+      running.current = null;
+      done();
     }
   }, []);
+
+  const backupNow = useCallback(async () => {
+    const token = await auth.getGoogleAccessToken();
+    if (!token) throw new Error('Your Google sign-in has expired. Tap Reconnect, then try again.');
+    // Never run two syncs at once (two could each create a book on first sync).
+    await withSyncPaused(async () => {
+      await syncNow(db, async () => token);
+      const { bookId: bid } = await getSyncStatus(db);
+      if (!bid) throw new Error('Tap Sync now first, then back up.');
+      await backupBook(db, token, bid, 'manual');
+    });
+    await refreshStatus();
+  }, [db, auth, refreshStatus, withSyncPaused]);
 
   const listBackups = useCallback(async () => {
     const token = await auth.getGoogleAccessToken();

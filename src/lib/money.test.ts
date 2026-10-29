@@ -62,6 +62,13 @@ describe('formatMoney', () => {
 });
 
 describe('parseAmount', () => {
+  it('ignores an abbreviated currency prefix and its dot', () => {
+    expect(parseAmount('Rs.500', 'INR')).toBe(50000);
+    expect(parseAmount('Rs. 1,500', 'INR')).toBe(150000);
+    expect(parseAmount('Dh.12.50', 'AED')).toBe(1250);
+    expect(parseAmount('.5', 'INR')).toBe(50);
+  });
+
   it('parses simple numbers', () => {
     expect(parseAmount('100', 'INR')).toBe(10000);
     expect(parseAmount('99.99', 'INR')).toBe(9999);

@@ -123,8 +123,9 @@ export function formatMoneyParts(
 
 /** Parse a free-form user-typed amount into minor units. */
 export function parseAmount(input: string, currency: string): number | null {
-  // Drop currency symbols and spaces ("₹1,000", "1 000").
-  let cleaned = input.replace(/[^\d.,-]/g, '');
+  // Drop currency symbols and spaces ("₹1,000", "1 000"), and abbreviations
+  // with their dot ("Rs.500"), which would otherwise read as a decimal point.
+  let cleaned = input.replace(/[a-z]+\./gi, '').replace(/[^\d.,-]/g, '');
   // A comma that comes last is the decimal mark ("1,5", "1.000,50") unless it
   // groups thousands ("1,000", "1,00,000").
   const comma = cleaned.lastIndexOf(',');
