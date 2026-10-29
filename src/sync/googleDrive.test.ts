@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { DriveError, describeSyncError, isReauthError } from './googleDrive';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { DriveError, describeSyncError, downloadBytes, isReauthError } from './googleDrive';
 
 describe('describeSyncError', () => {
   it('translates the invalid-session 401 into actionable guidance', () => {
@@ -42,5 +42,24 @@ describe('describeSyncError', () => {
     expect(describeSyncError('boom')).toBe('boom');
     expect(describeSyncError(null)).toBe('Sync failed');
     expect(isReauthError('boom')).toBe(false);
+  });
+});
+
+describe('downloadBytes', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reports bytes as they arrive and returns the whole file', async () => {
+    const parts = [new Uint8Array([1, 2, 3]), new Uint8Array([4, 5])];
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        parts.forEach((p) => c.enqueue(p));
+        c.close();
+      },
+    });
+    vi.stubGlobal('fetch', async () => new Response(body, { headers: { 'Content-Length': '5' } }));
+    const seen: [number, number][] = [];
+    const bytes = await downloadBytes('t', 'f', (done, total) => seen.push([done, total]));
+    expect([...bytes]).toEqual([1, 2, 3, 4, 5]);
+    expect(seen).toEqual([[3, 5], [5, 5]]);
   });
 });

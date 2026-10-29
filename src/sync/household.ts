@@ -49,6 +49,9 @@ export interface SyncResult {
 // Progress of the merge phase, in cells applied. Drives the "N of M" banner
 // during a big first pull.
 export interface SyncProgress {
+  /** Downloading the book (bytes), getting it ready (unpacking and comparing
+   *  with this device; no count), then merging (cells). */
+  stage: 'download' | 'prepare' | 'apply';
   done: number;
   total: number;
 }
@@ -92,8 +95,14 @@ export class BookReplacedError extends Error {
 // avoids overwriting a partner's write we already know about.
 const MAX_MERGE_ATTEMPTS = 3;
 
-async function readBook(token: string, fileId: string): Promise<BookFile> {
-  return gunzipJson<BookFile>(await downloadBytes(token, fileId));
+async function readBook(token: string, fileId: string, onProgress?: SyncProgressFn): Promise<BookFile> {
+  const bytes = await downloadBytes(
+    token,
+    fileId,
+    onProgress && ((done, total) => onProgress({ stage: 'download', done, total })),
+  );
+  onProgress?.({ stage: 'prepare', done: 0, total: 0 });
+  return gunzipJson<BookFile>(bytes);
 }
 
 async function encodeLocalBook(db: DB, siteHex: string): Promise<Uint8Array> {
@@ -268,7 +277,7 @@ export async function syncNow(
     let needsUpload = localChanged;
     let mergedDbv = 0;
     if (remoteChanged) {
-      const book = await readBook(token, bookId);
+      const book = await readBook(token, bookId, onProgress);
       const mine = await getSetting(db, SYNC_KEYS.BOOK_GENERATION);
       if (book.generation !== mine) {
         if (mine) throw new BookReplacedError();
@@ -279,9 +288,9 @@ export async function syncNow(
       const diff = diffBook(await exportAllChanges(db), remoteCells);
       await assertKnownColumns(db, diff.toApply);
       const total = diff.toApply.length;
-      onProgress?.({ done: 0, total });
+      onProgress?.({ stage: 'apply', done: 0, total });
       const beforeApply = await getLocalDbVersion(db);
-      pulled += await applyRemoteChanges(db, diff.toApply, (done) => onProgress?.({ done, total }));
+      pulled += await applyRemoteChanges(db, diff.toApply, (done) => onProgress?.({ stage: 'apply', done, total }));
       // Before the merge, a local cell that's about to lose to a newer remote
       // value also looks "different". Re-compare after cr-sqlite has merged, so
       // only cells that are genuinely ahead (local-only, or won the merge)

@@ -175,9 +175,32 @@ export async function updateBinaryFile(
   return (await res.json()) as DriveFile;
 }
 
-export async function downloadBytes(token: string, fileId: string): Promise<Uint8Array> {
+export async function downloadBytes(
+  token: string,
+  fileId: string,
+  /** Bytes received so far, and the file size (0 when Drive doesn't say). */
+  onProgress?: (done: number, total: number) => void,
+): Promise<Uint8Array> {
   const res = await driveFetch(token, `/files/${fileId}?alt=media`);
-  return new Uint8Array(await res.arrayBuffer());
+  if (!onProgress || !res.body) return new Uint8Array(await res.arrayBuffer());
+  const total = Number(res.headers.get('Content-Length')) || 0;
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let done = 0;
+  for (;;) {
+    const { value, done: finished } = await reader.read();
+    if (finished) break;
+    chunks.push(value);
+    done += value.length;
+    onProgress(done, total);
+  }
+  const bytes = new Uint8Array(done);
+  let at = 0;
+  for (const c of chunks) {
+    bytes.set(c, at);
+    at += c.length;
+  }
+  return bytes;
 }
 
 // Server-side copy: no download/upload, so a backup costs no mobile data.

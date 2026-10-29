@@ -18,7 +18,7 @@ const SETTING_UP_THRESHOLD = 20_000;
  */
 export function useIsFirstPull(): boolean {
   const { progress, bookId, lastSyncAt, status } = useSync();
-  if (progress) return progress.total >= BLOCKING_THRESHOLD;
+  if (progress?.stage === 'apply') return progress.total >= BLOCKING_THRESHOLD;
   // Linked to a book but never synced (it was just loaded or joined): the book
   // is still downloading, so hold the app rather than show it empty. Signed
   // out, offline or failed, nothing is coming — let the app and its banner show.
@@ -63,10 +63,21 @@ export function SyncSetupScreen() {
   useWakeLock(show);
   if (!show) return null;
 
-  // Before any progress, the book file itself is still coming down from Drive.
-  const downloading = !progress;
-  const pct = progress ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
-  const settingUp = downloading || progress.total >= SETTING_UP_THRESHOLD;
+  // Until the merge starts there's the download (sized, when Drive says how
+  // big the file is) and then a step with no count: unpacking the book and
+  // comparing it with what's on this device, which can take a while on a phone.
+  const merging = progress?.stage === 'apply';
+  const sized = merging || (progress?.stage === 'download' && progress.total > 0);
+  const pct = progress && sized ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
+  const settingUp = !merging || progress.total >= SETTING_UP_THRESHOLD;
+  const mb = (bytes: number) => (bytes / 1_000_000).toFixed(1);
+  const label = merging
+    ? `${pct}% done`
+    : progress?.stage === 'prepare'
+      ? 'Getting your book ready…'
+      : progress?.stage === 'download' && progress.total > 0
+        ? `Downloading your book — ${mb(progress.done)} of ${mb(progress.total)} MB`
+        : 'Downloading your book…';
 
   return (
     <div
@@ -88,19 +99,19 @@ export function SyncSetupScreen() {
             : 'This device has been away for a while. Copper opens as soon as it’s up to date.'}
         </p>
 
-        <p className="mt-5 text-sm text-slate-300">{downloading ? 'Downloading your book…' : `${pct}% done`}</p>
+        <p className="mt-5 text-sm text-slate-300">{label}</p>
         <div
           className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={downloading ? undefined : pct}
+          aria-valuenow={sized ? pct : undefined}
           aria-label="Sync progress"
         >
-          {downloading ? (
-            <div className="h-full w-1/4 rounded-full bg-brand-500 motion-safe:animate-progress-slide" />
-          ) : (
+          {sized ? (
             <div className="h-full rounded-full bg-brand-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+          ) : (
+            <div className="h-full w-1/4 rounded-full bg-brand-500 motion-safe:animate-progress-slide" />
           )}
         </div>
 
