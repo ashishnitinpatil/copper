@@ -23,15 +23,10 @@ import {
 import type { Account, Category, RecurringRule } from '@/db/types';
 import { formatMoney, fromMinor, parseAmount } from '@/lib/money';
 import { toDateString } from '@/lib/dates';
-import { FREQUENCY_OPTIONS, MONTHLY, ruleStarting } from '@/features/recurring/frequencies';
+import { FREQUENCY_OPTIONS, MONTHLY, editedRule, frequencyOf, ruleStarting } from '@/features/recurring/frequencies';
 import { repeatLabel } from '@/features/activity/describe';
 import { useDefaultCurrency } from './AppSettingsProvider';
 import { Glyph } from '@/components/ui/Glyph';
-
-/** The frequency part of a stored rule ("FREQ=…;INTERVAL=…"), without its start date. */
-function frequencyOf(rrule: string): string {
-  return rrule.split('\n').find((l) => l.startsWith('FREQ=')) ?? rrule.replace(/^DTSTART:[^\n]*\n?/, '');
-}
 
 /** Everything that repeats — rent, salary, subscriptions — with what's next. */
 export function RecurringList() {
@@ -211,7 +206,7 @@ function RecurringFormModal({ open, existing, onClose, accounts, categories }: R
     try {
       const input = {
         template: { account_id: accountId, category_id: categoryId, amount_minor: minor!, kind, note: note.trim() || null },
-        rrule: ruleStarting(startDate, freq),
+        rrule: existing ? editedRule(existing, startDate, freq) : ruleStarting(startDate, freq),
         next_run_on: startDate,
       };
       if (existing) await updateRecurringRule(db, existing.id, input);

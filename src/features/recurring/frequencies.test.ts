@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as lib from 'rrule';
-import { MONTHLY, dueOccurrences, ruleStarting, upcomingOccurrences } from './frequencies';
+import { MONTHLY, dueOccurrences, editedRule, ruleStarting, upcomingOccurrences } from './frequencies';
 
 describe('dueOccurrences', () => {
   const rule = { rrule: ruleStarting('2026-09-01', MONTHLY), next_run_on: '2026-09-01', last_run_on: null };
@@ -36,5 +36,25 @@ describe('monthly rules late in the month', () => {
   it('every 3 months too', () => {
     const rr = ruleStarting('2026-11-30', 'FREQ=MONTHLY;INTERVAL=3');
     expect(upcomingOccurrences(lib, rr, '2026-11-01', '2027-08-31')).toEqual(['2026-11-30', '2027-02-28', '2027-05-30', '2027-08-30']);
+  });
+});
+
+describe('editedRule', () => {
+  // Rent on the 31st, edited in November while it's next due on Nov 30.
+  const rent = { rrule: ruleStarting('2026-01-31', MONTHLY), next_run_on: '2026-11-30' };
+
+  it('keeps a month-end rule on its day when only the amount or note changes', () => {
+    const rule = editedRule(rent, '2026-11-30', MONTHLY);
+    expect(upcomingOccurrences(lib, rule, '2026-11-30', '2027-03-31')).toEqual([
+      '2026-12-31',
+      '2027-01-31',
+      '2027-02-28',
+      '2027-03-31',
+    ]);
+  });
+
+  it('starts from the new date when the date or frequency is changed', () => {
+    expect(editedRule(rent, '2026-12-05', MONTHLY)).toBe(ruleStarting('2026-12-05', MONTHLY));
+    expect(editedRule(rent, '2026-11-30', 'FREQ=WEEKLY')).toBe(ruleStarting('2026-11-30', 'FREQ=WEEKLY'));
   });
 });

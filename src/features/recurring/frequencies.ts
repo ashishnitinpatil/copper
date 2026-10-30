@@ -15,6 +15,22 @@ export function ruleStarting(date: string, freq: string): string {
   return `DTSTART:${date.replace(/-/g, '')}T000000Z\n${freq}`;
 }
 
+/** The frequency part of a stored rule ("FREQ=…;INTERVAL=…"), without its start date. */
+export function frequencyOf(rrule: string): string {
+  return rrule.split('\n').find((l) => l.startsWith('FREQ=')) ?? rrule.replace(/^DTSTART:[^\n]*\n?/, '');
+}
+
+/**
+ * The rule to save after an edit. With the date and frequency left as they were,
+ * the rule keeps its own start: that day of the month is the one meant. Rebuilt
+ * from the next due date instead, a rent on the 31st edited while next due on
+ * Nov 30 would fall on the 30th from then on.
+ */
+export function editedRule(existing: { rrule: string; next_run_on: string }, startDate: string, freq: string): string {
+  const unchanged = startDate === existing.next_run_on && freq === frequencyOf(existing.rrule);
+  return unchanged ? existing.rrule : ruleStarting(startDate, freq);
+}
+
 type RRuleLib = typeof import('rrule');
 
 /**
