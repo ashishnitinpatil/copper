@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageShell } from './PageShell';
-import { Card, EmptyState } from '@/components/ui/Card';
+import { Card, EmptyState, LoadingRows } from '@/components/ui/Card';
 import { InfoHint } from '@/components/ui/InfoHint';
 import { ConvertedMark } from '@/components/ConvertedMark';
 import { useQuery } from '@/db/useQuery';
@@ -392,7 +392,9 @@ export function Cashflow() {
         </div>
       )}
 
-      {forecast.length === 0 ? (
+      {accountsState.data === null || balancesState.data === null ? (
+        <LoadingRows label="Loading your forecast…" />
+      ) : forecast.length === 0 ? (
         <EmptyState
           title="Nothing to show yet"
           description="Add a bank or cash account to see where your balance is heading."
@@ -505,7 +507,9 @@ export function Cashflow() {
             </InfoHint>
           </div>
 
-          {!trend ? (
+          {deltasState.data === null || inOutState.data === null ? (
+            <LoadingRows label="Loading your trend…" />
+          ) : !trend ? (
             <EmptyState
               title="Nothing to show yet"
               description="Add some transactions to see your balance trend and projection."

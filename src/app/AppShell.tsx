@@ -21,6 +21,7 @@ import { PwaPrompts } from '@/pwa/PwaPrompts';
 import { SyncSetupScreen } from '@/sync/SyncSetupScreen';
 import { CustomThemeKeeper } from './CustomThemeKeeper';
 import { SyncPausedBanner } from '@/sync/SyncPausedBanner';
+import { ActivityBar, SyncChip } from '@/components/ActivityBar';
 import { useAppSettings } from './AppSettingsProvider';
 import { Shortcuts } from './Shortcuts';
 
@@ -91,11 +92,13 @@ export function AppShell() {
   const moreActive = MOBILE_MORE.some((g) => g.items.some((i) => location.pathname.startsWith(i.to)));
   return (
     <div className="flex min-h-full flex-col lg:flex-row">
+      <ActivityBar />
       <aside className="border-b border-slate-800 lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:border-b-0 lg:border-r">
         <div className="flex items-center justify-between p-4 lg:h-full lg:flex-col lg:items-start lg:gap-6">
           <div className="flex items-center gap-2 font-display text-lg font-semibold tracking-tight text-slate-100">
             <img src="/icon.svg" alt="" aria-hidden="true" className="h-6 w-6" />
             Copper
+            <SyncChip />
           </div>
           <nav className="hidden lg:flex lg:w-full lg:flex-1 lg:flex-col lg:overflow-y-auto">
             <div className="space-y-5">

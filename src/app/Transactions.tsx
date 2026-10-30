@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, Plus } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
-import { Card, EmptyState } from '@/components/ui/Card';
+import { Card, EmptyState, LoadingRows } from '@/components/ui/Card';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { Combobox } from '@/components/ui/Combobox';
 import { InfoHint } from '@/components/ui/InfoHint';
@@ -498,6 +498,12 @@ export function Transactions() {
           {showFilters ? 'Hide filters' : activeFilters > 0 ? `Filters (${activeFilters} on)` : 'Filters'}
         </button>
       </Card>
+
+      {pastQuery.error ? (
+        <EmptyState title="Couldn't load transactions" description={pastQuery.error.message} />
+      ) : (
+        !loaded && <LoadingRows label="Loading transactions…" />
+      )}
 
       {nothing &&
         (activeFilters > 0 || filters.search ? (

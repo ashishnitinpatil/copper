@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { PageShell } from './PageShell';
-import { Card, EmptyState } from '@/components/ui/Card';
+import { Card, EmptyState, LoadingRows } from '@/components/ui/Card';
 import { InfoHint } from '@/components/ui/InfoHint';
 import { ConvertedMark } from '@/components/ConvertedMark';
 import { useQuery } from '@/db/useQuery';
@@ -277,7 +277,9 @@ export function Reports() {
             </button>
           </div>
 
-          {categories.length === 0 ? (
+          {catSpend.data === null ? (
+            <LoadingRows label="Loading spending…" />
+          ) : categories.length === 0 ? (
             <EmptyState
               title={label ? `No spending in ${label}` : 'No spending in these dates'}
               description="Add an expense and you'll see where your money goes, category by category."
@@ -350,7 +352,9 @@ export function Reports() {
 
       {tab === 'monthly' && (
         <>
-          {pastMonths.length === 0 && upcomingMonths.length === 0 ? (
+          {monthlyData.data === null ? (
+            <LoadingRows label="Loading months…" />
+          ) : pastMonths.length === 0 && upcomingMonths.length === 0 ? (
             <EmptyState title="Nothing to chart yet" description="Once you've added some expenses and income, you'll see how each month compares." />
           ) : (
             <>

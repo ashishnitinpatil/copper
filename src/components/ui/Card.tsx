@@ -28,3 +28,15 @@ export function EmptyState({ title, description, action }: EmptyStateProps) {
     </div>
   );
 }
+
+/** Placeholder rows while a list loads, so the page says it's working instead of sitting blank. */
+export function LoadingRows({ label, rows = 6 }: { label: string; rows?: number }) {
+  return (
+    <div role="status" className="space-y-2 motion-safe:animate-pulse">
+      <span className="sr-only">{label}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="h-14 rounded-xl bg-slate-800/50" />
+      ))}
+    </div>
+  );
+}

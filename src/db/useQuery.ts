@@ -22,6 +22,22 @@ interface QueryOptions {
 
 const lastResults = new Map<string, unknown>();
 
+// How many queries are loading right now, app-wide, so the shell can show that
+// a page is still working rather than leave it blank (see ActivityBar).
+let pending = 0;
+const pendingListeners = new Set<() => void>();
+function setPending(delta: number) {
+  pending += delta;
+  pendingListeners.forEach((l) => l());
+}
+export function subscribePendingQueries(listener: () => void): () => void {
+  pendingListeners.add(listener);
+  return () => pendingListeners.delete(listener);
+}
+export function pendingQueries(): number {
+  return pending;
+}
+
 interface QueryState<T> {
   data: T | null;
   loading: boolean;
@@ -51,8 +67,10 @@ export function useQuery<T>(loader: Loader<T>, options: QueryOptions = {}): Quer
     let cancelled = false;
 
     const run = () => {
+      setPending(1);
       loaderRef
         .current(db)
+        .finally(() => setPending(-1))
         .then((data) => {
           if (cancelled) return;
           if (cacheKey) lastResults.set(cacheKey, data);
