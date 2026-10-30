@@ -101,6 +101,9 @@ const ERROR_BACKOFF_MS = 5 * 60_000;
 // tries again shortly, quietly; only one that keeps failing shows as an error.
 const QUIET_RETRY_MS = 15_000;
 const QUIET_RETRIES = 3;
+// Coming back to the app checks for a partner's changes, but not more than
+// once a minute: switching tabs back and forth shouldn't sync each time.
+const RETURN_SYNC_GAP_MS = 60_000;
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const db = useDB();
@@ -128,6 +131,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // the next one waits its turn rather than running alongside it.
   const running = useRef<Promise<void> | null>(null);
   const lastErrorAt = useRef<number>(0);
+  const lastStartedAt = useRef<number>(0);
   const quietFailures = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -209,10 +213,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       ) {
         return;
       }
+      if (reason === 'visible' && Date.now() - lastStartedAt.current < RETURN_SYNC_GAP_MS) return;
 
       if (retryTimer.current) clearTimeout(retryTimer.current);
       retryTimer.current = null;
       inFlight.current = true;
+      lastStartedAt.current = Date.now();
       let done!: () => void;
       running.current = new Promise<void>((r) => (done = r));
       setStatus('syncing');
@@ -307,9 +313,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       void triggerSyncRef.current('online');
     };
     // Coming back: pick up a partner's changes. Going away: upload this
-    // device's edits while the page can still run.
-    const onVisibility = () => {
-      void triggerSyncRef.current(document.visibilityState === 'visible' ? 'visible' : 'hidden');
+    // device's edits, if it has any, while the page can still run.
+    const onVisibility = async () => {
+      if (document.visibilityState === 'visible') void triggerSyncRef.current('visible');
+      else if (await hasUnsyncedChanges(db)) void triggerSyncRef.current('hidden');
     };
 
     window.addEventListener('online', onOnline);
@@ -321,7 +328,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [auth.google, onboarded]);
+  }, [auth.google, onboarded, db]);
 
   const joinBook = useCallback(
     async (id: string, mode: JoinMode) => {
