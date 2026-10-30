@@ -21,13 +21,20 @@ const C = 2 * Math.PI * R;
 // A thin gap between slices so neighbours with similar colours stay distinct.
 const GAP = 2;
 
+// The amount in the hole shrinks to fit it: the hole is about 60% of the
+// donut's width, and a character of the display face about 0.6em wide.
+function fitHole(text: string): string {
+  return `min(1.25rem, ${(90 / text.length).toFixed(1)}cqi)`;
+}
+
 /** Spending share by category; the hole shows the total, or the slice you point at. */
 export function CategoryDonut({ slices, total, currency, activeId, onActiveChange }: Props) {
   const active = slices.find((s) => s.id === activeId) ?? null;
+  const amount = formatMoney(active ? active.value : total, currency);
   let offset = 0;
 
   return (
-    <div className="relative mx-auto aspect-square w-full max-w-[15rem]">
+    <div className="relative mx-auto aspect-square w-full max-w-[15rem] [container-type:inline-size]">
       <svg viewBox="0 0 180 180" className="h-full w-full -rotate-90" role="img" aria-label="Spending by category">
         <circle cx={90} cy={90} r={R} fill="none" strokeWidth={STROKE} className="stroke-slate-800" />
         {slices.map((s) => {
@@ -55,10 +62,13 @@ export function CategoryDonut({ slices, total, currency, activeId, onActiveChang
           return el;
         })}
       </svg>
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-10 text-center">
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-[22%] text-center">
         <span className="max-w-full truncate text-xs text-slate-400">{active ? active.label : 'Spent'}</span>
-        <span className="font-display text-xl font-semibold tabular-nums text-slate-50">
-          {formatMoney(active ? active.value : total, currency)}
+        <span
+          className="whitespace-nowrap font-display font-semibold tabular-nums text-slate-50"
+          style={{ fontSize: fitHole(amount) }}
+        >
+          {amount}
         </span>
         {active && total > 0 && (
           <span className="text-xs tabular-nums text-slate-500">{((active.value / total) * 100).toFixed(1)}%</span>
