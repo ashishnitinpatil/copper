@@ -5,8 +5,9 @@ import { promptInstall, useInstall } from './install';
 
 // The browser looks for a new version only when the app is opened fresh. A tab
 // or installed window left open for days would never hear of one, so look
-// again when the person comes back to it, and now and then while it's in use.
-const UPDATE_CHECK_MS = 60 * 60_000;
+// again at most once a day: when the person comes back to it, or while it's in
+// use. Updates are rare, and each look is a request to the host.
+const UPDATE_CHECK_MS = 24 * 60 * 60_000;
 
 function checkForUpdates(reg: ServiceWorkerRegistration) {
   let lastCheck = Date.now();
