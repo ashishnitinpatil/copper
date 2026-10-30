@@ -79,6 +79,7 @@ const FOREIGN_KEYS: Record<string, Record<string, string>> = {
     account_id: 'accounts',
     category_id: 'categories',
     transfer_peer_id: 'transactions',
+    payment_of: 'transactions',
     recurring_id: 'recurring_rules',
   },
   budgets: { category_id: 'categories' },

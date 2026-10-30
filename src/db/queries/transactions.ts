@@ -29,11 +29,14 @@ export interface TransactionWithMeta extends Transaction {
   peer_account_name?: string | null;
   peer_account_currency?: string | null;
   peer_amount_minor?: number | null;
+  peer_account_type?: AccountType | null;
+  /** On a loan payment's outgoing leg: its interest (negative), shown with it. */
+  interest_minor?: number | null;
 }
 
 // A transfer is two rows, one per account. Joined to its other leg so a row
 // can say "Cash → HDFC".
-const PEER_COLUMNS = `pa.name AS peer_account_name, pa.currency AS peer_account_currency, p.amount_minor AS peer_amount_minor`;
+const PEER_COLUMNS = `pa.name AS peer_account_name, pa.currency AS peer_account_currency, p.amount_minor AS peer_amount_minor, pa.type AS peer_account_type`;
 const PEER_JOIN = `LEFT JOIN transactions p ON p.id = t.transfer_peer_id LEFT JOIN accounts pa ON pa.id = p.account_id`;
 // Listing every account, a transfer shows once: keep the sending leg (the
 // negative one; the lower id if a legacy pair has equal amounts).
@@ -41,6 +44,44 @@ const ONE_ROW_PER_TRANSFER = `NOT (p.id IS NOT NULL AND (t.amount_minor > p.amou
 // Filtered to one account, its own leg is the one to show; a tag sits on one
 // leg only, so dropping either could hide the transfer altogether.
 const showsBothLegs = (filter: TransactionFilter) => !!filter.accountId || !!filter.tagId;
+
+/**
+ * A loan payment is shown as one entry: its interest folds into the transfer leg
+ * it belongs to when both are in the list. Shown without it (filtered to the
+ * interest's category, say), the interest stays a row of its own.
+ */
+function foldLoanInterest(rows: TransactionWithMeta[]): TransactionWithMeta[] {
+  const ids = new Set(rows.map((r) => r.id));
+  // Leg id → its interest. New rows, not edits: a row may be folded again.
+  const interest = new Map<string, number>();
+  for (const r of rows) {
+    if (r.payment_of && ids.has(r.payment_of)) {
+      interest.set(r.payment_of, (interest.get(r.payment_of) ?? 0) + r.amount_minor);
+    }
+  }
+  if (interest.size === 0) return rows;
+  return rows
+    .filter((r) => !(r.payment_of && ids.has(r.payment_of)))
+    .map((r) => (interest.has(r.id) ? { ...r, interest_minor: interest.get(r.id)! } : r));
+}
+
+/** `ids` plus every row entered with them: a transfer's other leg, a loan payment's interest. */
+async function withLinkedRows(db: DB, ids: string[]): Promise<string[]> {
+  const all = new Set(ids);
+  // Two rounds reach from a payment's interest to its legs, and from either leg to the rest.
+  for (let round = 0; round < 2; round++) {
+    const list = [...all];
+    const ph = list.map(() => '?').join(', ');
+    const linked = await db.execO<{ id: string | null }>(
+      `SELECT transfer_peer_id AS id FROM transactions WHERE id IN (${ph})
+       UNION SELECT payment_of FROM transactions WHERE id IN (${ph})
+       UNION SELECT id FROM transactions WHERE payment_of IN (${ph})`,
+      [...list, ...list, ...list],
+    );
+    for (const l of linked) if (l.id) all.add(l.id);
+  }
+  return [...all];
+}
 
 export interface TransactionFilter {
   accountId?: string;
@@ -104,28 +145,17 @@ export async function updateTransaction(
 }
 
 export async function deleteTransaction(db: DB, id: string): Promise<void> {
-  const rows = await db.execO<Transaction>('SELECT * FROM transactions WHERE id = ?', [id]);
-  if (!rows[0]) return;
-  const peer = rows[0].transfer_peer_id;
-  const peerRows = peer
-    ? await db.execO<Transaction>('SELECT * FROM transactions WHERE id = ?', [peer])
-    : [];
-  // One batch ties the two legs of a deleted transfer together.
-  const batchId = peer ? newBatchId() : null;
+  const ids = await withLinkedRows(db, [id]);
+  const ph = ids.map(() => '?').join(', ');
+  const rows = await db.execO<Transaction>(`SELECT * FROM transactions WHERE id IN (${ph})`, ids);
+  if (rows.length === 0) return;
+  // One batch ties a transfer's legs (and a loan payment's interest) together.
+  const batchId = rows.length > 1 ? newBatchId() : null;
+  const source = rows.some((r) => r.payment_of) ? 'loan-payment' : undefined;
   await db.tx(async (tx) => {
-    await tx.exec('DELETE FROM transactions WHERE id = ?', [id]);
-    await logDelete(db, 'transaction', rows[0] as unknown as Record<string, unknown>, {
-      exec: tx,
-      batchId,
-    });
-    if (peer) {
-      await tx.exec('DELETE FROM transactions WHERE id = ?', [peer]);
-      if (peerRows[0]) {
-        await logDelete(db, 'transaction', peerRows[0] as unknown as Record<string, unknown>, {
-          exec: tx,
-          batchId,
-        });
-      }
+    await tx.exec(`DELETE FROM transactions WHERE id IN (${ph})`, ids);
+    for (const row of rows) {
+      await logDelete(db, 'transaction', row as unknown as Record<string, unknown>, { exec: tx, batchId, source });
     }
   });
 }
@@ -163,17 +193,10 @@ export async function bulkSetCategory(
   }
 }
 
-/** Delete many transactions, pulling in the matching peer leg of any transfer. */
+/** Delete many transactions, pulling in a transfer's other leg and a loan payment's interest. */
 export async function bulkDeleteTransactions(db: DB, ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  const placeholders = ids.map(() => '?').join(', ');
-  const peers = await db.execO<{ transfer_peer_id: string | null }>(
-    `SELECT transfer_peer_id FROM transactions WHERE id IN (${placeholders})`,
-    ids,
-  );
-  const all = new Set(ids);
-  for (const p of peers) if (p.transfer_peer_id) all.add(p.transfer_peer_id);
-  const allIds = [...all];
+  const allIds = await withLinkedRows(db, ids);
   const delPlaceholders = allIds.map(() => '?').join(', ');
   // Snapshot every row (including pulled-in transfer peers) before deleting, so
   // each delete keeps its last-known state in the audit trail.
@@ -249,7 +272,7 @@ export async function listTransactions(
     LIMIT ? OFFSET ?
   `;
   params.push(limit, offset);
-  return db.execO<TransactionWithMeta>(sql, params);
+  return foldLoanInterest(await db.execO<TransactionWithMeta>(sql, params));
 }
 
 /**
@@ -350,7 +373,7 @@ export async function searchTransactions(
   scored.sort(
     (x, y) => y.score - x.score || y.row.occurred_on.localeCompare(x.row.occurred_on),
   );
-  return scored.slice(0, filter.limit ?? 500).map((s) => s.row);
+  return foldLoanInterest(scored.slice(0, filter.limit ?? 500).map((s) => s.row));
 }
 
 export async function countTransactions(db: DB, filter: TransactionFilter = {}): Promise<number> {
@@ -508,7 +531,11 @@ export async function summarizeTransactions(
     // Search ranks in JS, so sum what it matched.
     const rows = await searchTransactions(db, query, { ...filter, limit: 1_000_000 }, currency);
     const map = new Map<string, TransactionSummaryRow>();
-    for (const r of rows) add(map, r.kind, r.account_currency, r.amount_minor);
+    for (const r of rows) {
+      add(map, r.kind, r.account_currency, r.amount_minor);
+      // A payment's interest is folded into its row, but it's still spending.
+      if (r.interest_minor) add(map, 'expense', r.account_currency, r.interest_minor);
+    }
     return [...map.values()];
   }
   const where: string[] = [];

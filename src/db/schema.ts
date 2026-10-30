@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS accounts (
   statement_day         INTEGER,
   due_day               INTEGER,
   pay_from_account_id   TEXT,
+  loan_principal_minor  INTEGER,
+  loan_rate_bp          INTEGER,
+  loan_interest_method  TEXT,
+  loan_term_months      INTEGER,
+  loan_payment_minor    INTEGER,
+  loan_autopay_from     TEXT,
   color                 TEXT,
   icon                  TEXT,
   starts_on             TEXT NOT NULL DEFAULT '',
@@ -59,6 +65,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   occurred_on       TEXT NOT NULL DEFAULT '',
   note              TEXT,
   recurring_id      TEXT,
+  payment_of        TEXT,
   created_at        TEXT NOT NULL DEFAULT ''
 );
 
@@ -66,6 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(occurred_on);
 CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(account_id);
 CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category_id);
 CREATE INDEX IF NOT EXISTS idx_tx_recurring ON transactions(recurring_id);
+CREATE INDEX IF NOT EXISTS idx_tx_payment_of ON transactions(payment_of);
 
 CREATE TABLE IF NOT EXISTS recurring_rules (
   id            TEXT NOT NULL PRIMARY KEY DEFAULT '',

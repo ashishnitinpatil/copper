@@ -32,6 +32,8 @@ import {
   type Scope,
 } from '@/features/cashflow/trends';
 import { BalanceTrendChart } from '@/components/charts/BalanceTrendChart';
+import { loanTerms } from '@/db/queries/loans';
+import { dueDatesBetween, splitPayment } from '@/features/loans/loanMath';
 import { CashflowTrendChart } from '@/components/charts/CashflowTrendChart';
 
 type Horizon = 30 | 60 | 90;
@@ -184,6 +186,30 @@ export function Cashflow() {
       }
     }
 
+    // Loans paid automatically: the payment leaves its account; if the loan
+    // itself is counted, what's owed drops by the principal part.
+    for (const loan of accounts) {
+      if (loan.type !== 'loan' || loan.archived_at || !loan.loan_autopay_from || !loan.due_day) continue;
+      const payAcct = nonCreditAccounts.find((a) => a.id === loan.pay_from_account_id);
+      const loanCounted = nonCreditAccounts.some((a) => a.id === loan.id);
+      const terms = loanTerms(loan);
+      if (terms.payment <= 0) continue;
+      let owed = Math.max(0, -(balanceMap.get(loan.id) ?? loan.opening_balance_minor));
+      for (const date of dueDatesBetween(todayStr, endDateStr, loan.due_day)) {
+        if (owed <= 0) break;
+        const split = splitPayment(owed, terms);
+        owed -= split.principal;
+        const out = payAcct ? -(split.principal + split.interest) : 0;
+        const amount = out + (loanCounted ? split.principal : 0);
+        if (amount === 0) continue;
+        events.push({
+          date,
+          label: `${loan.name} payment`,
+          amount: convert(amount, loan.currency, defaultCurrency, defaultCurrency, fxRates),
+        });
+      }
+    }
+
     events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
     for (const ev of events) {
@@ -197,7 +223,7 @@ export function Cashflow() {
     }
 
     return entries;
-  }, [nonCreditAccounts, balanceMap, rules, ccStatements, futureTxns, horizon, defaultCurrency, fxRates, rruleLib]);
+  }, [accounts, nonCreditAccounts, balanceMap, rules, ccStatements, futureTxns, horizon, defaultCurrency, fxRates, rruleLib]);
 
   // What the forecast leaves out, so its "Today" figure can be squared with the
   // Dashboard total: cards whose bills can't be projected, and uncounted accounts.

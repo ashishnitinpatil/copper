@@ -14,7 +14,7 @@ import {
   type CurrencyTotal,
 } from '@/db/queries/accounts';
 import { listTransactions, type TransactionWithMeta } from '@/db/queries/transactions';
-import { TransferAmount, transferRoute } from '@/components/transfer';
+import { TransferAmount, isLoanPayment, paymentSplit, transferRoute } from '@/components/transfer';
 import { getBudgetsWithSpent, type BudgetWithSpent } from '@/db/queries/budgets';
 import type { Account } from '@/db/types';
 import { formatMoney } from '@/lib/money';
@@ -330,13 +330,14 @@ export function Dashboard() {
                   )}
                   <div className="min-w-0">
                     <div className="truncate text-sm text-slate-100">
-                      {tx.kind === 'transfer' ? 'Transfer' : tx.category_name ?? 'Uncategorized'}
+                      {tx.kind === 'transfer' ? (isLoanPayment(tx) ? 'Loan payment' : 'Transfer') : tx.category_name ?? 'Uncategorized'}
                     </div>
                     <div className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
                       <span className="shrink-0">{formatRelativeDate(tx.occurred_on)} ·</span>
                       {!route && <AccountGlyph account={{ icon: tx.account_icon, type: tx.account_type }} size="xs" />}
                       <span className="truncate">
                         {route ?? tx.account_name}
+                        {paymentSplit(tx) ? ` · ${paymentSplit(tx)}` : ''}
                         {tx.note ? ` · ${tx.note}` : ''}
                       </span>
                     </div>

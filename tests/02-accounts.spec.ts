@@ -92,7 +92,7 @@ test.describe('Accounts CRUD', () => {
     await page.getByRole('button', { name: '+ New account' }).click();
     await page.getByLabel('Name').fill('Home loan');
     await page.getByLabel('Type').selectOption('loan');
-    await page.getByLabel('Starting balance', { exact: true }).fill('-500000');
+    await page.getByLabel('Still owed', { exact: true }).fill('500000');
     await page.getByLabel('Include in total balance').uncheck();
     await page.getByRole('button', { name: 'Create' }).click();
     await page.getByRole('button', { name: '+ New account' }).click();

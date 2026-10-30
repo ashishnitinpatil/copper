@@ -15,9 +15,28 @@ export interface AccountInput {
   statement_day?: number | null;
   due_day?: number | null;
   pay_from_account_id?: string | null;
+  loan_principal_minor?: number | null;
+  loan_rate_bp?: number | null;
+  loan_interest_method?: string | null;
+  loan_term_months?: number | null;
+  loan_payment_minor?: number | null;
+  loan_autopay_from?: string | null;
   color?: string | null;
   icon?: string | null;
   starts_on?: string;
+}
+
+// A loan's terms; other accounts have none.
+function loanValues(input: AccountInput) {
+  const loan = input.type === 'loan';
+  return [
+    loan ? (input.loan_principal_minor ?? null) : null,
+    loan ? (input.loan_rate_bp ?? null) : null,
+    loan ? (input.loan_interest_method ?? null) : null,
+    loan ? (input.loan_term_months ?? null) : null,
+    loan ? (input.loan_payment_minor ?? null) : null,
+    loan ? (input.loan_autopay_from ?? null) : null,
+  ];
 }
 
 export async function listAccounts(db: DB, includeArchived = false): Promise<Account[]> {
@@ -40,8 +59,9 @@ export async function createAccount(db: DB, input: AccountInput): Promise<string
     `INSERT INTO accounts (
       id, name, type, currency, opening_balance_minor, is_main, include_in_total,
       credit_limit_minor, statement_day, due_day, pay_from_account_id,
+      loan_principal_minor, loan_rate_bp, loan_interest_method, loan_term_months, loan_payment_minor, loan_autopay_from,
       color, icon, starts_on, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.name,
@@ -54,6 +74,7 @@ export async function createAccount(db: DB, input: AccountInput): Promise<string
       input.statement_day ?? null,
       input.due_day ?? null,
       input.pay_from_account_id ?? null,
+      ...loanValues(input),
       input.color ?? null,
       input.icon ?? null,
       input.starts_on ?? toDateString(),
@@ -74,7 +95,8 @@ export async function updateAccount(db: DB, id: string, input: AccountInput): Pr
     `UPDATE accounts SET
       name = ?, type = ?, currency = ?, opening_balance_minor = ?,
       is_main = ?, include_in_total = ?, credit_limit_minor = ?, statement_day = ?, due_day = ?,
-      pay_from_account_id = ?, color = ?, icon = ?, starts_on = ?
+      pay_from_account_id = ?, loan_principal_minor = ?, loan_rate_bp = ?, loan_interest_method = ?,
+      loan_term_months = ?, loan_payment_minor = ?, loan_autopay_from = ?, color = ?, icon = ?, starts_on = ?
      WHERE id = ?`,
     [
       input.name,
@@ -87,6 +109,7 @@ export async function updateAccount(db: DB, id: string, input: AccountInput): Pr
       input.statement_day ?? null,
       input.due_day ?? null,
       input.pay_from_account_id ?? null,
+      ...loanValues(input),
       input.color ?? null,
       input.icon ?? null,
       input.starts_on ?? toDateString(),

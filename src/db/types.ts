@@ -23,6 +23,16 @@ export interface Account {
   statement_day: number | null;
   due_day: number | null;
   pay_from_account_id: string | null;
+  /** A loan's terms, from its papers: amount borrowed, yearly interest rate in
+   *  basis points (8.5% = 850), length in months, and the monthly payment. */
+  loan_principal_minor: number | null;
+  loan_rate_bp: number | null;
+  /** 'flat' charges interest on the amount borrowed; anything else, on what's still owed. */
+  loan_interest_method: string | null;
+  loan_term_months: number | null;
+  loan_payment_minor: number | null;
+  /** Payments are added automatically on due dates after this date (null: off). */
+  loan_autopay_from: string | null;
   color: string | null;
   icon: string | null;
   starts_on: string;
@@ -49,6 +59,8 @@ export interface Transaction {
   amount_minor: number;
   kind: TransactionKind;
   transfer_peer_id: string | null;
+  /** On a loan payment's interest: the outgoing leg of the payment's transfer. */
+  payment_of: string | null;
   occurred_on: string;
   note: string | null;
   recurring_id: string | null;

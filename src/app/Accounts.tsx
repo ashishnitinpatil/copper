@@ -21,11 +21,23 @@ import {
 import { mergeAccount, previewAccountMerge } from '@/db/queries/merge';
 import { MergeInto } from '@/components/MergeInto';
 import type { Account, AccountType } from '@/db/types';
-import { parseAmount, fromMinor, CURRENCY_OPTIONS } from '@/lib/money';
+import { parseAmount, fromMinor, formatMoney, CURRENCY_OPTIONS } from '@/lib/money';
 import { Money } from '@/components/ui/Money';
 import { Combobox } from '@/components/ui/Combobox';
 import { toDateString } from '@/lib/dates';
 import { useDefaultCurrency } from './AppSettingsProvider';
+import {
+  dueDateAfter,
+  flatEquivalent,
+  formatRate,
+  monthlyPayment,
+  nextDueDate,
+  reducingEquivalent,
+  remainingSchedule,
+  type InterestMethod,
+} from '@/features/loans/loanMath';
+import { getLoanStats, loanTerms } from '@/db/queries/loans';
+import { LoanPaymentModal } from './LoanPaymentModal';
 import { getSavedOrder, ORDER_OPTIONS, saveOrder, useSortedAccounts, type AccountOrder } from '@/components/accountOrder';
 
 // Offered on top of the default (the account type's own icon).
@@ -66,6 +78,12 @@ export function Accounts() {
     deps: ['accounts'],
   });
   const balances = useAccountBalances();
+  const loanStats = useQuery(useCallback((db) => getLoanStats(db), []), { deps: ['transactions'] });
+  const interestPaid = useMemo(
+    () => new Map((loanStats.data ?? []).map((l) => [l.account_id, l.interest_paid])),
+    [loanStats.data],
+  );
+  const [payingLoan, setPayingLoan] = useState<string | null>(null);
 
   const accounts = useMemo(() => accountsQuery.data ?? [], [accountsQuery.data]);
   const archived = accounts.filter((a) => a.archived_at);
@@ -154,6 +172,8 @@ export function Accounts() {
                 onEdit={() => setEditing(acct)}
                 // The heading already names the type, unless the group mixes them.
                 showType={groups.length === 1 || g.types.length > 1}
+                interestPaid={interestPaid.get(acct.id) ?? 0}
+                onPay={() => setPayingLoan(acct.id)}
               />
             ))}
           </div>
@@ -182,6 +202,12 @@ export function Accounts() {
         </Card>
       )}
 
+      <LoanPaymentModal
+        open={payingLoan !== null}
+        loanId={payingLoan}
+        accounts={unarchived}
+        onClose={() => setPayingLoan(null)}
+      />
       <AccountFormModal
         open={creating}
         accounts={unarchived}
@@ -202,9 +228,12 @@ interface AccountCardProps {
   balanceMinor: number;
   onEdit: () => void;
   showType: boolean;
+  interestPaid: number;
+  onPay: () => void;
 }
 
-function AccountCard({ account, balanceMinor, onEdit, showType }: AccountCardProps) {
+function AccountCard({ account, balanceMinor, onEdit, showType, interestPaid, onPay }: AccountCardProps) {
+  const isLoan = account.type === 'loan';
   const limit = account.type === 'credit_card' ? (account.credit_limit_minor ?? 0) : 0;
   // A card in credit (paid more than owed) has more than its limit to spend.
   const available = limit + balanceMinor;
@@ -262,6 +291,8 @@ function AccountCard({ account, balanceMinor, onEdit, showType }: AccountCardPro
               />
             </div>
           </div>
+        ) : isLoan ? (
+          <LoanSummary loan={account} owed={Math.max(0, -balanceMinor)} interestPaid={interestPaid} />
         ) : (
           <Money
             minor={balanceMinor}
@@ -279,6 +310,71 @@ function AccountCard({ account, balanceMinor, onEdit, showType }: AccountCardPro
       {limit > 0 && (
         <div className="-mt-2 px-4 pb-4">
           <LimitUsage owed={Math.max(0, -balanceMinor)} limit={limit} />
+        </div>
+      )}
+      {isLoan && balanceMinor < 0 && (
+        <div className="-mt-1 px-4 pb-4">
+          <Button size="sm" variant="secondary" onClick={onPay}>
+            Record payment
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const monthYear = (date: string) =>
+  new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+
+/** What's left on a loan, how it's going, and what the borrowing costs. */
+function LoanSummary({ loan, owed, interestPaid }: { loan: Account; owed: number; interestPaid: number }) {
+  const terms = loanTerms(loan);
+  const money = (n: number) => formatMoney(n, loan.currency);
+  const paidShare = loan.loan_principal_minor ? Math.min(1, Math.max(0, 1 - owed / loan.loan_principal_minor)) : null;
+  const schedule = terms.payment > 0 && owed > 0 ? remainingSchedule(owed, terms) : null;
+  const payoff =
+    schedule && loan.due_day
+      ? dueDateAfter(nextDueDate(toDateString(), loan.due_day), schedule.payments - 1, loan.due_day)
+      : null;
+  const months = loan.loan_term_months;
+  return (
+    <div className="mt-3 space-y-2">
+      <div>
+        <div className="text-xs text-slate-500">{owed > 0 ? 'Still owed' : 'Paid off'}</div>
+        <Money minor={owed} currency={loan.currency} className="block text-2xl font-semibold tabular-nums text-clay-400" />
+      </div>
+      {paidShare != null && (
+        <div>
+          <div
+            role="meter"
+            aria-label="Paid off"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(paidShare * 100)}
+            className="h-1.5 overflow-hidden rounded-full bg-slate-800"
+          >
+            <div className="h-full rounded-full bg-mint-400" style={{ width: `${paidShare * 100}%` }} />
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {Math.round(paidShare * 100)}% of {money(loan.loan_principal_minor!)} paid off
+          </div>
+        </div>
+      )}
+      {terms.payment > 0 && owed > 0 && (
+        <div className="text-xs text-slate-400">
+          {money(terms.payment)} a month
+          {schedule
+            ? ` · ${schedule.payments} ${schedule.payments === 1 ? 'payment' : 'payments'} left${payoff ? ` · paid off ${monthYear(payoff)}` : ''}`
+            : ' · doesn’t cover the interest'}
+        </div>
+      )}
+      {terms.rateBp > 0 && months ? (
+        <div className="text-xs text-slate-400">{otherRate(terms.method, terms.rateBp, months)}</div>
+      ) : null}
+      {(interestPaid > 0 || schedule) && (
+        <div className="text-xs text-slate-400">
+          Interest paid {money(interestPaid)}
+          {schedule && ` · about ${money(schedule.interest)} to go`}
         </div>
       )}
     </div>
@@ -363,15 +459,43 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
     setForm((f) => ({ ...f, [key]: value }));
   }, []);
 
+  // A loan shows what's owed as a plain amount, other accounts their balance:
+  // moving between them flips the figure so the balance itself stays put.
+  const changeType = (type: AccountType) =>
+    setForm((f) => {
+      const flips = (f.type === 'loan') !== (type === 'loan');
+      const n = parseAmount(f.opening_input, f.currency);
+      const opening_input = flips && n ? String(fromMinor(-n, f.currency)) : f.opening_input;
+      // A new loan stays out of the total balance, as the checkbox below advises.
+      const include_in_total = !existing && flips ? type !== 'loan' : f.include_in_total;
+      return { ...f, type, opening_input, include_in_total };
+    });
+
   const handleSubmit = async () => {
     if (!form.name.trim()) return;
     setSubmitting(true);
     try {
+      const isLoan = form.type === 'loan';
+      const loan = loanFromForm(form);
+      // A loan's balance is what's still owed, entered as a plain amount; a new
+      // loan with it left empty owes everything borrowed.
+      const opening = parseAmount(form.opening_input || '0', form.currency) ?? 0;
+      const owedInput = form.opening_input.trim() ? opening : (loan.principal ?? 0);
       const payload: AccountInput = {
         name: form.name.trim(),
         type: form.type,
         currency: form.currency,
-        opening_balance_minor: parseAmount(form.opening_input || '0', form.currency) ?? 0,
+        opening_balance_minor: isLoan ? -owedInput : opening,
+        loan_principal_minor: loan.principal,
+        loan_rate_bp: loan.rateBp,
+        loan_interest_method: loan.method,
+        loan_term_months: loan.months,
+        loan_payment_minor: loan.payment,
+        // Switched on: payments due from today on are added; left on: carry on where it was.
+        loan_autopay_from:
+          form.loan_autopay && form.due_day && form.pay_from_account_id && loan.payment
+            ? (existing?.loan_autopay_from ?? toDateString())
+            : null,
         is_main: form.is_main,
         include_in_total: form.include_in_total,
         credit_limit_minor: form.limit_input.trim() ? parseAmount(form.limit_input, form.currency) : null,
@@ -429,7 +553,7 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
           autoFocus
         />
         <div className="grid grid-cols-2 gap-3">
-          <Select label="Type" value={form.type} onChange={(e) => update('type', e.target.value as AccountType)}>
+          <Select label="Type" value={form.type} onChange={(e) => changeType(e.target.value as AccountType)}>
             {ACCOUNT_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
@@ -453,18 +577,26 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
         />
         <div className="grid grid-cols-2 gap-3">
           <Input
-            label="Starting balance"
+            label={form.type === 'loan' ? 'Still owed' : 'Starting balance'}
             labelHint={
-              <InfoHint label="About the starting balance" title="Starting balance">
-                The balance on the <span className="font-medium text-slate-300">Balance on</span>{' '}
-                date. Transactions dated before it aren’t counted — move that date earlier to fold in
-                older history.
-              </InfoHint>
+              form.type === 'loan' ? (
+                <InfoHint label="About what's still owed" title="Still owed">
+                  What you owed on the <span className="font-medium text-slate-300">Balance on</span>{' '}
+                  date — the outstanding principal on your statement. For a new loan, leave it empty:
+                  it’s the amount borrowed.
+                </InfoHint>
+              ) : (
+                <InfoHint label="About the starting balance" title="Starting balance">
+                  The balance on the <span className="font-medium text-slate-300">Balance on</span>{' '}
+                  date. Transactions dated before it aren’t counted — move that date earlier to fold in
+                  older history.
+                </InfoHint>
+              )
             }
             value={form.opening_input}
             inputMode="decimal"
             onChange={(e) => update('opening_input', e.target.value)}
-            placeholder="0.00"
+            placeholder={form.type === 'loan' && form.loan_principal_input ? form.loan_principal_input : '0.00'}
           />
           <DateField label="Balance on" value={form.starts_on ?? ''} onChange={(v) => update('starts_on', v)} />
         </div>
@@ -513,6 +645,9 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
               )}
             />
           </div>
+        )}
+        {form.type === 'loan' && (
+          <LoanTermsFields form={form} update={update} accounts={accounts.filter((a) => a.id !== existing?.id)} />
         )}
         <label className="flex items-center gap-2 text-sm text-slate-300">
           <input
@@ -577,6 +712,12 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
 interface FormState extends AccountInput {
   opening_input: string;
   limit_input: string;
+  loan_principal_input: string;
+  loan_rate_input: string;
+  loan_method: InterestMethod;
+  loan_term_input: string;
+  loan_payment_input: string;
+  loan_autopay: boolean;
   is_main: boolean;
   include_in_total: boolean;
   starts_on: string;
@@ -597,6 +738,12 @@ function emptyForm(currency: string): FormState {
     pay_from_account_id: null,
     opening_input: '',
     limit_input: '',
+    loan_principal_input: '',
+    loan_rate_input: '',
+    loan_method: 'reducing',
+    loan_term_input: '',
+    loan_payment_input: '',
+    loan_autopay: false,
     starts_on: toDateString(),
     icon: '',
   };
@@ -614,9 +761,138 @@ function toForm(a: Account): FormState {
     statement_day: a.statement_day,
     due_day: a.due_day,
     pay_from_account_id: a.pay_from_account_id,
-    opening_input: String(fromMinor(a.opening_balance_minor, a.currency)),
+    // A loan shows what's owed as a plain amount (its balance is negative).
+    opening_input: String(fromMinor(a.type === 'loan' ? -a.opening_balance_minor : a.opening_balance_minor, a.currency)),
     limit_input: a.credit_limit_minor != null ? String(fromMinor(a.credit_limit_minor, a.currency)) : '',
+    loan_principal_input: a.loan_principal_minor != null ? String(fromMinor(a.loan_principal_minor, a.currency)) : '',
+    loan_rate_input: a.loan_rate_bp != null ? String(a.loan_rate_bp / 100) : '',
+    loan_method: a.loan_interest_method === 'flat' ? 'flat' : 'reducing',
+    loan_term_input: a.loan_term_months != null ? String(a.loan_term_months) : '',
+    loan_payment_input: a.loan_payment_minor != null ? String(fromMinor(a.loan_payment_minor, a.currency)) : '',
+    loan_autopay: a.loan_autopay_from != null,
     starts_on: a.starts_on,
     icon: a.icon ?? '',
   };
+}
+
+/** The loan terms typed into the form; the monthly payment is worked out unless one is typed. */
+function loanFromForm(form: FormState) {
+  const principal = form.loan_principal_input.trim() ? parseAmount(form.loan_principal_input, form.currency) : null;
+  const rate = Number(form.loan_rate_input);
+  const rateBp = form.loan_rate_input.trim() && Number.isFinite(rate) && rate >= 0 ? Math.round(rate * 100) : null;
+  const months = Math.round(Number(form.loan_term_input)) || null;
+  const computed =
+    principal && rateBp != null && months ? monthlyPayment(form.loan_method, principal, rateBp, months) : null;
+  const typed = form.loan_payment_input.trim() ? parseAmount(form.loan_payment_input, form.currency) : null;
+  return { principal, rateBp, method: form.loan_method, months, computed, payment: typed ?? computed };
+}
+
+const METHOD_LABEL: Record<InterestMethod, string> = { reducing: 'reducing', flat: 'flat' };
+
+/** The same loan's rate the other way: reducing loans as flat, flat ones as reducing. */
+function otherRate(method: InterestMethod, rateBp: number, months: number): string {
+  const other: InterestMethod = method === 'flat' ? 'reducing' : 'flat';
+  const bp = method === 'flat' ? reducingEquivalent(rateBp, months) : flatEquivalent(rateBp, months);
+  return `${formatRate(rateBp)} ${METHOD_LABEL[method]} ≈ ${formatRate(bp)} ${METHOD_LABEL[other]}`;
+}
+
+function LoanTermsFields({
+  form,
+  update,
+  accounts,
+}: {
+  form: FormState;
+  update: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
+  accounts: Account[];
+}) {
+  const loan = loanFromForm(form);
+  const canAutopay = !!form.due_day && !!form.pay_from_account_id && !!loan.payment;
+  return (
+    <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-500">
+        Loan terms
+        <InfoHint label="About loan terms" title="From your loan papers">
+          With these, Copper splits each payment into principal (what you owe goes down by it) and
+          interest (a cost, shown in Reports), and works out when the loan is paid off. If the bank
+          changes your rate, change it here: later payments use the new one.
+        </InfoHint>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Input
+          label="Amount borrowed"
+          inputMode="decimal"
+          value={form.loan_principal_input}
+          onChange={(e) => update('loan_principal_input', e.target.value)}
+          placeholder="0.00"
+        />
+        <Input
+          label="Term (months)"
+          type="number"
+          min={1}
+          value={form.loan_term_input}
+          onChange={(e) => update('loan_term_input', e.target.value)}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Input
+          label="Interest rate (% a year)"
+          inputMode="decimal"
+          value={form.loan_rate_input}
+          onChange={(e) => update('loan_rate_input', e.target.value)}
+          placeholder="8.5"
+        />
+        <Select
+          label="Interest"
+          value={form.loan_method}
+          onChange={(e) => update('loan_method', e.target.value as InterestMethod)}
+        >
+          <option value="reducing">On what’s owed (reducing)</option>
+          <option value="flat">On the amount borrowed (flat)</option>
+        </Select>
+      </div>
+      {loan.rateBp != null && loan.rateBp > 0 && loan.months && (
+        <p className="-mt-1 text-xs text-slate-400">{otherRate(loan.method, loan.rateBp, loan.months)}</p>
+      )}
+      <Input
+        label="Monthly payment"
+        inputMode="decimal"
+        value={form.loan_payment_input}
+        onChange={(e) => update('loan_payment_input', e.target.value)}
+        placeholder={loan.computed ? String(fromMinor(loan.computed, form.currency)) : '0.00'}
+        labelHint={
+          <InfoHint label="About the monthly payment" title="Monthly payment">
+            Worked out from the amount, rate and term. If your bank’s figure is a little different,
+            type it here.
+          </InfoHint>
+        }
+      />
+      <div className="grid grid-cols-2 gap-3">
+        <Input
+          label="Payment day"
+          type="number"
+          min={1}
+          max={31}
+          value={form.due_day ?? ''}
+          onChange={(e) => update('due_day', e.target.value ? Number(e.target.value) : null)}
+        />
+        <Combobox
+          label="Paid from"
+          value={form.pay_from_account_id ?? ''}
+          onChange={(v) => update('pay_from_account_id', v || null)}
+          emptyOption={{ value: '', label: '— None —' }}
+          options={accountOptions(accounts.filter((a) => a.type !== 'loan'))}
+        />
+      </div>
+      <label className={`flex items-center gap-2 text-sm ${canAutopay ? 'text-slate-300' : 'text-slate-500'}`}>
+        <input
+          type="checkbox"
+          checked={form.loan_autopay && canAutopay}
+          disabled={!canAutopay}
+          onChange={(e) => update('loan_autopay', e.target.checked)}
+          className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-brand-500 focus:ring-brand-400"
+        />
+        Add each payment automatically on its day
+      </label>
+    </div>
+  );
 }

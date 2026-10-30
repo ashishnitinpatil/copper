@@ -28,6 +28,11 @@ Conventions:
   (one per account) linked by transfer_peer_id: negative on the account money
   left, positive on the one it reached. Leave transfers out of spending and
   income totals.
+- A loan payment is a transfer into the loan account (the principal) plus an
+  expense in 'Loan interest' whose payment_of is the transfer's outgoing leg.
+  A loan account's terms: loan_principal_minor (amount borrowed), loan_rate_bp
+  (yearly rate, 850 = 8.5%), loan_interest_method ('flat', else reducing),
+  loan_term_months, loan_payment_minor, due_day (payment day).
 - Dates (occurred_on, starts_on) are local calendar dates 'YYYY-MM-DD'; for
   today use date('now', 'localtime'). Entries dated after today are scheduled
   (e.g. future EMIs): leave them out of balances and "spent so far".

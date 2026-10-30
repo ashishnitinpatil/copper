@@ -49,7 +49,7 @@ export interface DescribableGroup {
 }
 
 // Columns that never mean anything to a person reading the log.
-const IGNORED = new Set(['id', 'created_at', 'sort_order', 'last_run_on', 'transfer_peer_id', 'recurring_id']);
+const IGNORED = new Set(['id', 'created_at', 'sort_order', 'last_run_on', 'transfer_peer_id', 'recurring_id', 'payment_of', 'loan_autopay_from']);
 
 const ACCOUNT_TYPE: Record<string, string> = {
   cash: 'Cash',
@@ -456,6 +456,23 @@ function count(group: DescribableGroup, entity: ChangeEntity, op?: ChangeOp): nu
     .reduce((s, c) => s + c.n, 0);
 }
 
+/** "paid $1,000.00 on Car loan", with the split as the detail. */
+function describeLoanPayment(L: Lookups, entries: DescribableEntry[]): Description | null {
+  const rows = entries.map((e) => ({ e, row: subjectOf(e) }));
+  const to = rows.find((r) => r.row.kind === 'transfer' && num(r.row.amount_minor) > 0);
+  if (!to) return null;
+  const interest = rows.find((r) => r.row.kind === 'expense');
+  const cur = currencyOf(L, to.row.account_id);
+  const principal = num(to.row.amount_minor);
+  const charged = interest ? Math.abs(num(interest.row.amount_minor)) : 0;
+  const loan = accountName(L, to.row.account_id);
+  const total = money(principal + charged, cur);
+  const detail = [date(to.row.occurred_on), `${money(principal, cur)} principal · ${money(charged, cur)} interest`].join(' · ');
+  const verb = to.e.op === 'insert' ? 'paid' : to.e.op === 'delete' ? 'deleted a payment of' : 'changed a payment on';
+  const text = to.e.op === 'update' ? `${verb} ${loan}` : `${verb} ${total} on ${loan}`;
+  return { text, detail, changes: [] };
+}
+
 function describeTransfer(L: Lookups, legs: DescribableEntry[]): Description | null {
   const rows = legs.map((l) => ({ leg: l, row: subjectOf(l) }));
   const from = rows.find((r) => num(r.row.amount_minor) < 0);
@@ -517,6 +534,11 @@ export function describeGroup(L: Lookups, group: DescribableGroup): Description 
     const t = legs ? describeTransfer(L, entries) : null;
     if (t) return { ...t, text: t.text.replace(/^moved /, 'restored the transfer of ') };
     return { text: `restored ${plural(txs, 'transaction')}`, detail: null, changes: [] };
+  }
+
+  if (group.source === 'loan-payment') {
+    const d = describeLoanPayment(L, entries);
+    if (d) return d;
   }
 
   const isTransfer =

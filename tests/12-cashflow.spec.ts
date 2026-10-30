@@ -54,7 +54,7 @@ test.describe('Cashflow', () => {
     await page.getByRole('button', { name: '+ New account' }).click();
     await page.getByLabel('Name', { exact: true }).fill('Loan from Dad');
     await page.getByLabel('Type', { exact: true }).selectOption('loan');
-    await page.getByLabel('Starting balance', { exact: true }).fill('-5000');
+    await page.getByLabel('Still owed', { exact: true }).fill('5000');
     await page.getByLabel('Include in total balance').setChecked(false);
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(500);

@@ -44,7 +44,8 @@ import { formatMoney, parseAmount, fromMinor } from '@/lib/money';
 import { useConvert, useDefaultCurrency } from './AppSettingsProvider';
 import { addDays, formatRelativeDate, toDateString } from '@/lib/dates';
 import { Glyph } from '@/components/ui/Glyph';
-import { TransferAmount, transferRoute } from '@/components/transfer';
+import { TransferAmount, isLoanPayment, paymentSplit, transferRoute } from '@/components/transfer';
+import { LoanPaymentModal } from './LoanPaymentModal';
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -266,8 +267,10 @@ export function Transactions() {
   // A day's heading and its entries; used for both past and upcoming days.
   const renderDay = ([date, items]: [string, TransactionWithMeta[]]) => {
     // A transfer shown once moves money between accounts; it isn't spending.
-    const counted = items.filter((t) => !(transferRoute(t) && !bothLegs));
-    const dayTotal = counted.reduce((sum, t) => sum + t.amount_minor, 0);
+    // A loan payment's interest is, though.
+    const movesOnly = (t: TransactionWithMeta) => !!transferRoute(t) && !bothLegs;
+    const counted = items.filter((t) => !movesOnly(t) || t.interest_minor);
+    const dayTotal = counted.reduce((sum, t) => sum + (movesOnly(t) ? 0 : t.amount_minor) + (t.interest_minor ?? 0), 0);
     return (
       <div key={date}>
         <div className="mb-2 flex items-baseline justify-between">
@@ -316,12 +319,15 @@ export function Transactions() {
                       )}
                       <div className="min-w-0">
                         <div className="text-sm font-medium text-slate-50">
-                          {t.category_name ?? (t.kind === 'transfer' ? 'Transfer' : 'Uncategorised')}
+                          {t.kind === 'transfer' && isLoanPayment(t)
+                            ? 'Loan payment'
+                            : (t.category_name ?? (t.kind === 'transfer' ? 'Transfer' : 'Uncategorised'))}
                         </div>
                         <div className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
                           {!route && <AccountGlyph account={{ icon: t.account_icon, type: t.account_type }} size="xs" />}
                           <span className="truncate">
                             {route ?? t.account_name}
+                            {paymentSplit(t) ? ` · ${paymentSplit(t)}` : ''}
                             {t.note ? ` · ${t.note}` : ''}
                           </span>
                         </div>
@@ -343,7 +349,7 @@ export function Transactions() {
                           t.amount_minor < 0 ? 'text-clay-400' : 'text-mint-400'
                         }`}
                       >
-                        {formatMoney(t.amount_minor, t.account_currency, { signed: true })}
+                        {formatMoney(t.amount_minor + (t.interest_minor ?? 0), t.account_currency, { signed: true })}
                       </div>
                     )}
                   </button>
@@ -649,21 +655,27 @@ export function Transactions() {
       </Modal>
 
       <EditTransactionModal
-        open={editing !== null && editing.kind !== 'transfer'}
-        existing={editing?.kind === 'transfer' ? null : editing}
+        open={editing !== null && editing.kind !== 'transfer' && !isLoanPayment(editing)}
+        existing={editing?.kind === 'transfer' || (editing && isLoanPayment(editing)) ? null : editing}
         accounts={accountsQuery.data ?? []}
         categories={categoriesQuery.data ?? []}
         tags={tagsQuery.data ?? []}
         onClose={() => setEditing(null)}
       />
       <TransferModal
-        open={showTransfer || editing?.kind === 'transfer'}
-        transferId={editing?.kind === 'transfer' ? editing.id : null}
+        open={showTransfer || (editing?.kind === 'transfer' && !isLoanPayment(editing))}
+        transferId={editing?.kind === 'transfer' && !isLoanPayment(editing) ? editing.id : null}
         accounts={accountsQuery.data ?? []}
         onClose={() => {
           setShowTransfer(false);
           setEditing(null);
         }}
+      />
+      <LoanPaymentModal
+        open={!!editing && isLoanPayment(editing)}
+        paymentId={editing && isLoanPayment(editing) ? editing.id : null}
+        accounts={accountsQuery.data ?? []}
+        onClose={() => setEditing(null)}
       />
     </PageShell>
   );

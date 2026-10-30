@@ -2,6 +2,7 @@ import { getSQLite, type DB } from './wasm';
 import { SCHEMA_NAME, SCHEMA_SQL } from './schema';
 import { seedIfEmpty } from './seed';
 import { materializeDueRecurrences } from './queries/recurring';
+import { materializeLoanPayments } from './queries/loans';
 import { ensureLocalDevice } from './changeLog';
 import { applyPendingJoin, hasPendingJoin } from '@/sync/joinFresh';
 import { SYNC_KEYS } from '@/sync/syncKeys';
@@ -133,6 +134,9 @@ export async function openDB(): Promise<DB> {
     // missing with no trace.
     await materializeDueRecurrences(db).catch((err) => {
       console.error('Failed to materialize due recurrences', err);
+    });
+    await materializeLoanPayments(db).catch((err) => {
+      console.error('Failed to add automatic loan payments', err);
     });
     dbInstance = db;
     // Tabs that stepped aside for an erase reload now that the book is back.
