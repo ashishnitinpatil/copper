@@ -40,6 +40,27 @@ test.describe('Transfers', () => {
     await expect(page.getByText('₹2,000.00').first()).toBeVisible();
   });
 
+  test('the transfer dialog suggests notes used on earlier transfers', async ({ page }) => {
+    await resetAndLoad(page, '/accounts');
+    await waitForDB(page);
+    await addAccount(page, 'Bank', '10000');
+
+    await page.getByRole('link', { name: 'Transactions', exact: true }).first().click();
+    await page.getByRole('button', { name: '↔ Transfer' }).click();
+    const dialog = page.locator('.fixed');
+    await selectCombobox(dialog, 'From', 'Bank');
+    await selectCombobox(dialog, 'To', 'Cash');
+    await dialog.getByLabel('Amount', { exact: true }).fill('500');
+    await dialog.getByLabel('Note', { exact: true }).fill('ATM withdrawal');
+    await page.getByRole('button', { name: 'Transfer', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'New transfer' })).toHaveCount(0);
+
+    await page.getByRole('button', { name: '↔ Transfer', exact: true }).click();
+    await dialog.getByLabel('Note', { exact: true }).fill('atm');
+    await page.getByLabel("Notes you've used before").getByRole('button', { name: 'ATM withdrawal' }).click();
+    await expect(dialog.getByLabel('Note', { exact: true })).toHaveValue('ATM withdrawal');
+  });
+
   test('edit a transfer moves both sides', async ({ page }) => {
     await resetAndLoad(page, '/accounts');
     await waitForDB(page);

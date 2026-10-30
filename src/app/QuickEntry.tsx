@@ -11,8 +11,10 @@ import { useDB } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
 import { listAccounts } from '@/db/queries/accounts';
 import { listCategories } from '@/db/queries/categories';
-import { createTransaction, createTransfer, deleteTransaction, listPastNotes } from '@/db/queries/transactions';
-import { suggestNotes, type PastNote } from '@/lib/noteSuggestions';
+import { createTransaction, createTransfer, deleteTransaction } from '@/db/queries/transactions';
+import { suggestNotes } from '@/lib/noteSuggestions';
+import { NoteSuggestions, usePastNotes } from '@/components/NoteSuggestions';
+import { Modal } from '@/components/ui/Modal';
 import { archiveRecurringRule, createRecurringRule, occurrenceId } from '@/db/queries/recurring';
 import { listTags, setTransactionTags } from '@/db/queries/tags';
 import { TagPicker } from '@/components/ui/TagPicker';
@@ -54,6 +56,8 @@ export function QuickEntry() {
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [occurredOn, setOccurredOn] = useState<string>(toDateString());
   const [committing, setCommitting] = useState(false);
+  // Phones: the category sheet is open.
+  const [picking, setPicking] = useState(false);
   const [flash, setFlash] = useState<Saved | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const flashTimer = useRef<number | null>(null);
@@ -77,10 +81,7 @@ export function QuickEntry() {
     useCallback((d) => listTags(d), []),
     { deps: ['tags'] },
   );
-  const pastNotes = useQuery<PastNote[]>(
-    useCallback((d) => listPastNotes(d, mode), [mode]),
-    { deps: ['transactions'] },
-  );
+  const pastNotes = usePastNotes(mode);
   const noteSuggestions = useMemo(() => suggestNotes(pastNotes.data ?? [], note), [pastNotes.data, note]);
   // A note used before points at the category it went with last time.
   const lastCategoryId = useMemo(() => {
@@ -247,6 +248,7 @@ export function QuickEntry() {
       }
       showSaved({ label: amountLabel, txId, ruleId: null }, categoryId);
     } finally {
+      setPicking(false);
       setCommitting(false);
     }
   };
@@ -285,6 +287,70 @@ export function QuickEntry() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  // The category tiles: beside the keypad on a computer, in a sheet on phones.
+  // `reserve` keeps the side panel's height steady between expense and income.
+  const categoryGrid = (reserve: boolean) =>
+    categoriesState.data === null && !categoriesState.error ? (
+      // Still opening the book: placeholders, not "no categories yet".
+      <div role="status" className="grid grid-cols-3 gap-3 motion-safe:animate-pulse sm:grid-cols-4">
+        <span className="sr-only">Loading categories…</span>
+        {Array.from({ length: 8 }, (_, i) => (
+          <div key={i} className="h-28 rounded-2xl bg-slate-800/60" />
+        ))}
+      </div>
+    ) : filteredCategories.length === 0 ? (
+      <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-500">
+        No {mode} categories yet. Add some on the Categories page.
+      </div>
+    ) : (
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+        {filteredCategories.map((c) => {
+          const saved = savedId === c.id;
+          // Keep the just-saved tile bright through its confirmation flash,
+          // even though the amount has reset to 0 (which dims the rest).
+          const dim = !canCommit && !saved;
+          const usual = c.id === lastCategoryId && !saved;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              disabled={!canCommit}
+              onClick={() => commit(c.id)}
+              aria-description={usual ? 'Used with this note last time' : undefined}
+              className={`group relative flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center transition active:scale-[0.97] enabled:hover:-translate-y-0.5 enabled:hover:bg-slate-800 disabled:cursor-not-allowed ${
+                saved
+                  ? 'border-mint-400 bg-mint-500/10 ring-2 ring-mint-400/50'
+                  : usual
+                    ? 'border-brand-400 bg-slate-900/60 ring-1 ring-brand-400/40'
+                    : 'border-slate-800 bg-slate-900/60 enabled:hover:border-slate-700'
+              } ${dim ? 'opacity-40' : 'opacity-100'}`}
+            >
+              {usual && (
+                <span className="absolute inset-x-0 top-1.5 text-[10px] font-medium text-brand-400">Last time</span>
+              )}
+              {saved && (
+                <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-mint-500 text-xs font-bold text-slate-950">
+                  ✓
+                </span>
+              )}
+              <CategoryCoin
+                name={c.name}
+                color={c.color}
+                icon={c.icon}
+                size="lg"
+                className={`transition group-hover:scale-105 ${saved ? 'motion-safe:animate-coin-pop' : ''}`}
+              />
+              <div className="line-clamp-2 text-xs font-medium text-slate-200">{c.name}</div>
+            </button>
+          );
+        })}
+        {reserve &&
+          Array.from({ length: Math.max(0, reserveCount - filteredCategories.length) }).map((_, i) => (
+            <div key={`reserve-${i}`} aria-hidden className="aspect-square" />
+          ))}
+      </div>
+    );
+
   const tone =
     mode === 'expense'
       ? { border: 'border-clay-500/30', text: 'text-clay-400', tab: 'bg-clay-500' }
@@ -311,7 +377,7 @@ export function QuickEntry() {
       }
     >
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
-        <section className="space-y-4">
+        <section className="space-y-3 sm:space-y-4">
           <div className="flex gap-1 rounded-lg bg-slate-900 p-1" role="tablist" aria-label="Type">
             {(['expense', 'income', 'transfer'] as const).map((m) => (
               <button
@@ -376,15 +442,9 @@ export function QuickEntry() {
             />
           )}
 
-          <div className={`rounded-2xl border bg-slate-900/70 p-5 text-right shadow-inner ${tone.border}`}>
-            <div className="flex items-center justify-end gap-1.5 text-xs uppercase tracking-wider text-slate-500">
-              {account && <AccountGlyph account={account} />}
-              <span className="truncate">
-                {mode === 'transfer' ? 'From ' : ''}
-                {account?.name ?? '—'} · {currency}
-              </span>
-            </div>
-            <div className="mt-1 flex items-baseline justify-end font-display text-5xl font-semibold tabular-nums sm:text-6xl">
+          {/* The account is picked just above; the amount box shows only the amount. */}
+          <div className={`rounded-2xl border bg-slate-900/70 px-5 py-3 text-right sm:p-5 shadow-inner ${tone.border}`}>
+            <div className="flex items-baseline justify-end font-display text-5xl font-semibold tabular-nums sm:text-6xl">
               <span className="mr-1 text-[0.4em] text-slate-500">{meta.symbol}</span>
               <span
                 key={raw}
@@ -395,20 +455,15 @@ export function QuickEntry() {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            {KEYS.map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => press(k)}
-                className={`select-none rounded-xl bg-slate-800 py-4 text-xl font-medium transition-[transform,background-color] duration-100 hover:bg-slate-700 active:scale-90 active:bg-slate-700 ${
-                  k === '.' || k === '⌫' ? 'text-slate-400' : 'text-slate-50'
-                }`}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
+          <textarea
+            rows={2}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Note (optional)"
+            aria-label="Note"
+            className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-base text-slate-50 placeholder:text-slate-500 focus:border-brand-500 focus:outline-none"
+          />
+          <NoteSuggestions notes={noteSuggestions} onPick={setNote} />
 
           <div className="grid grid-cols-2 gap-2">
             <DateField value={occurredOn} onChange={setOccurredOn} />
@@ -436,28 +491,32 @@ export function QuickEntry() {
               </label>
             )}
           </div>
-          <input
-            type="text"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Note (optional)"
-            aria-label="Note"
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:border-brand-500 focus:outline-none"
-          />
-          {noteSuggestions.length > 0 && (
-            <div className="-mt-1 flex flex-wrap gap-1.5" aria-label="Notes you've used before">
-              {noteSuggestions.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setNote(n)}
-                  className="max-w-full truncate rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-slate-500 hover:text-slate-50"
-                >
-                  {n}
-                </button>
-              ))}
+          <div className="grid grid-cols-3 gap-2">
+            {KEYS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => press(k)}
+                className={`select-none rounded-xl bg-slate-800 py-2.5 text-xl font-medium sm:py-4 transition-[transform,background-color] duration-100 hover:bg-slate-700 active:scale-90 active:bg-slate-700 ${
+                  k === '.' || k === '⌫' ? 'text-slate-400' : 'text-slate-50'
+                }`}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+
+          {/* Phones and tablets: categories open in a sheet from right under the
+              keypad (Monefy's flow), not a grid further down that needs
+              scrolling to. */}
+          {mode !== 'transfer' && (
+            <div className="lg:hidden">
+              <Button className="w-full py-3.5 text-base shadow-lg" onClick={() => setPicking(true)} disabled={!canCommit}>
+                {canCommit ? 'Choose category' : 'Type an amount'}
+              </Button>
             </div>
           )}
+
           {tags.length > 0 && mode !== 'transfer' && (
             <div className="space-y-1.5">
               <div className="text-xs uppercase tracking-wider text-slate-500">Tags (optional)</div>
@@ -523,7 +582,7 @@ export function QuickEntry() {
             )}
           </section>
         ) : (
-          <section className="space-y-3">
+          <section className="hidden space-y-3 lg:block">
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-slate-300">
                 {canCommit ? `Tap a category to save` : `Type an amount, then tap a category`}
@@ -536,70 +595,18 @@ export function QuickEntry() {
               )}
             </div>
 
-            {categoriesState.data === null && !categoriesState.error ? (
-              // Still opening the book: placeholders, not "no categories yet".
-              <div role="status" className="grid grid-cols-3 gap-3 motion-safe:animate-pulse sm:grid-cols-4">
-                <span className="sr-only">Loading categories…</span>
-                {Array.from({ length: 8 }, (_, i) => (
-                  <div key={i} className="h-28 rounded-2xl bg-slate-800/60" />
-                ))}
-              </div>
-            ) : filteredCategories.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-500">
-                No {mode} categories yet. Add some on the Categories page.
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-                {filteredCategories.map((c) => {
-                  const saved = savedId === c.id;
-                  // Keep the just-saved tile bright through its confirmation flash,
-                  // even though the amount has reset to 0 (which dims the rest).
-                  const dim = !canCommit && !saved;
-                  const usual = c.id === lastCategoryId && !saved;
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      disabled={!canCommit}
-                      onClick={() => commit(c.id)}
-                      aria-description={usual ? 'Used with this note last time' : undefined}
-                      className={`group relative flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center transition active:scale-[0.97] enabled:hover:-translate-y-0.5 enabled:hover:bg-slate-800 disabled:cursor-not-allowed ${
-                        saved
-                          ? 'border-mint-400 bg-mint-500/10 ring-2 ring-mint-400/50'
-                          : usual
-                            ? 'border-brand-400 bg-slate-900/60 ring-1 ring-brand-400/40'
-                            : 'border-slate-800 bg-slate-900/60 enabled:hover:border-slate-700'
-                      } ${dim ? 'opacity-40' : 'opacity-100'}`}
-                    >
-                      {usual && (
-                        <span className="absolute inset-x-0 top-1.5 text-[10px] font-medium text-brand-400">Last time</span>
-                      )}
-                      {saved && (
-                        <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-mint-500 text-xs font-bold text-slate-950">
-                          ✓
-                        </span>
-                      )}
-                      <CategoryCoin
-                        name={c.name}
-                        color={c.color}
-                        icon={c.icon}
-                        size="lg"
-                        className={`transition group-hover:scale-105 ${saved ? 'motion-safe:animate-coin-pop' : ''}`}
-                      />
-                      <div className="line-clamp-2 text-xs font-medium text-slate-200">{c.name}</div>
-                    </button>
-                  );
-                })}
-                {Array.from({ length: Math.max(0, reserveCount - filteredCategories.length) }).map(
-                  (_, i) => (
-                    <div key={`reserve-${i}`} aria-hidden className="aspect-square" />
-                  ),
-                )}
-              </div>
-            )}
+            {categoryGrid(true)}
           </section>
         )}
       </div>
+
+      <Modal
+        open={picking && mode !== 'transfer'}
+        onClose={() => setPicking(false)}
+        title={minor ? `${formatMoney(minor, currency)} · choose a category` : 'Choose a category'}
+      >
+        {categoryGrid(false)}
+      </Modal>
 
       {flash && (
         <div

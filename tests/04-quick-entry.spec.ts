@@ -89,3 +89,27 @@ test.describe('Quick Entry', () => {
     await expect(page.locator('main li').getByText('Groceries').first()).toBeVisible();
   });
 });
+
+test.describe('Quick Entry on a phone', () => {
+  test('Choose category opens the categories and saves', async ({ page }) => {
+    await resetAndLoad(page, '/add');
+    await waitForDB(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const choose = page.getByRole('button', { name: 'Type an amount' });
+    await expect(choose).toBeDisabled();
+    await expect(choose).toBeInViewport();
+
+    await page.getByRole('button', { name: '4', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Note' }).fill('Lunch');
+    await page.screenshot({ path: test.info().outputPath('phone-add.png') });
+    await page.getByRole('button', { name: 'Choose category' }).click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet).toContainText('choose a category');
+    await page.screenshot({ path: test.info().outputPath('phone-sheet.png') });
+    await sheet.getByRole('button', { name: /Food & Dining/ }).click();
+
+    await expect(sheet).toHaveCount(0);
+    await expect(page.getByText(/✓ Food & Dining/)).toBeVisible();
+    await expect(page.locator('main').getByText('₹0')).toBeVisible();
+  });
+});

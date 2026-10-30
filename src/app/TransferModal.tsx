@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DateField } from '@/components/ui/DateField';
 import { accountOptions } from '@/components/accountOptions';
 import { Button } from '@/components/ui/Button';
@@ -18,6 +18,8 @@ import { toDateString } from '@/lib/dates';
 import { useAppSettings, useConvert } from './AppSettingsProvider';
 import { EntityHistory } from './Activity';
 import { describeSource } from '@/components/ConvertedMark';
+import { NoteSuggestions, usePastNotes } from '@/components/NoteSuggestions';
+import { suggestNotes } from '@/lib/noteSuggestions';
 
 export interface TransferDraft {
   fromId: string;
@@ -52,6 +54,8 @@ export function TransferModal({ open, accounts, onClose, transferId, draft, onCr
   const [receivedTouched, setReceivedTouched] = useState(false);
   const [date, setDate] = useState(toDateString());
   const [note, setNote] = useState('');
+  const pastNotes = usePastNotes('transfer', open);
+  const noteSuggestions = useMemo(() => suggestNotes(pastNotes.data ?? [], note), [pastNotes.data, note]);
   const [submitting, setSubmitting] = useState(false);
   // The transfer whose values are in the form. Until it matches transferId the
   // form shows the previous use of this modal, so it isn't shown or editable.
@@ -214,6 +218,7 @@ export function TransferModal({ open, accounts, onClose, transferId, draft, onCr
           )}
           <DateField label="Date" value={date} onChange={setDate} />
           <Input label="Note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
+          <NoteSuggestions notes={noteSuggestions} onPick={setNote} />
           <div className="flex items-center justify-between gap-2 pt-2">
             {editing ? (
               <Button variant="danger" onClick={handleDelete} disabled={submitting}>

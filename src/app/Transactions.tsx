@@ -36,6 +36,8 @@ import {
 import { TagChip, TagPicker } from '@/components/ui/TagPicker';
 import { EntityHistory } from './Activity';
 import { TransferModal } from './TransferModal';
+import { NoteSuggestions, usePastNotes } from '@/components/NoteSuggestions';
+import { suggestNotes } from '@/lib/noteSuggestions';
 import { offerUndo } from './Shortcuts';
 import type { Tag, Transaction, TransactionKind } from '@/db/types';
 import { formatMoney, parseAmount, fromMinor } from '@/lib/money';
@@ -738,6 +740,8 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
   });
   const [tagIds, setTagIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const pastNotes = usePastNotes(form.kind, open);
+  const noteSuggestions = useMemo(() => suggestNotes(pastNotes.data ?? [], form.note), [pastNotes.data, form.note]);
 
   // Fill the form as the dialog opens for an entry, during render. Keyed on the
   // id: the list hands over a new object whenever it refreshes (after a sync,
@@ -861,6 +865,7 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
           value={form.note}
           onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
         />
+        <NoteSuggestions notes={noteSuggestions} onPick={(note) => setForm((f) => ({ ...f, note }))} />
         {tags.length > 0 && (
           <div className="space-y-1.5">
             <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">Tags</label>
