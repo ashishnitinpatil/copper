@@ -127,6 +127,13 @@ export function PwaPrompts() {
           >
             Open Settings
           </Link>
+          <button
+            type="button"
+            onClick={() => setInstallHint(false)}
+            className="text-xs text-slate-400 hover:text-slate-200"
+          >
+            Got it
+          </button>
         </div>
       )}
     </div>

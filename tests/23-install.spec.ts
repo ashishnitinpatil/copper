@@ -23,6 +23,8 @@ test.describe('Install', () => {
     await page.getByRole('button', { name: 'Not now' }).click();
     await expect(page.getByText('Install this app')).toHaveCount(0);
     await expect(page.getByText('You can install Copper any time from Settings.')).toBeVisible();
+    await page.getByRole('button', { name: 'Got it' }).click();
+    await expect(page.getByText('You can install Copper any time from Settings.')).toHaveCount(0);
 
     // Not now is remembered: the browser offers again on the next load, the notice stays away.
     await page.reload();
