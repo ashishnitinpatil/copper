@@ -99,4 +99,31 @@ test.describe('Loans', () => {
     await waitForDB(page);
     await expect(loanCard(page)).toContainText('Still owed₹84,151.39');
   });
+
+  test('a loan without terms stays a plain balance, and paying into it a plain transfer', async ({ page }) => {
+    // Like a debt between friends brought over from Monefy.
+    await resetAndLoad(page, '/accounts');
+    await page.getByRole('button', { name: '+ New account' }).click();
+    await page.getByLabel('Name').fill('Dad');
+    await page.getByLabel('Type').selectOption('loan');
+    await page.getByLabel('Still owed', { exact: true }).fill('500');
+    await page.getByRole('button', { name: 'Create' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    const card = page.locator('div.rounded-xl', { hasText: 'Dad' }).first();
+    await expect(card).toContainText('₹500');
+    await expect(card).not.toContainText('Still owed');
+    await expect(card.getByRole('button', { name: 'Record payment' })).toHaveCount(0);
+
+    await page.goto('/transactions');
+    await waitForDB(page);
+    await page.getByRole('button', { name: '↔ Transfer' }).click();
+    await selectCombobox(page.locator('.fixed'), 'From', 'Cash');
+    await selectCombobox(page.locator('.fixed'), 'To', 'Dad');
+    await page.locator('.fixed').getByLabel('Amount', { exact: true }).fill('200');
+    await page.getByRole('button', { name: 'Transfer', exact: true }).click();
+    await expect(page.locator('main li').getByText('Cash → Dad')).toBeVisible();
+    await expect(page.locator('main li').getByText('Transfer', { exact: true })).toHaveCount(1);
+    await expect(page.locator('main li', { hasText: 'Loan payment' })).toHaveCount(0);
+  });
 });

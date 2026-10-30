@@ -29,14 +29,23 @@ export interface TransactionWithMeta extends Transaction {
   peer_account_name?: string | null;
   peer_account_currency?: string | null;
   peer_amount_minor?: number | null;
-  peer_account_type?: AccountType | null;
+  /** The other side is a loan with its terms set (1), so this is a payment into it. */
+  peer_is_loan?: number | null;
+  /** This row's account is a loan with its terms set (1). */
+  account_is_loan?: number | null;
   /** On a loan payment's outgoing leg: its interest (negative), shown with it. */
   interest_minor?: number | null;
 }
 
+// A loan with its terms filled in. A loan account without them is a plain
+// balance (say, a debt brought over from Monefy) and its transfers stay transfers.
+const termedLoan = (a: string) =>
+  `(${a}.type = 'loan' AND (${a}.loan_principal_minor IS NOT NULL OR ${a}.loan_payment_minor IS NOT NULL OR ${a}.loan_rate_bp IS NOT NULL))`;
+
 // A transfer is two rows, one per account. Joined to its other leg so a row
 // can say "Cash → HDFC".
-const PEER_COLUMNS = `pa.name AS peer_account_name, pa.currency AS peer_account_currency, p.amount_minor AS peer_amount_minor, pa.type AS peer_account_type`;
+const PEER_COLUMNS = `pa.name AS peer_account_name, pa.currency AS peer_account_currency, p.amount_minor AS peer_amount_minor,
+  ${termedLoan('pa')} AS peer_is_loan`;
 const PEER_JOIN = `LEFT JOIN transactions p ON p.id = t.transfer_peer_id LEFT JOIN accounts pa ON pa.id = p.account_id`;
 // Listing every account, a transfer shows once: keep the sending leg (the
 // negative one; the lower id if a legacy pair has equal amounts).
@@ -261,7 +270,7 @@ export async function listTransactions(
   const offset = filter.offset ?? 0;
 
   const sql = `
-    SELECT t.*, a.name AS account_name, a.currency AS account_currency, a.type AS account_type, a.icon AS account_icon,
+    SELECT t.*, a.name AS account_name, a.currency AS account_currency, a.type AS account_type, a.icon AS account_icon, ${termedLoan('a')} AS account_is_loan,
            c.name AS category_name, c.icon AS category_icon, c.color AS category_color, ${PEER_COLUMNS}
     FROM transactions t
     JOIN accounts a ON a.id = t.account_id
@@ -337,7 +346,7 @@ export async function searchTransactions(
 
   // Pull the filtered candidates (capped for safety) and rank them in JS.
   const candidates = await db.execO<TransactionWithMeta>(
-    `SELECT t.*, a.name AS account_name, a.currency AS account_currency, a.type AS account_type, a.icon AS account_icon,
+    `SELECT t.*, a.name AS account_name, a.currency AS account_currency, a.type AS account_type, a.icon AS account_icon, ${termedLoan('a')} AS account_is_loan,
             c.name AS category_name, c.icon AS category_icon, c.color AS category_color, ${PEER_COLUMNS}
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id

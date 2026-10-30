@@ -233,7 +233,12 @@ interface AccountCardProps {
 }
 
 function AccountCard({ account, balanceMinor, onEdit, showType, interestPaid, onPay }: AccountCardProps) {
-  const isLoan = account.type === 'loan';
+  // A loan with its terms filled in gets the loan view. Without them (say, a
+  // debt between friends brought over from Monefy) it's a plain balance, which
+  // may run either way.
+  const isLoan =
+    account.type === 'loan' &&
+    (account.loan_principal_minor != null || account.loan_payment_minor != null || account.loan_rate_bp != null);
   const limit = account.type === 'credit_card' ? (account.credit_limit_minor ?? 0) : 0;
   // A card in credit (paid more than owed) has more than its limit to spend.
   const available = limit + balanceMinor;
@@ -807,6 +812,13 @@ function LoanTermsFields({
 }) {
   const loan = loanFromForm(form);
   const canAutopay = !!form.due_day && !!form.pay_from_account_id && !!loan.payment;
+  // A payment moves the same figure out of one account and into the loan, so
+  // both must be in the same currency.
+  const payFrom = accounts.filter((a) => a.type !== 'loan' && a.currency === form.currency);
+  const payFromGone = !!form.pay_from_account_id && !payFrom.some((a) => a.id === form.pay_from_account_id);
+  useEffect(() => {
+    if (payFromGone) update('pay_from_account_id', null);
+  }, [payFromGone, update]);
   return (
     <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
       <div className="flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-500">
@@ -880,7 +892,7 @@ function LoanTermsFields({
           value={form.pay_from_account_id ?? ''}
           onChange={(v) => update('pay_from_account_id', v || null)}
           emptyOption={{ value: '', label: '— None —' }}
-          options={accountOptions(accounts.filter((a) => a.type !== 'loan'))}
+          options={accountOptions(payFrom)}
         />
       </div>
       <label className={`flex items-center gap-2 text-sm ${canAutopay ? 'text-slate-300' : 'text-slate-500'}`}>

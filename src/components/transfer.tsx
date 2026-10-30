@@ -11,7 +11,7 @@ export function transferRoute(t: TransactionWithMeta): string | null {
 export function isLoanPayment(t: TransactionWithMeta): boolean {
   if (t.payment_of) return true;
   if (t.kind !== 'transfer') return false;
-  return t.amount_minor < 0 ? t.peer_account_type === 'loan' : t.account_type === 'loan';
+  return !!(t.amount_minor < 0 ? t.peer_is_loan : t.account_is_loan);
 }
 
 /** "$800.00 principal · $200.00 interest" for a loan payment shown with its interest. */

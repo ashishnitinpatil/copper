@@ -86,7 +86,10 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
         const l = accounts.find((a) => a.id === loanId);
         if (!l) return;
         const today = toDateString();
-        const from = l.pay_from_account_id ?? accounts.find((a) => a.type !== 'loan')?.id ?? '';
+        const from =
+          l.pay_from_account_id ??
+          accounts.find((a) => a.type !== 'loan' && !a.archived_at && a.currency === l.currency)?.id ??
+          '';
         const cur = accounts.find((a) => a.id === from)?.currency ?? l.currency;
         const split = splitPayment(await owedBefore(db, l, today), loanTerms(l));
         if (cancelled) return;
@@ -166,7 +169,10 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
     onClose();
   };
 
-  const payFrom = accountOptions(accounts.filter((a) => a.type !== 'loan' && !a.archived_at));
+  // The same figure leaves the account and pays down the loan: same currency only.
+  const payFrom = accountOptions(
+    accounts.filter((a) => a.type !== 'loan' && !a.archived_at && a.currency === loan?.currency),
+  );
 
   return (
     <Modal open={open} onClose={onClose} title={loan ? `${editing ? 'Payment' : 'Pay'} · ${loan.name}` : 'Loan payment'}>
