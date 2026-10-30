@@ -271,7 +271,30 @@ export function describeSyncError(e: unknown): string {
       'shared with this Google account. Choose the shared book again below.'
     );
   }
+  if (isNetworkError(e)) {
+    return "Couldn't reach Google Drive. Check your connection and try again.";
+  }
   return raw || 'Sync failed';
+}
+
+// How each browser words a request that never completed: Chrome "Failed to
+// fetch" / "network error", Safari "Load failed" / "The network connection was
+// lost.", Firefox "NetworkError when attempting to fetch resource."
+function isNetworkError(e: unknown): boolean {
+  return e instanceof TypeError && /fetch|network|load failed/i.test(e.message);
+}
+
+/**
+ * A failure that says nothing about the book or the sign-in, and usually passes
+ * by itself: the connection dropped, the phone suspended the page mid-sync (a
+ * fetch or download stream then fails with a TypeError), or Google was briefly
+ * busy (rate limits, 5xx).
+ */
+export function isTransientSyncError(e: unknown): boolean {
+  if (isNetworkError(e)) return true;
+  if (e instanceof DOMException && e.name === 'AbortError') return true;
+  if (!(e instanceof DriveError)) return false;
+  return e.status === 429 || e.status >= 500 || (e.status === 403 && /rate ?limit/i.test(e.message));
 }
 
 // A 403 "insufficient authentication scopes" means the stored token is valid but

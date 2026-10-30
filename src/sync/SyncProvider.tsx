@@ -27,7 +27,7 @@ import {
   type SyncProgress,
   type KnownPeer,
 } from './household';
-import { describeSyncError, isReauthError } from './googleDrive';
+import { describeSyncError, isReauthError, isTransientSyncError } from './googleDrive';
 import {
   backupBook,
   maybeScheduledBackup,
@@ -97,6 +97,10 @@ const SyncContext = createContext<SyncContextValue | null>(null);
 // to do is one small metadata request; data only moves when something changed.
 const AUTO_SYNC_INTERVAL_MS = 5 * 60_000;
 const ERROR_BACKOFF_MS = 5 * 60_000;
+// A background sync cut short by the connection (or the phone pausing the page)
+// tries again shortly, quietly; only one that keeps failing shows as an error.
+const QUIET_RETRY_MS = 15_000;
+const QUIET_RETRIES = 3;
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const db = useDB();
@@ -124,6 +128,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // the next one waits its turn rather than running alongside it.
   const running = useRef<Promise<void> | null>(null);
   const lastErrorAt = useRef<number>(0);
+  const quietFailures = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     const [s, p, backupAt, retention, interval] = await Promise.all([
@@ -201,6 +210,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      retryTimer.current = null;
       inFlight.current = true;
       let done!: () => void;
       running.current = new Promise<void>((r) => (done = r));
@@ -228,6 +239,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           if (changed) result = await syncNow(db, async () => token);
         }
         setLastResult(result);
+        quietFailures.current = 0;
         setStatus('idle');
         setBookReplaced(false);
         setNewerBook(false);
@@ -243,6 +255,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         }
         await refreshStatus();
       } catch (e) {
+        if (!isManual && isTransientSyncError(e) && quietFailures.current < QUIET_RETRIES) {
+          quietFailures.current++;
+          console.warn('Sync interrupted; trying again shortly:', e);
+          setStatus(navigator.onLine ? 'idle' : 'offline');
+          retryTimer.current = setTimeout(() => void triggerSyncRef.current('retry'), QUIET_RETRY_MS);
+          return;
+        }
         setError(describeSyncError(e));
         setNeedsReauth(isReauthError(e));
         setBookReplaced(e instanceof BookReplacedError);

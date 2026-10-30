@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { DriveError, describeSyncError, downloadBytes, isReauthError } from './googleDrive';
+import { DriveError, describeSyncError, downloadBytes, isReauthError, isTransientSyncError } from './googleDrive';
 
 describe('describeSyncError', () => {
   it('translates the invalid-session 401 into actionable guidance', () => {
@@ -61,5 +61,24 @@ describe('downloadBytes', () => {
     const bytes = await downloadBytes('t', 'f', (done, total) => seen.push([done, total]));
     expect([...bytes]).toEqual([1, 2, 3, 4, 5]);
     expect(seen).toEqual([[3, 5], [5, 5]]);
+  });
+});
+
+describe('isTransientSyncError', () => {
+  it('treats a dropped connection or a busy Google as passing', () => {
+    expect(isTransientSyncError(new TypeError('Failed to fetch'))).toBe(true);
+    expect(isTransientSyncError(new TypeError('Load failed'))).toBe(true);
+    expect(isTransientSyncError(new TypeError('network error'))).toBe(true);
+    expect(isTransientSyncError(new DriveError('Backend Error', 503))).toBe(true);
+    expect(isTransientSyncError(new DriveError('Too many requests', 429))).toBe(true);
+    expect(isTransientSyncError(new DriveError('User rate limit exceeded', 403))).toBe(true);
+    expect(describeSyncError(new TypeError('Failed to fetch'))).toMatch(/Couldn't reach Google Drive/);
+  });
+
+  it('does not hide real problems', () => {
+    expect(isTransientSyncError(new TypeError("Cannot read properties of undefined (reading 'x')"))).toBe(false);
+    expect(isTransientSyncError(new DriveError('Request had insufficient authentication scopes.', 403))).toBe(false);
+    expect(isTransientSyncError(new DriveError('File not found', 404))).toBe(false);
+    expect(isTransientSyncError(new Error('Sync failed'))).toBe(false);
   });
 });
