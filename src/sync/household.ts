@@ -60,8 +60,9 @@ export interface SyncResult {
 // during a big first pull.
 export interface SyncProgress {
   /** Downloading the book (bytes), getting it ready (unpacking and comparing
-   *  with this device; no count), then merging (cells). */
-  stage: 'download' | 'prepare' | 'apply';
+   *  with this device; no count), merging (cells), then sending this device's
+   *  changes back up (no count). */
+  stage: 'download' | 'prepare' | 'apply' | 'upload';
   done: number;
   total: number;
 }
@@ -421,6 +422,7 @@ export async function syncNow(
       await recordSynced(db, meta.version, mergedDbv, { bookId, siteHex, bytes: pulledBytes!, checkedAt });
       break;
     }
+    onProgress?.({ stage: 'upload', done: 0, total: 0 });
     const dbv = await getLocalDbVersion(db);
     const body = base
       ? await encodeCells(db, overlayBook(base, await exportChangesSince(db, syncedDbv)), siteHex)

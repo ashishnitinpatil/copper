@@ -78,9 +78,11 @@ export function SyncSetupScreen() {
     ? `${pct}% done`
     : progress?.stage === 'prepare'
       ? 'Getting your book ready…'
-      : progress?.stage === 'download' && progress.total > 0
-        ? `Downloading your book — ${mb(progress.done)} of ${mb(progress.total)} MB`
-        : 'Downloading your book…';
+      : progress?.stage === 'upload'
+        ? 'Sending your changes…'
+        : progress?.stage === 'download' && progress.total > 0
+          ? `Downloading your book — ${mb(progress.done)} of ${mb(progress.total)} MB`
+          : 'Downloading your book…';
 
   return (
     <div
