@@ -9,7 +9,6 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useAppSettings } from './AppSettingsProvider';
 
 // Copper's public front door. Brand-fixed colours (not theme tokens) so the page
 // reads the same for everyone — like the logo, it's a brand surface. Returning
@@ -115,9 +114,18 @@ function CopperButton({
   );
 }
 
+// Set by the app once someone uses Copper on this device (AppShell); read
+// without opening the book, so first-time visitors don't wait for it.
+function returning(): boolean {
+  try {
+    return !!localStorage.getItem('copper-returning');
+  } catch {
+    return false;
+  }
+}
+
 export function Landing() {
-  const { onboarded } = useAppSettings();
-  if (onboarded) return <Navigate to="/dashboard" replace />;
+  if (returning()) return <Navigate to="/dashboard" replace />;
 
   return (
     <main className="min-h-full bg-[#FBF7F2] text-[#33241A]">

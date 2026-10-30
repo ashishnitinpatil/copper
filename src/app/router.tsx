@@ -18,39 +18,45 @@ import { Welcome } from './Welcome';
 import { WelcomeGate } from './WelcomeGate';
 import { JoinRoute } from './JoinRoute';
 import { Privacy, Terms } from './Legal';
+import { Root } from './Root';
 
 export const router = createBrowserRouter([
   {
-    path: '/welcome',
-    element: (
-      <WelcomeGate>
-        <Welcome />
-      </WelcomeGate>
-    ),
-  },
-  // Public intro at the root. Landing redirects returning (onboarded) users
-  // straight to their dashboard, so only first-time visitors see it.
-  { path: '/', element: <Landing /> },
-  // Invite link from a partner: remembers the shared book, then routes on.
-  { path: '/join/:bookId', element: <JoinRoute /> },
-  { path: '/privacy', element: <Privacy /> },
-  { path: '/terms', element: <Terms /> },
-  {
-    element: <AppShell />,
+    element: <Root />,
     children: [
-      { path: '/dashboard', element: <Dashboard /> },
-      { path: '/add', element: <QuickEntry /> },
-      { path: '/transactions', element: <Transactions /> },
-      { path: '/reports', element: <Reports /> },
-      { path: '/cashflow', element: <Cashflow /> },
-      { path: '/sql', element: <SqlConsole /> },
-      { path: '/accounts', element: <Accounts /> },
-      { path: '/categories', element: <Categories /> },
-      { path: '/budgets', element: <Budgets /> },
-      { path: '/tags', element: <Tags /> },
-      { path: '/review', element: <Review /> },
-      { path: '/activity', element: <Activity /> },
-      { path: '/settings', element: <Settings /> },
+      {
+        path: '/welcome',
+        element: (
+          <WelcomeGate>
+            <Welcome />
+          </WelcomeGate>
+        ),
+      },
+      // Public intro at the root. Landing redirects returning (onboarded) users
+      // straight to their dashboard, so only first-time visitors see it.
+      { path: '/', element: <Landing /> },
+      // Invite link from a partner: remembers the shared book, then routes on.
+      { path: '/join/:bookId', element: <JoinRoute /> },
+      { path: '/privacy', element: <Privacy /> },
+      { path: '/terms', element: <Terms /> },
+      {
+        element: <AppShell />,
+        children: [
+          { path: '/dashboard', element: <Dashboard /> },
+          { path: '/add', element: <QuickEntry /> },
+          { path: '/transactions', element: <Transactions /> },
+          { path: '/reports', element: <Reports /> },
+          { path: '/cashflow', element: <Cashflow /> },
+          { path: '/sql', element: <SqlConsole /> },
+          { path: '/accounts', element: <Accounts /> },
+          { path: '/categories', element: <Categories /> },
+          { path: '/budgets', element: <Budgets /> },
+          { path: '/tags', element: <Tags /> },
+          { path: '/review', element: <Review /> },
+          { path: '/activity', element: <Activity /> },
+          { path: '/settings', element: <Settings /> },
+        ],
+      },
     ],
   },
 ]);
