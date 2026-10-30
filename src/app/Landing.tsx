@@ -62,6 +62,21 @@ const FEATURES: Feature[] = [
   },
 ];
 
+const SHOTS: { src: string; alt: string; title: string; desc: string }[] = [
+  {
+    src: '/screens/reports.webp',
+    alt: 'The Reports page: October’s spending by category, rent first, then groceries and eating out',
+    title: 'See where it goes',
+    desc: 'Any month, quarter or year, broken down by category — and compared with the one before.',
+  },
+  {
+    src: '/screens/transactions.webp',
+    alt: 'The Transactions page: entries grouped by day, with filters and a search box',
+    title: 'Every entry, findable',
+    desc: 'Filter by account, category, tag or dates, or just search “coffee” — typos and all.',
+  },
+];
+
 // The setup, in the order you'd actually do it — numbering earns its place here.
 const SHARE_STEPS: { title: string; desc: string }[] = [
   {
@@ -107,7 +122,7 @@ export function Landing() {
   return (
     <main className="min-h-full bg-[#FBF7F2] text-[#33241A]">
       {/* ── Hero ── warm-ink, matching the installed app tile + social card ── */}
-      <section className="relative overflow-hidden bg-[radial-gradient(120%_130%_at_20%_15%,#2c1d13_0%,#1c1410_55%,#140d09_100%)] px-6 py-20 text-center sm:py-28">
+      <section className="relative overflow-hidden bg-[radial-gradient(120%_130%_at_20%_15%,#2c1d13_0%,#1c1410_55%,#140d09_100%)] px-6 pb-32 pt-20 text-center sm:pb-48 sm:pt-28">
         <div
           aria-hidden
           className="pointer-events-none absolute left-1/2 top-24 h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(213,138,79,0.30),rgba(213,138,79,0)_62%)] blur-md"
@@ -140,6 +155,27 @@ export function Landing() {
           <p className="mt-6 font-mono text-xs tracking-wide text-[#9A8674]">
             Free · Installable · Works offline
           </p>
+        </div>
+      </section>
+
+      {/* ── The app itself ── rises out of the hero: the same book on a laptop
+          and a phone (made-up data; scripts/screenshots.mjs) ── */}
+      <section className="relative z-10 -mt-24 px-6 sm:-mt-36" aria-label="Copper on a laptop and a phone">
+        <div className="relative mx-auto max-w-5xl pb-10 sm:pb-16">
+          <img
+            src="/screens/dashboard.webp"
+            alt="Copper's dashboard: a total balance of $25,747, and this month's spending by category as a donut chart and bars"
+            width={2560}
+            height={1600}
+            className="w-full rounded-xl border border-[#E7C9A8]/30 shadow-[0_30px_80px_-20px_rgba(20,13,9,0.55)] sm:w-[88%] sm:rounded-2xl"
+          />
+          <img
+            src="/screens/add-phone.webp"
+            alt="Adding an expense on a phone: $18.50, with the categories to choose from"
+            width={780}
+            height={1688}
+            className="absolute bottom-0 right-0 w-[34%] max-w-[260px] rounded-[1.4rem] border-[5px] border-[#1c1410] shadow-[0_24px_60px_-12px_rgba(20,13,9,0.6)] sm:rounded-[2rem] sm:border-[7px]"
+          />
         </div>
       </section>
 
@@ -177,6 +213,28 @@ export function Landing() {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* ── Two more views of the same made-up book ── */}
+      <section className="mx-auto max-w-5xl px-6 pb-20 sm:pb-24">
+        <div className="grid gap-10 sm:grid-cols-2 sm:gap-8">
+          {SHOTS.map((s) => (
+            <figure key={s.src}>
+              <img
+                src={s.src}
+                alt={s.alt}
+                width={2560}
+                height={1600}
+                loading="lazy"
+                className="w-full rounded-xl border border-[#EBDFD1] shadow-[0_18px_40px_-18px_rgba(51,36,26,0.35)]"
+              />
+              <figcaption className="mt-4">
+                <span className="font-display text-lg font-semibold text-[#2A1B12]">{s.title}</span>
+                <span className="mt-1 block text-sm leading-relaxed text-[#6B5A49]">{s.desc}</span>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
       </section>
 
       {/* ── Shared ledger ── the other half of the premise: two people, one book ── */}
