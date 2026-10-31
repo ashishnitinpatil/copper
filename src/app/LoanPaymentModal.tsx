@@ -10,6 +10,7 @@ import { deleteTransaction } from '@/db/queries/transactions';
 import {
   createLoanPayment,
   getLoanPayment,
+  insuranceShare,
   loanTerms,
   owedBefore,
   updateLoanPayment,
@@ -38,9 +39,11 @@ interface Props {
 const RATE_HINT_SHARE = 0.1;
 
 /**
- * A payment on a loan: the principal (what you owe goes down by it) and the
- * interest (a cost, in Reports under Loan interest), filled in from the loan's
- * terms and corrected from the statement.
+ * A payment on a loan: the principal (what you owe goes down by it), the
+ * interest (a cost, in Reports under Loan interest) and any insurance and fees
+ * the bank adds, filled in from the loan's terms and corrected from the
+ * statement. Typing the total paid puts whatever is beyond the principal and
+ * interest down as insurance.
  */
 export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }: Props) {
   const db = useDB();
@@ -49,6 +52,12 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
   const [date, setDate] = useState(toDateString());
   const [principalInput, setPrincipalInput] = useState('');
   const [interestInput, setInterestInput] = useState('');
+  const [insuranceInput, setInsuranceInput] = useState('');
+  // Fees, such as for paying off early; the field shows once asked for.
+  const [feeInput, setFeeInput] = useState('');
+  const [showFee, setShowFee] = useState(false);
+  // As typed while the total is being edited; otherwise the parts' sum is shown.
+  const [totalInput, setTotalInput] = useState<string | null>(null);
   const [note, setNote] = useState('');
   // What was owed just before this payment, for the interest the rate implies.
   const [owed, setOwed] = useState<number | null>(null);
@@ -79,8 +88,11 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
         setDate(p.from.occurred_on);
         setPrincipalInput(String(fromMinor(Math.abs(p.from.amount_minor), cur)));
         setInterestInput(p.interest ? String(fromMinor(Math.abs(p.interest.amount_minor), cur)) : '');
+        setInsuranceInput(p.insurance ? String(fromMinor(Math.abs(p.insurance.amount_minor), cur)) : '');
+        setFeeInput(p.fee ? String(fromMinor(Math.abs(p.fee.amount_minor), cur)) : '');
+        setShowFee(!!p.fee);
         setNote(p.from.note ?? '');
-        setOwnIds([p.from.id, p.to.id, ...(p.interest ? [p.interest.id] : [])]);
+        setOwnIds([p.from.id, p.to.id, ...[p.interest, p.insurance, p.fee].filter((t) => !!t).map((t) => t!.id)]);
         setAutomatic(p.from.id.startsWith('loan:'));
       } else if (loanId) {
         const l = accounts.find((a) => a.id === loanId);
@@ -91,7 +103,10 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
           accounts.find((a) => a.type !== 'loan' && !a.archived_at && a.currency === l.currency)?.id ??
           '';
         const cur = accounts.find((a) => a.id === from)?.currency ?? l.currency;
-        const split = splitPayment(await owedBefore(db, l, today), loanTerms(l));
+        const owedNow = await owedBefore(db, l, today);
+        const split = splitPayment(owedNow, loanTerms(l));
+        // Insurance at the same share of what's owed as last time.
+        const insurance = Math.round(owedNow * (await insuranceShare(db, l, today)));
         if (cancelled) return;
         const show = (n: number) => (l.loan_payment_minor ? String(fromMinor(n, cur)) : '');
         setLoanAcctId(l.id);
@@ -99,11 +114,15 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
         setDate(today);
         setPrincipalInput(show(split.principal));
         setInterestInput(show(split.interest));
+        setInsuranceInput(insurance > 0 ? String(fromMinor(insurance, cur)) : '');
+        setFeeInput('');
+        setShowFee(false);
         setNote('');
         setOwnIds([]);
         setAutomatic(false);
       }
       setKeepAsMonthly(true);
+      setTotalInput(null);
       setLoadedFor(key);
     })();
     return () => {
@@ -125,9 +144,28 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
 
   const principal = parseAmount(principalInput, currency) ?? 0;
   const interest = parseAmount(interestInput || '0', currency) ?? 0;
-  const total = principal + interest;
+  const insurance = parseAmount(insuranceInput || '0', currency) ?? 0;
+  const fee = parseAmount(feeInput || '0', currency) ?? 0;
+  const total = principal + interest + insurance + fee;
+  // A typed total below the other parts leaves nothing for insurance.
+  const typedTotal = totalInput != null ? parseAmount(totalInput, currency) : null;
+  const totalShort = typedTotal != null && typedTotal < principal + interest + fee;
   const ready = loadedFor === key && !!loan;
-  const valid = ready && !!fromId && principal > 0 && interest >= 0;
+  const valid = ready && !!fromId && principal > 0 && interest >= 0 && insurance >= 0 && fee >= 0 && !totalShort;
+  const onTotal = (v: string) => {
+    setTotalInput(v);
+    const t = parseAmount(v, currency);
+    if (t == null) return;
+    const rest = t - principal - interest - fee;
+    setInsuranceInput(rest > 0 ? String(fromMinor(rest, currency)) : '');
+  };
+  // Paying off early: all that's left goes to the principal.
+  const payOff = () => {
+    if (owed == null) return;
+    setPrincipalInput(String(fromMinor(owed, currency)));
+    setTotalInput(null);
+    setShowFee(true);
+  };
 
   // Interest well off what the loan's rate gives: offer to record the rate that matches.
   const terms = loan ? loanTerms(loan) : null;
@@ -138,8 +176,10 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
     interest > 0 &&
     Math.abs(interest - expected) >= Math.max(expected * RATE_HINT_SHARE, 100);
   const suggestedRate = off ? impliedRate(interest, terms!.method === 'flat' ? terms!.principal : owed!) : null;
-  // An automatic payment corrected to a different total: next month's should match.
-  const newMonthly = editing && automatic && loan?.loan_payment_minor != null && total > 0 && total !== loan.loan_payment_minor;
+  // An automatic payment corrected to a different principal and interest:
+  // next month's should match. (Insurance follows what's owed on its own.)
+  const loanPart = principal + interest;
+  const newMonthly = editing && automatic && loan?.loan_payment_minor != null && loanPart > 0 && loanPart !== loan.loan_payment_minor;
 
   const handleSave = async () => {
     if (!valid || !loan) return;
@@ -150,12 +190,14 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
         from_account_id: fromId,
         principal_minor: principal,
         interest_minor: interest,
+        insurance_minor: insurance,
+        fee_minor: fee,
         occurred_on: date,
         note: note.trim() || null,
       };
       if (paymentId) await updateLoanPayment(db, paymentId, input);
       else await createLoanPayment(db, input);
-      if (newMonthly && keepAsMonthly) await updateLoanTerms(db, loan.id, { payment_minor: total });
+      if (newMonthly && keepAsMonthly) await updateLoanTerms(db, loan.id, { payment_minor: loanPart });
       onClose();
     } finally {
       setSubmitting(false);
@@ -182,28 +224,78 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
         <div className="space-y-3">
           <Combobox label="Paid from" value={fromId} onChange={setFromId} options={payFrom} />
           <DateField label="Date" value={date} onChange={setDate} />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Input
               label="Principal"
               inputMode="decimal"
               value={principalInput}
-              onChange={(e) => setPrincipalInput(e.target.value)}
+              onChange={(e) => {
+                setPrincipalInput(e.target.value);
+                setTotalInput(null);
+              }}
               placeholder="0.00"
             />
             <Input
               label="Interest"
               inputMode="decimal"
               value={interestInput}
-              onChange={(e) => setInterestInput(e.target.value)}
+              onChange={(e) => {
+                setInterestInput(e.target.value);
+                setTotalInput(null);
+              }}
+              placeholder="0.00"
+            />
+            <Input
+              label="Insurance"
+              inputMode="decimal"
+              value={insuranceInput}
+              onChange={(e) => {
+                setInsuranceInput(e.target.value);
+                setTotalInput(null);
+              }}
               placeholder="0.00"
             />
           </div>
-          <div className="flex items-baseline justify-between rounded-lg bg-slate-900/60 px-3 py-2 text-sm">
-            <span className="text-slate-400">Total paid</span>
-            <span className="font-semibold tabular-nums text-slate-50">{formatMoney(total, currency)}</span>
-          </div>
+          {owed != null && owed > 0 && principal !== owed && (
+            <button type="button" onClick={payOff} className="text-xs font-medium text-brand-300 hover:text-brand-200">
+              Pay off what’s left ({formatMoney(owed, currency)})
+            </button>
+          )}
+          {showFee ? (
+            <Input
+              label="Fees"
+              labelHint={<span className="text-xs text-slate-500">such as for paying off early</span>}
+              inputMode="decimal"
+              value={feeInput}
+              onChange={(e) => {
+                setFeeInput(e.target.value);
+                setTotalInput(null);
+              }}
+              placeholder="0.00"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowFee(true)}
+              className="block text-xs font-medium text-slate-400 hover:text-slate-200"
+            >
+              + Add fees (paying off early, say)
+            </button>
+          )}
+          <Input
+            label="Total paid"
+            inputMode="decimal"
+            value={totalInput ?? String(fromMinor(total, currency))}
+            onChange={(e) => onTotal(e.target.value)}
+          />
+          {totalShort && (
+            <p role="alert" className="text-xs text-danger">
+              That’s less than the principal, interest and fees ({formatMoney(principal + interest + fee, currency)}).
+            </p>
+          )}
           <p className="text-xs text-slate-500">
-            Filled in from the loan’s terms. If your statement splits it differently, type its figures.
+            Filled in from the loan’s terms. If your statement splits it differently, type its figures. Type the
+            total you paid and anything beyond the principal and interest is put down as insurance and fees.
           </p>
           {off && suggestedRate != null && (
             <div role="status" className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-slate-300">

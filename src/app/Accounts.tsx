@@ -25,18 +25,22 @@ import { parseAmount, fromMinor, formatMoney, CURRENCY_OPTIONS } from '@/lib/mon
 import { Money } from '@/components/ui/Money';
 import { Combobox } from '@/components/ui/Combobox';
 import { toDateString } from '@/lib/dates';
+import { listCategories } from '@/db/queries/categories';
+import { createTransaction, createTransfer } from '@/db/queries/transactions';
+import { Glyph } from '@/components/ui/Glyph';
 import { useDefaultCurrency } from './AppSettingsProvider';
 import {
   dueDateAfter,
   flatEquivalent,
   formatRate,
+  interestBefore,
   monthlyPayment,
   nextDueDate,
   reducingEquivalent,
   remainingSchedule,
   type InterestMethod,
 } from '@/features/loans/loanMath';
-import { getLoanStats, loanTerms } from '@/db/queries/loans';
+import { getLoanStats, loanTerms, type LoanStats } from '@/db/queries/loans';
 import { LoanPaymentModal } from './LoanPaymentModal';
 import { getSavedOrder, ORDER_OPTIONS, saveOrder, useSortedAccounts, type AccountOrder } from '@/components/accountOrder';
 
@@ -79,8 +83,8 @@ export function Accounts() {
   });
   const balances = useAccountBalances();
   const loanStats = useQuery(useCallback((db) => getLoanStats(db), []), { deps: ['transactions'] });
-  const interestPaid = useMemo(
-    () => new Map((loanStats.data ?? []).map((l) => [l.account_id, l.interest_paid])),
+  const paidOnLoans = useMemo(
+    () => new Map((loanStats.data ?? []).map((l) => [l.account_id, l])),
     [loanStats.data],
   );
   const [payingLoan, setPayingLoan] = useState<string | null>(null);
@@ -172,7 +176,7 @@ export function Accounts() {
                 onEdit={() => setEditing(acct)}
                 // The heading already names the type, unless the group mixes them.
                 showType={groups.length === 1 || g.types.length > 1}
-                interestPaid={interestPaid.get(acct.id) ?? 0}
+                paid={paidOnLoans.get(acct.id)}
                 onPay={() => setPayingLoan(acct.id)}
               />
             ))}
@@ -228,11 +232,11 @@ interface AccountCardProps {
   balanceMinor: number;
   onEdit: () => void;
   showType: boolean;
-  interestPaid: number;
+  paid?: LoanStats;
   onPay: () => void;
 }
 
-function AccountCard({ account, balanceMinor, onEdit, showType, interestPaid, onPay }: AccountCardProps) {
+function AccountCard({ account, balanceMinor, onEdit, showType, paid, onPay }: AccountCardProps) {
   // A loan with its terms filled in gets the loan view. Without them (say, a
   // debt between friends brought over from Monefy) it's a plain balance, which
   // may run either way.
@@ -297,7 +301,7 @@ function AccountCard({ account, balanceMinor, onEdit, showType, interestPaid, on
             </div>
           </div>
         ) : isLoan ? (
-          <LoanSummary loan={account} owed={Math.max(0, -balanceMinor)} interestPaid={interestPaid} />
+          <LoanSummary loan={account} owed={Math.max(0, -balanceMinor)} paid={paid} />
         ) : (
           <Money
             minor={balanceMinor}
@@ -332,8 +336,13 @@ const monthYear = (date: string) =>
   new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 
 /** What's left on a loan, how it's going, and what the borrowing costs. */
-function LoanSummary({ loan, owed, interestPaid }: { loan: Account; owed: number; interestPaid: number }) {
+function LoanSummary({ loan, owed, paid }: { loan: Account; owed: number; paid?: LoanStats }) {
   const terms = loanTerms(loan);
+  const interestPaid = paid?.interest_paid ?? 0;
+  const insurancePaid = paid?.insurance_paid ?? 0;
+  const feesPaid = paid?.fees_paid ?? 0;
+  // Added part-way through: roughly what went on interest before then.
+  const before = interestBefore(Math.max(0, -loan.opening_balance_minor), terms, loan.loan_term_months);
   const money = (n: number) => formatMoney(n, loan.currency);
   const paidShare = loan.loan_principal_minor ? Math.min(1, Math.max(0, 1 - owed / loan.loan_principal_minor)) : null;
   const schedule = terms.payment > 0 && owed > 0 ? remainingSchedule(owed, terms) : null;
@@ -376,10 +385,18 @@ function LoanSummary({ loan, owed, interestPaid }: { loan: Account; owed: number
       {terms.rateBp > 0 && months ? (
         <div className="text-xs text-slate-400">{otherRate(terms.method, terms.rateBp, months)}</div>
       ) : null}
-      {(interestPaid > 0 || schedule) && (
+      {(interestPaid > 0 || before != null || schedule) && (
         <div className="text-xs text-slate-400">
           Interest paid {money(interestPaid)}
+          {before != null && ` · about ${money(before)} before you added it here`}
           {schedule && ` · about ${money(schedule.interest)} to go`}
+        </div>
+      )}
+      {(insurancePaid > 0 || feesPaid > 0) && (
+        <div className="text-xs text-slate-400">
+          {[insurancePaid > 0 && `Insurance paid ${money(insurancePaid)}`, feesPaid > 0 && `Fees paid ${money(feesPaid)}`]
+            .filter(Boolean)
+            .join(' · ')}
         </div>
       )}
     </div>
@@ -486,11 +503,14 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
       // loan with it left empty owes everything borrowed.
       const opening = parseAmount(form.opening_input || '0', form.currency) ?? 0;
       const owedInput = form.opening_input.trim() ? opening : (loan.principal ?? 0);
+      // A new loan's money recorded going somewhere: that entry makes it owed,
+      // so the loan starts from nothing.
+      const proceeds = isLoan && !existing && owedInput > 0 && (form.proceeds_to || form.proceeds_category);
       const payload: AccountInput = {
         name: form.name.trim(),
         type: form.type,
         currency: form.currency,
-        opening_balance_minor: isLoan ? -owedInput : opening,
+        opening_balance_minor: isLoan ? (proceeds ? 0 : -owedInput) : opening,
         loan_principal_minor: loan.principal,
         loan_rate_bp: loan.rateBp,
         loan_interest_method: loan.method,
@@ -515,7 +535,23 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
       if (existing) {
         await updateAccount(db, existing.id, payload);
       } else {
-        await createAccount(db, payload);
+        const id = await createAccount(db, payload);
+        if (proceeds && form.proceeds_to) {
+          await createTransfer(db, {
+            from_account_id: id,
+            to_account_id: form.proceeds_to,
+            amount_minor: owedInput,
+            occurred_on: form.starts_on,
+          });
+        } else if (proceeds && form.proceeds_category) {
+          await createTransaction(db, {
+            account_id: id,
+            category_id: form.proceeds_category,
+            amount_minor: owedInput,
+            kind: 'expense',
+            occurred_on: form.starts_on,
+          });
+        }
       }
       onClose();
     } finally {
@@ -654,6 +690,7 @@ function AccountFormModal({ open, onClose, accounts, existing }: AccountFormModa
         {form.type === 'loan' && (
           <LoanTermsFields form={form} update={update} accounts={accounts.filter((a) => a.id !== existing?.id)} />
         )}
+        {form.type === 'loan' && !existing && <LoanProceedsFields form={form} update={update} accounts={accounts} />}
         <label className="flex items-center gap-2 text-sm text-slate-300">
           <input
             type="checkbox"
@@ -723,6 +760,10 @@ interface FormState extends AccountInput {
   loan_term_input: string;
   loan_payment_input: string;
   loan_autopay: boolean;
+  /** A new loan's money: paid into this account… */
+  proceeds_to: string;
+  /** …or spent straight on this (an expense category). */
+  proceeds_category: string;
   is_main: boolean;
   include_in_total: boolean;
   starts_on: string;
@@ -749,6 +790,8 @@ function emptyForm(currency: string): FormState {
     loan_term_input: '',
     loan_payment_input: '',
     loan_autopay: false,
+    proceeds_to: '',
+    proceeds_category: '',
     starts_on: toDateString(),
     icon: '',
   };
@@ -775,6 +818,8 @@ function toForm(a: Account): FormState {
     loan_term_input: a.loan_term_months != null ? String(a.loan_term_months) : '',
     loan_payment_input: a.loan_payment_minor != null ? String(fromMinor(a.loan_payment_minor, a.currency)) : '',
     loan_autopay: a.loan_autopay_from != null,
+    proceeds_to: '',
+    proceeds_category: '',
     starts_on: a.starts_on,
     icon: a.icon ?? '',
   };
@@ -799,6 +844,69 @@ function otherRate(method: InterestMethod, rateBp: number, months: number): stri
   const other: InterestMethod = method === 'flat' ? 'reducing' : 'flat';
   const bp = method === 'flat' ? reducingEquivalent(rateBp, months) : flatEquivalent(rateBp, months);
   return `${formatRate(rateBp)} ${METHOD_LABEL[method]} ≈ ${formatRate(bp)} ${METHOD_LABEL[other]}`;
+}
+
+/**
+ * Where a new loan's money went: into one of your accounts (a personal loan
+ * paid into the bank, a card's balance turned into a loan), or straight into
+ * something bought (a car, paid to the dealer). Recorded on the Balance on
+ * date, so what's owed comes from that entry.
+ */
+function LoanProceedsFields({
+  form,
+  update,
+  accounts,
+}: {
+  form: FormState;
+  update: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
+  accounts: Account[];
+}) {
+  const categories = useQuery(useCallback((d) => listCategories(d), []), { deps: ['categories'] });
+  // The same figure leaves the loan and arrives: same currency only.
+  const into = accounts.filter((a) => a.type !== 'loan' && !a.archived_at && a.currency === form.currency);
+  const intoGone = !!form.proceeds_to && !into.some((a) => a.id === form.proceeds_to);
+  useEffect(() => {
+    if (intoGone) update('proceeds_to', '');
+  }, [intoGone, update]);
+  const spentOn = (categories.data ?? []).filter((c) => c.kind === 'expense' && !c.archived_at);
+  return (
+    <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-500">
+        Where the money went
+        <InfoHint label="About where the money went" title="For a loan you're taking now">
+          Records the amount borrowed on the <span className="font-medium text-slate-300">Balance on</span> date:
+          paid into one of your accounts, or spent straight on something, such as a car paid to the dealer. Leave
+          both empty for a loan you took out earlier.
+        </InfoHint>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Combobox
+          label="Paid into"
+          value={form.proceeds_to}
+          onChange={(v) => {
+            update('proceeds_to', v);
+            if (v) update('proceeds_category', '');
+          }}
+          emptyOption={{ value: '', label: '— None —' }}
+          options={accountOptions(into)}
+        />
+        <Combobox
+          label="Or spent on"
+          value={form.proceeds_category}
+          onChange={(v) => {
+            update('proceeds_category', v);
+            if (v) update('proceeds_to', '');
+          }}
+          emptyOption={{ value: '', label: '— None —' }}
+          options={spentOn.map((c) => ({
+            value: c.id,
+            label: c.name,
+            icon: <Glyph icon={c.icon} className="h-4 w-4 text-slate-400" />,
+          }))}
+        />
+      </div>
+    </div>
+  );
 }
 
 function LoanTermsFields({

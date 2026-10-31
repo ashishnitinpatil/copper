@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   note              TEXT,
   recurring_id      TEXT,
   payment_of        TEXT,
+  payment_part      TEXT,
   created_at        TEXT NOT NULL DEFAULT ''
 );
 

@@ -61,6 +61,8 @@ export interface Transaction {
   transfer_peer_id: string | null;
   /** On a loan payment's interest: the outgoing leg of the payment's transfer. */
   payment_of: string | null;
+  /** Which part of the payment: 'insurance' for insurance and fees; interest otherwise. */
+  payment_part?: string | null;
   occurred_on: string;
   note: string | null;
   recurring_id: string | null;

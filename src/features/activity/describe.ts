@@ -49,7 +49,7 @@ export interface DescribableGroup {
 }
 
 // Columns that never mean anything to a person reading the log.
-const IGNORED = new Set(['id', 'created_at', 'sort_order', 'last_run_on', 'transfer_peer_id', 'recurring_id', 'payment_of', 'loan_autopay_from']);
+const IGNORED = new Set(['id', 'created_at', 'sort_order', 'last_run_on', 'transfer_peer_id', 'recurring_id', 'payment_of', 'payment_part', 'loan_autopay_from']);
 
 const ACCOUNT_TYPE: Record<string, string> = {
   cash: 'Cash',
@@ -461,13 +461,22 @@ function describeLoanPayment(L: Lookups, entries: DescribableEntry[]): Descripti
   const rows = entries.map((e) => ({ e, row: subjectOf(e) }));
   const to = rows.find((r) => r.row.kind === 'transfer' && num(r.row.amount_minor) > 0);
   if (!to) return null;
-  const interest = rows.find((r) => r.row.kind === 'expense');
+  const charged = (part: string | null) =>
+    rows
+      .filter((r) => r.row.kind === 'expense' && (r.row.payment_part ?? null) === part)
+      .reduce((s, r) => s + Math.abs(num(r.row.amount_minor)), 0);
   const cur = currencyOf(L, to.row.account_id);
   const principal = num(to.row.amount_minor);
-  const charged = interest ? Math.abs(num(interest.row.amount_minor)) : 0;
+  const interest = charged(null);
+  const insurance = charged('insurance');
+  const fees = charged('fee');
   const loan = accountName(L, to.row.account_id);
-  const total = money(principal + charged, cur);
-  const detail = [date(to.row.occurred_on), `${money(principal, cur)} principal · ${money(charged, cur)} interest`].join(' · ');
+  const total = money(principal + interest + insurance + fees, cur);
+  const split = [`${money(principal, cur)} principal`];
+  if (interest || (!insurance && !fees)) split.push(`${money(interest, cur)} interest`);
+  if (insurance) split.push(`${money(insurance, cur)} insurance`);
+  if (fees) split.push(`${money(fees, cur)} fees`);
+  const detail = [date(to.row.occurred_on), split.join(' · ')].join(' · ');
   const verb = to.e.op === 'insert' ? 'paid' : to.e.op === 'delete' ? 'deleted a payment of' : 'changed a payment on';
   const text = to.e.op === 'update' ? `${verb} ${loan}` : `${verb} ${total} on ${loan}`;
   return { text, detail, changes: [] };

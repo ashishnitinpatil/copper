@@ -59,6 +59,23 @@ export function remainingSchedule(owed: number, terms: LoanTerms): { payments: n
   return { payments, interest };
 }
 
+/**
+ * Roughly the interest paid before the loan was tracked here, when it was added
+ * part-way through (`owedAtStart` below the amount borrowed): the payments made
+ * so far — the term less the payments left — less the principal they paid off.
+ * Assumes the same monthly payment all along, so it's an estimate; null when
+ * the terms don't say enough.
+ */
+export function interestBefore(owedAtStart: number, terms: LoanTerms, termMonths: number | null): number | null {
+  if (!termMonths || terms.payment <= 0 || owedAtStart <= 0 || owedAtStart >= terms.principal) return null;
+  const left = remainingSchedule(owedAtStart, terms);
+  if (!left) return null;
+  const made = termMonths - left.payments;
+  if (made <= 0) return null;
+  const estimate = made * terms.payment - (terms.principal - owedAtStart);
+  return estimate > 0 ? estimate : null;
+}
+
 /** The flat rate (bp) that costs the same as `rateBp` reducing over `months`. */
 export function flatEquivalent(rateBp: number, months: number): number {
   const principal = 1_000_000;

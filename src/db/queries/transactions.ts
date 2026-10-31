@@ -33,8 +33,12 @@ export interface TransactionWithMeta extends Transaction {
   peer_is_loan?: number | null;
   /** This row's account is a loan with its terms set (1). */
   account_is_loan?: number | null;
-  /** On a loan payment's outgoing leg: its interest (negative), shown with it. */
+  /** On a loan payment's outgoing leg: its interest, insurance and fees (negative), shown with it. */
   interest_minor?: number | null;
+  /** The insurance part of interest_minor (negative), when there is any. */
+  insurance_minor?: number | null;
+  /** The fees part of interest_minor (negative), when there are any. */
+  fee_minor?: number | null;
 }
 
 // A loan with its terms filled in. A loan account without them is a plain
@@ -61,17 +65,26 @@ const showsBothLegs = (filter: TransactionFilter) => !!filter.accountId || !!fil
  */
 function foldLoanInterest(rows: TransactionWithMeta[]): TransactionWithMeta[] {
   const ids = new Set(rows.map((r) => r.id));
-  // Leg id → its interest. New rows, not edits: a row may be folded again.
+  // Leg id → its interest, insurance and fees. New rows, not edits: a row may be folded again.
   const interest = new Map<string, number>();
+  const insurance = new Map<string, number>();
+  const fee = new Map<string, number>();
+  const add = (m: Map<string, number>, id: string, n: number) => m.set(id, (m.get(id) ?? 0) + n);
   for (const r of rows) {
     if (r.payment_of && ids.has(r.payment_of)) {
-      interest.set(r.payment_of, (interest.get(r.payment_of) ?? 0) + r.amount_minor);
+      add(interest, r.payment_of, r.amount_minor);
+      if (r.payment_part === 'insurance') add(insurance, r.payment_of, r.amount_minor);
+      if (r.payment_part === 'fee') add(fee, r.payment_of, r.amount_minor);
     }
   }
   if (interest.size === 0) return rows;
   return rows
     .filter((r) => !(r.payment_of && ids.has(r.payment_of)))
-    .map((r) => (interest.has(r.id) ? { ...r, interest_minor: interest.get(r.id)! } : r));
+    .map((r) =>
+      interest.has(r.id)
+        ? { ...r, interest_minor: interest.get(r.id)!, insurance_minor: insurance.get(r.id) ?? null, fee_minor: fee.get(r.id) ?? null }
+        : r,
+    );
 }
 
 /** `ids` plus every row entered with them: a transfer's other leg, a loan payment's interest. */

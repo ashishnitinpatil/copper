@@ -14,10 +14,18 @@ export function isLoanPayment(t: TransactionWithMeta): boolean {
   return !!(t.amount_minor < 0 ? t.peer_is_loan : t.account_is_loan);
 }
 
-/** "$800.00 principal · $200.00 interest" for a loan payment shown with its interest. */
+/** "$800.00 principal · $200.00 interest · $15.00 insurance" for a loan payment shown with its interest. */
 export function paymentSplit(t: TransactionWithMeta): string | null {
   if (!t.interest_minor) return null;
-  return `${formatMoney(Math.abs(t.amount_minor), t.account_currency)} principal · ${formatMoney(Math.abs(t.interest_minor), t.account_currency)} interest`;
+  const money = (n: number) => formatMoney(Math.abs(n), t.account_currency);
+  const insurance = t.insurance_minor ?? 0;
+  const fee = t.fee_minor ?? 0;
+  const interest = t.interest_minor - insurance - fee;
+  const parts = [`${money(t.amount_minor)} principal`];
+  if (interest || (!insurance && !fee)) parts.push(`${money(interest)} interest`);
+  if (insurance) parts.push(`${money(insurance)} insurance`);
+  if (fee) parts.push(`${money(fee)} fees`);
+  return parts.join(' · ');
 }
 
 /**

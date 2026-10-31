@@ -100,6 +100,72 @@ test.describe('Loans', () => {
     await expect(loanCard(page)).toContainText('Still owed₹84,151.39');
   });
 
+  test('insurance is what the total paid has beyond principal and interest, and next time follows what is owed', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-11-10T09:00:00'));
+    await resetAndLoad(page, '/accounts');
+    await createLoan(page);
+
+    const card = loanCard(page);
+    await card.getByRole('button', { name: 'Record payment' }).click();
+    const dialog = page.getByRole('dialog');
+    // The bank took ₹8,984.88: ₹100 more than principal and interest, for insurance.
+    await dialog.getByLabel('Total paid').fill('8984.88');
+    await expect(dialog.getByLabel('Insurance')).toHaveValue('100');
+    await dialog.getByRole('button', { name: 'Record payment' }).click();
+    await expect(card).toContainText('Still owed₹92,115.12');
+    await expect(card).toContainText('Interest paid ₹1,000.00');
+    await expect(card).toContainText('Insurance paid ₹100.00');
+
+    // A month on, insurance is the same share (0.1%) of the less that's owed.
+    await page.clock.setFixedTime(new Date('2026-12-10T09:00:00'));
+    await card.getByRole('button', { name: 'Record payment' }).click();
+    await expect(dialog.getByLabel('Insurance')).toHaveValue('92.12');
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+    await page.goto('/transactions');
+    await waitForDB(page);
+    await expect(page.locator('main li', { hasText: 'Loan payment' })).toContainText(
+      '₹7,884.88 principal · ₹1,000.00 interest · ₹100.00 insurance',
+    );
+  });
+
+  test('paying off early clears what is owed, with its fee', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-11-10T09:00:00'));
+    await resetAndLoad(page, '/accounts');
+    await createLoan(page);
+
+    const card = loanCard(page);
+    await card.getByRole('button', { name: 'Record payment' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: /Pay off what’s left/ }).click();
+    await expect(dialog.getByLabel('Principal')).toHaveValue('100000');
+    await dialog.getByLabel('Interest').fill('0');
+    await dialog.getByLabel('Fees').fill('1000');
+    await expect(dialog.getByLabel('Total paid')).toHaveValue('101000');
+    await dialog.getByRole('button', { name: 'Record payment' }).click();
+
+    await expect(card).toContainText('Paid off');
+    await expect(card).toContainText('Fees paid ₹1,000.00');
+    await expect(card.getByRole('button', { name: 'Record payment' })).toHaveCount(0);
+  });
+
+  test('a new loan’s money can go into an account', async ({ page }) => {
+    await resetAndLoad(page, '/accounts');
+    await page.getByRole('button', { name: '+ New account' }).click();
+    await page.getByLabel('Name').fill('Personal loan');
+    await page.getByLabel('Type').selectOption('loan');
+    await page.getByLabel('Amount borrowed').fill('50000');
+    await selectCombobox(page, 'Paid into', 'Cash');
+    await page.getByRole('button', { name: 'Create' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    await expect(page.locator('div.rounded-xl', { hasText: 'Personal loan' }).first()).toContainText('Still owed₹50,000.00');
+    await expect(page.locator('div.rounded-xl', { hasText: 'Cash' }).first()).toContainText('₹50,000');
+    await page.goto('/transactions');
+    await waitForDB(page);
+    await expect(page.locator('main li').getByText('Personal loan → Cash')).toBeVisible();
+  });
+
   test('a loan without terms stays a plain balance, and paying into it a plain transfer', async ({ page }) => {
     // Like a debt between friends brought over from Monefy.
     await resetAndLoad(page, '/accounts');

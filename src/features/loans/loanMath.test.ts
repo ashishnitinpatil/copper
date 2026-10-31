@@ -3,6 +3,7 @@ import {
   dueDateAfter,
   dueDatesBetween,
   flatEquivalent,
+  interestBefore,
   monthlyPayment,
   nextDueDate,
   reducingEquivalent,
@@ -86,5 +87,22 @@ describe('due dates', () => {
     expect(nextDueDate('2026-10-31', 5)).toBe('2026-11-05');
     expect(nextDueDate('2026-11-05', 5)).toBe('2026-11-05');
     expect(dueDateAfter('2026-11-05', 59, 5)).toBe('2031-10-05');
+  });
+});
+
+describe('interestBefore', () => {
+  // ₹100,000 at 12% over 12 months: ₹8,884.88 a month.
+  const terms: LoanTerms = { method: 'reducing', rateBp: 1200, principal: 10_000_000, payment: 888_488 };
+  it('is the payments already made less the principal they paid off', () => {
+    // Two payments in: ₹84,151.39 owed, 10 left.
+    const est = interestBefore(8_415_139, terms, 12)!;
+    // 2 × 8,884.88 − 15,848.61 = 1,921.15 (₹1,000 + ₹921.15).
+    expect(est).toBe(2 * 888_488 - (10_000_000 - 8_415_139));
+    expect(est).toBe(192_115);
+  });
+  it('is nothing for a loan tracked from the start, or without a term', () => {
+    expect(interestBefore(10_000_000, terms, 12)).toBeNull();
+    expect(interestBefore(8_415_139, terms, null)).toBeNull();
+    expect(interestBefore(8_415_139, { ...terms, payment: 0 }, 12)).toBeNull();
   });
 });
