@@ -14,6 +14,7 @@ import { listCategories } from '@/db/queries/categories';
 import { createTransaction, createTransfer, deleteTransaction } from '@/db/queries/transactions';
 import { suggestNotes } from '@/lib/noteSuggestions';
 import { fuzzyScore } from '@/lib/fuzzy';
+import { evaluate, hasOperator, isOperator } from '@/lib/calc';
 import { NoteSuggestions, usePastNotes } from '@/components/NoteSuggestions';
 import { Modal } from '@/components/ui/Modal';
 import { archiveRecurringRule, createRecurringRule, occurrenceId } from '@/db/queries/recurring';
@@ -144,7 +145,10 @@ export function QuickEntry() {
     return Math.max(expense, income);
   }, [topLevel]);
 
-  const minor = parseAmount(raw, currency);
+  // The keypad can do sums ("120+35"); the amount is the answer, to the currency's decimals.
+  const sum = hasOperator(raw);
+  const value = sum ? evaluate(raw) : null;
+  const minor = sum ? (value != null ? parseAmount(value.toFixed(meta.decimals), currency) : null) : parseAmount(raw, currency);
   const canCommit = minor !== null && minor > 0 && !!account && !committing;
 
   // --- Transfers between currencies: what arrives, estimated until typed ----
@@ -169,14 +173,23 @@ export function QuickEntry() {
     setRaw((cur) => {
       if (ch === 'C') return '0';
       if (ch === '⌫') return cur.length <= 1 ? '0' : cur.slice(0, -1);
+      const last = cur[cur.length - 1];
+      if (isOperator(ch)) {
+        if (cur === '0') return cur;
+        // A second operator in a row replaces the first.
+        return isOperator(last) ? cur.slice(0, -1) + ch : cur + ch;
+      }
+      // Limits apply to the number being typed, after the last operator.
+      const number = cur.split(/[+−×÷]/).pop()!;
       if (ch === '.') {
-        if (meta.decimals === 0) return cur;
-        return cur.includes('.') ? cur : cur + '.';
+        if (meta.decimals === 0 || number.includes('.')) return cur;
+        return cur + (number === '' ? '0.' : '.');
       }
       if (cur === '0') return ch;
-      const decIdx = cur.indexOf('.');
-      if (decIdx >= 0 && cur.length - decIdx - 1 >= meta.decimals) return cur;
-      if (cur.replace('.', '').length >= 12) return cur;
+      if (number === '0') return cur.slice(0, -1) + ch;
+      const decIdx = number.indexOf('.');
+      if (decIdx >= 0 && number.length - decIdx - 1 >= meta.decimals) return cur;
+      if (number.replace('.', '').length >= 12) return cur;
       return cur + ch;
     });
   };
@@ -292,12 +305,21 @@ export function QuickEntry() {
       if (document.querySelector('[aria-modal="true"]')) return;
       if (/^[0-9]$/.test(e.key)) press(e.key);
       else if (e.key === '.' || e.key === ',') press('.');
+      else if (e.key === '+') press('+');
+      else if (e.key === '-') press('−');
+      else if (e.key === '*' || e.key === 'x') press('×');
+      else if (e.key === '/' && raw !== '0') {
+        // Divides once an amount is typed; before that it's the app's "search transactions" key.
+        e.preventDefault();
+        press('÷');
+      }
       else if (e.key === 'Backspace') press('⌫');
       else if (e.key === 'Escape') press('C');
       else if (e.key === 'Enter' && mode === 'transfer' && t?.tagName !== 'BUTTON') void commitTransfer();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Ahead of the app-wide shortcuts, so "/" can divide here rather than open search.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   });
 
   // The category tiles: beside the keypad on a computer (smaller, more to a
@@ -468,25 +490,35 @@ export function QuickEntry() {
 
           {/* The account is picked just above; the amount box shows only the amount. */}
           <div className={`rounded-2xl border bg-slate-900/70 px-5 py-3 text-right sm:p-5 shadow-inner ${tone.border}`}>
-            <div className="flex items-baseline justify-end font-display text-5xl font-semibold tabular-nums sm:text-6xl">
+            <div
+              className={`flex items-baseline justify-end font-display font-semibold tabular-nums ${
+                raw.length > 9 ? 'text-3xl sm:text-4xl' : 'text-5xl sm:text-6xl'
+              }`}
+            >
               <span className="mr-1 text-[0.4em] text-slate-500">{meta.symbol}</span>
               <span
                 key={raw}
-                className={`motion-safe:animate-amount-pop ${raw === '0' ? 'text-slate-600' : tone.text}`}
+                className={`break-all motion-safe:animate-amount-pop ${raw === '0' ? 'text-slate-600' : tone.text}`}
               >
                 {raw}
               </span>
             </div>
+            {sum && (
+              <div aria-live="polite" className="text-sm tabular-nums text-slate-400">
+                {minor == null
+                  ? 'Can’t work that out'
+                  : `= ${formatMoney(minor, currency)}${minor > 0 ? '' : ' (needs to be more than 0)'}`}
+              </div>
+            )}
           </div>
 
-          {/* Two lines for thumbs on a phone; one is plenty with a keyboard. */}
-          <textarea
-            rows={2}
+          <input
+            type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Note (optional)"
             aria-label="Note"
-            className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-base text-slate-50 placeholder:text-slate-500 focus:border-brand-500 focus:outline-none lg:h-[46px]"
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-base text-slate-50 placeholder:text-slate-500 focus:border-brand-500 focus:outline-none"
           />
           <NoteSuggestions notes={noteSuggestions} onPick={setNote} />
 
@@ -516,14 +548,17 @@ export function QuickEntry() {
               </label>
             )}
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {KEYS.map((k) => (
               <button
                 key={k}
                 type="button"
                 onClick={() => press(k)}
-                className={`select-none rounded-xl bg-slate-800 py-2.5 text-xl font-medium sm:py-4 transition-[transform,background-color] duration-100 hover:bg-slate-700 active:scale-90 active:bg-slate-700 ${
-                  k === '.' || k === '⌫' ? 'text-slate-400' : 'text-slate-50'
+                aria-label={OPERATOR_NAMES[k]}
+                className={`select-none rounded-xl py-2.5 text-xl font-medium sm:py-4 transition-[transform,background-color] duration-100 active:scale-90 ${
+                  isOperator(k)
+                    ? 'bg-slate-800 font-semibold text-brand-400 hover:bg-slate-700 active:bg-slate-700'
+                    : `bg-slate-800 hover:bg-slate-700 active:bg-slate-700 ${k === '.' || k === '⌫' ? 'text-slate-400' : 'text-slate-50'}`
                 }`}
               >
                 {k}
@@ -665,4 +700,6 @@ export function QuickEntry() {
   );
 }
 
-const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '⌫'];
+// Three digits and an operator a row, like a calculator.
+const KEYS = ['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '−', '.', '0', '⌫', '+'];
+const OPERATOR_NAMES: Record<string, string> = { '÷': 'Divide', '×': 'Multiply', '−': 'Minus', '+': 'Plus' };

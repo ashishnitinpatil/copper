@@ -84,6 +84,19 @@ test.describe('Quick Entry', () => {
     await expect(page.getByText('No expense category matches')).toBeVisible();
   });
 
+  test('the keypad does sums, and saves the answer', async ({ page }) => {
+    for (const k of ['1', '2', '0', 'Plus', '3', '5', 'Multiply', '2']) {
+      await page.getByRole('button', { name: k, exact: true }).click();
+    }
+    await expect(page.locator('main').getByText('120+35×2')).toBeVisible();
+    await expect(page.getByText('= ₹190.00')).toBeVisible();
+    // Typed on a keyboard too; "/" divides rather than opening search.
+    await page.keyboard.type('/2');
+    await expect(page.getByText('= ₹155.00')).toBeVisible();
+    await page.getByRole('button', { name: /Food & Dining/ }).click();
+    await expect(page.getByText('✓ Food & Dining  ₹155.00')).toBeVisible();
+  });
+
   test('backspace removes last digit', async ({ page }) => {
     await page.getByRole('button', { name: '1', exact: true }).click();
     await page.getByRole('button', { name: '2', exact: true }).click();
