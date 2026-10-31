@@ -13,6 +13,7 @@ import { listAccounts } from '@/db/queries/accounts';
 import { listCategories } from '@/db/queries/categories';
 import { createTransaction, createTransfer, deleteTransaction } from '@/db/queries/transactions';
 import { suggestNotes } from '@/lib/noteSuggestions';
+import { fuzzyScore } from '@/lib/fuzzy';
 import { NoteSuggestions, usePastNotes } from '@/components/NoteSuggestions';
 import { Modal } from '@/components/ui/Modal';
 import { archiveRecurringRule, createRecurringRule, occurrenceId } from '@/db/queries/recurring';
@@ -58,6 +59,8 @@ export function QuickEntry() {
   const [committing, setCommitting] = useState(false);
   // Phones: the category sheet is open.
   const [picking, setPicking] = useState(false);
+  // Computers: narrows the category tiles beside the keypad.
+  const [search, setSearch] = useState('');
   const [flash, setFlash] = useState<Saved | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const flashTimer = useRef<number | null>(null);
@@ -124,6 +127,15 @@ export function QuickEntry() {
     () => topLevel.filter((c) => c.kind === mode),
     [topLevel, mode],
   );
+  const searched = useMemo(() => {
+    const q = search.trim();
+    if (!q) return filteredCategories;
+    return filteredCategories
+      .map((c) => ({ c, score: fuzzyScore(q, c.name) }))
+      .filter((m) => m.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((m) => m.c);
+  }, [filteredCategories, search]);
   // Reserve grid space for whichever mode has more categories so switching
   // expense/income never grows or shrinks the panel — no layout shift.
   const reserveCount = useMemo(() => {
@@ -176,6 +188,7 @@ export function QuickEntry() {
     setSavedId(tileId);
     setRaw('0');
     setNote('');
+    setSearch('');
     setReceivedInput('');
     setReceivedTouched(false);
     // Long enough to notice and reach for Undo on a phone.
@@ -287,15 +300,19 @@ export function QuickEntry() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  // The category tiles: beside the keypad on a computer, in a sheet on phones.
-  // `reserve` keeps the side panel's height steady between expense and income.
-  const categoryGrid = (reserve: boolean) =>
-    categoriesState.data === null && !categoriesState.error ? (
+  // The category tiles: beside the keypad on a computer (smaller, more to a
+  // row, narrowed by the search box), in a sheet on phones. On a computer the
+  // panel keeps its height steady between expense and income, until a search
+  // narrows it.
+  const categoryGrid = (desktop: boolean) => {
+    const shown = desktop ? searched : filteredCategories;
+    const grid = desktop ? 'grid grid-cols-5 gap-2 xl:grid-cols-6' : 'grid grid-cols-3 gap-3 sm:grid-cols-4';
+    return categoriesState.data === null && !categoriesState.error ? (
       // Still opening the book: placeholders, not "no categories yet".
-      <div role="status" className="grid grid-cols-3 gap-3 motion-safe:animate-pulse sm:grid-cols-4">
+      <div role="status" className={`${grid} motion-safe:animate-pulse`}>
         <span className="sr-only">Loading categories…</span>
         {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className="h-28 rounded-2xl bg-slate-800/60" />
+          <div key={i} className={`${desktop ? 'aspect-square' : 'h-28'} rounded-2xl bg-slate-800/60`} />
         ))}
       </div>
     ) : filteredCategories.length === 0 ? (
@@ -303,8 +320,13 @@ export function QuickEntry() {
         No {mode} categories yet. Add some on the Categories page.
       </div>
     ) : (
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-        {filteredCategories.map((c) => {
+      <div className={grid}>
+        {shown.length === 0 && (
+          <div className="col-span-full rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-500">
+            No {mode} category matches &ldquo;{search.trim()}&rdquo;.
+          </div>
+        )}
+        {shown.map((c) => {
           const saved = savedId === c.id;
           // Keep the just-saved tile bright through its confirmation flash,
           // even though the amount has reset to 0 (which dims the rest).
@@ -337,19 +359,21 @@ export function QuickEntry() {
                 name={c.name}
                 color={c.color}
                 icon={c.icon}
-                size="lg"
+                size={desktop ? 'md' : 'lg'}
                 className={`transition group-hover:scale-105 ${saved ? 'motion-safe:animate-coin-pop' : ''}`}
               />
               <div className="line-clamp-2 text-xs font-medium text-slate-200">{c.name}</div>
             </button>
           );
         })}
-        {reserve &&
-          Array.from({ length: Math.max(0, reserveCount - filteredCategories.length) }).map((_, i) => (
+        {desktop &&
+          !search.trim() &&
+          Array.from({ length: Math.max(0, reserveCount - shown.length) }).map((_, i) => (
             <div key={`reserve-${i}`} aria-hidden className="aspect-square" />
           ))}
       </div>
     );
+  };
 
   const tone =
     mode === 'expense'
@@ -455,13 +479,14 @@ export function QuickEntry() {
             </div>
           </div>
 
+          {/* Two lines for thumbs on a phone; one is plenty with a keyboard. */}
           <textarea
             rows={2}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Note (optional)"
             aria-label="Note"
-            className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-base text-slate-50 placeholder:text-slate-500 focus:border-brand-500 focus:outline-none"
+            className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-base text-slate-50 placeholder:text-slate-500 focus:border-brand-500 focus:outline-none lg:h-[46px]"
           />
           <NoteSuggestions notes={noteSuggestions} onPick={setNote} />
 
@@ -595,6 +620,19 @@ export function QuickEntry() {
               )}
             </div>
 
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter saves to the best match, so an entry needs no mouse at all.
+                if (e.key === 'Enter' && search.trim() && searched[0]) void commit(searched[0].id);
+                else if (e.key === 'Escape') setSearch('');
+              }}
+              placeholder="Search categories"
+              aria-label="Search categories"
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:border-brand-500 focus:outline-none"
+            />
             {categoryGrid(true)}
           </section>
         )}

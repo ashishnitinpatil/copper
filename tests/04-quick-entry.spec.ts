@@ -66,6 +66,24 @@ test.describe('Quick Entry', () => {
     await expect(page.getByText('Last time')).toHaveCount(1);
   });
 
+  test('on a computer, search narrows the categories and Enter saves to the best match', async ({ page }) => {
+    // One line for the note with a keyboard (two on phones).
+    expect((await page.getByRole('textbox', { name: 'Note' }).boundingBox())!.height).toBeLessThan(50);
+
+    await page.keyboard.type('120');
+    const search = page.getByRole('searchbox', { name: 'Search categories' });
+    await search.fill('fod');
+    await expect(page.getByRole('button', { name: /Food & Dining/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Salary|Transport/ })).toHaveCount(0);
+    await search.press('Enter');
+    await expect(page.getByText('✓ Food & Dining')).toBeVisible();
+    await expect(search).toHaveValue('');
+    await expect(page.getByRole('button', { name: /Transport/ })).toBeVisible();
+
+    await search.fill('zzzz');
+    await expect(page.getByText('No expense category matches')).toBeVisible();
+  });
+
   test('backspace removes last digit', async ({ page }) => {
     await page.getByRole('button', { name: '1', exact: true }).click();
     await page.getByRole('button', { name: '2', exact: true }).click();
