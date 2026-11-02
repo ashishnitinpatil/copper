@@ -265,10 +265,12 @@ export function describeSyncError(e: unknown): string {
       'consent screen.'
     );
   }
-  if (e instanceof DriveError && e.status === 404) {
+  if (isBookMissingError(e)) {
     return (
       "Copper can't open the shared book — it may have been deleted, or it's no longer " +
-      'shared with this Google account. Choose the shared book again below.'
+      'shared with this Google account. Entries made here are kept on this device. ' +
+      'Restore it from the bin in Google Drive, or ask whoever shared it to share it with ' +
+      'you again (then choose it below).'
     );
   }
   if (isNetworkError(e)) {
@@ -295,6 +297,11 @@ export function isTransientSyncError(e: unknown): boolean {
   if (e instanceof DOMException && e.name === 'AbortError') return true;
   if (!(e instanceof DriveError)) return false;
   return e.status === 429 || e.status >= 500 || (e.status === 403 && /rate ?limit/i.test(e.message));
+}
+
+/** Drive answers 404 for a file this account can no longer see: deleted, or no longer shared. */
+export function isBookMissingError(e: unknown): boolean {
+  return e instanceof DriveError && e.status === 404;
 }
 
 // A 403 "insufficient authentication scopes" means the stored token is valid but

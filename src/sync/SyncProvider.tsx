@@ -27,7 +27,7 @@ import {
   type SyncProgress,
   type KnownPeer,
 } from './household';
-import { describeSyncError, isReauthError, isTransientSyncError } from './googleDrive';
+import { describeSyncError, isBookMissingError, isReauthError, isTransientSyncError } from './googleDrive';
 import {
   backupBook,
   maybeScheduledBackup,
@@ -58,6 +58,9 @@ interface SyncContextValue {
   // True when sync stopped because another device replaced the shared book —
   // the UI offers Start fresh, not a retry.
   bookReplaced: boolean;
+  // True when the shared book can't be opened: deleted, or no longer shared
+  // with this account. Entries made here stay on this device.
+  bookMissing: boolean;
   // True when the book holds columns from a newer Copper — reload to update.
   newerBook: boolean;
   // Set when this device's first sync found a book this account already has:
@@ -116,6 +119,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [needsReauth, setNeedsReauth] = useState(false);
   const [bookReplaced, setBookReplaced] = useState(false);
+  const [bookMissing, setBookMissing] = useState(false);
   const [newerBook, setNewerBook] = useState(false);
   const [foundBookId, setFoundBookId] = useState<string | null>(null);
   const [bookId, setBookId] = useState<string | null>(null);
@@ -248,6 +252,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         quietFailures.current = 0;
         setStatus('idle');
         setBookReplaced(false);
+        setBookMissing(false);
         setNewerBook(false);
         setFoundBookId(null);
         // Piggyback the scheduled (weekly by default) backup — after the sync,
@@ -271,6 +276,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setError(describeSyncError(e));
         setNeedsReauth(isReauthError(e));
         setBookReplaced(e instanceof BookReplacedError);
+        setBookMissing(isBookMissingError(e));
         setNewerBook(e instanceof NewerBookError);
         setFoundBookId(e instanceof BookFoundError ? e.bookId : null);
         setStatus('error');
@@ -420,6 +426,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         error,
         needsReauth,
         bookReplaced,
+        bookMissing,
         newerBook,
         foundBookId,
         bookId,

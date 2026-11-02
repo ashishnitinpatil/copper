@@ -27,11 +27,13 @@ export function SyncPausedBanner() {
     ? 'Another device saved your book with a newer version of Copper. Update to keep syncing.'
     : sync.bookReplaced
       ? 'Your shared book was replaced from another device. Load it again on this device to keep syncing.'
-      : sync.foundBookId
-        ? 'Your Google account already has a book. Choose how this device joins it.'
-        : waitingOnSignIn
-          ? 'Your latest changes are saved on this device but haven’t reached Google Drive yet — your Google sign-in has expired.'
-          : null;
+      : sync.bookMissing
+        ? 'Copper can’t open your shared book — it may have been deleted, or it’s no longer shared with you. Your entries are safe on this device.'
+        : sync.foundBookId
+          ? 'Your Google account already has a book. Choose how this device joins it.'
+          : waitingOnSignIn
+            ? 'Your latest changes are saved on this device but haven’t reached Google Drive yet — your Google sign-in has expired.'
+            : null;
   if (!message) return null;
 
   const button =
@@ -52,7 +54,7 @@ export function SyncPausedBanner() {
         <button type="button" className={button} onClick={() => void reloadToUpdate()}>
           Update Copper
         </button>
-      ) : !sync.bookReplaced && !sync.foundBookId ? (
+      ) : !sync.bookReplaced && !sync.bookMissing && !sync.foundBookId ? (
         // Only the sign-in case is left. A fresh sign-in starts a sync by itself,
         // which sends the waiting changes.
         <button

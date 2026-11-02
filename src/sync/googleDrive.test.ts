@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { DriveError, describeSyncError, downloadBytes, isReauthError, isTransientSyncError } from './googleDrive';
+import {
+  DriveError,
+  describeSyncError,
+  downloadBytes,
+  isBookMissingError,
+  isReauthError,
+  isTransientSyncError,
+} from './googleDrive';
 
 describe('describeSyncError', () => {
   it('translates the invalid-session 401 into actionable guidance', () => {
@@ -36,6 +43,17 @@ describe('describeSyncError', () => {
       'Drive 403: The user does not have sufficient permissions for file',
     );
     expect(isReauthError(err)).toBe(false);
+  });
+
+  it('says a book that is gone (deleted, or no longer shared) keeps entries here, and what to do', () => {
+    const err = new DriveError('Drive 404: { "error": { "code": 404, "message": "File not found: abc." } }', 404);
+    const msg = describeSyncError(err);
+    expect(msg).toMatch(/no longer shared/);
+    expect(msg).toMatch(/kept on this device/);
+    expect(msg).toMatch(/share it with you again/);
+    expect(isBookMissingError(err)).toBe(true);
+    expect(isTransientSyncError(err)).toBe(false);
+    expect(isBookMissingError(new DriveError('Drive 500: backend error', 500))).toBe(false);
   });
 
   it('handles non-Error values', () => {
