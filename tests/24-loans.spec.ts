@@ -129,6 +129,23 @@ test.describe('Loans', () => {
     );
   });
 
+  test('the cashflow forecast takes insurance with the next automatic payment', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-11-10T09:00:00'));
+    await resetAndLoad(page, '/accounts');
+    await createLoan(page, { autopay: true });
+    await loanCard(page).getByRole('button', { name: 'Record payment' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Total paid').fill('8984.88');
+    await dialog.getByRole('button', { name: 'Record payment' }).click();
+    await expect(loanCard(page)).toContainText('Insurance paid ₹100.00');
+
+    // Nov 15: the monthly ₹8,884.88 plus ₹92.12 insurance (0.1% of ₹92,115.12 owed).
+    await page.goto('/cashflow');
+    await waitForDB(page);
+    const row = page.locator('main div.flex.items-center.justify-between', { hasText: 'Car loan payment' }).last();
+    await expect(row).toContainText('Nov 15, 2026−₹8,977.00');
+  });
+
   test('paying off early clears what is owed, with its fee', async ({ page }) => {
     await page.clock.setFixedTime(new Date('2026-11-10T09:00:00'));
     await resetAndLoad(page, '/accounts');

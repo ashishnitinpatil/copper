@@ -32,7 +32,7 @@ import {
   type Scope,
 } from '@/features/cashflow/trends';
 import { BalanceTrendChart } from '@/components/charts/BalanceTrendChart';
-import { loanTerms } from '@/db/queries/loans';
+import { insuranceShare, loanTerms } from '@/db/queries/loans';
 import { dueDatesBetween, splitPayment } from '@/features/loans/loanMath';
 import { CashflowTrendChart } from '@/components/charts/CashflowTrendChart';
 
@@ -85,6 +85,20 @@ export function Cashflow() {
   // trims them to the selected 30/60/90-day window.
   const futureTxnState = useQuery<FutureTxnRow[]>(
     useCallback((d) => getFutureTransactions(d, toDateString(), toDateString(addDays(new Date(), 90))), []),
+    { deps: ['accounts', 'transactions'] },
+  );
+
+  // Each automatic loan's insurance, as a share of what's owed (from its last payment).
+  const insuranceState = useQuery<Map<string, number>>(
+    useCallback(async (d) => {
+      // Tomorrow, so a payment recorded today counts.
+      const tomorrow = toDateString(addDays(new Date(), 1));
+      const shares = new Map<string, number>();
+      for (const a of await listAccounts(d)) {
+        if (a.type === 'loan' && a.loan_autopay_from) shares.set(a.id, await insuranceShare(d, a, tomorrow));
+      }
+      return shares;
+    }, []),
     { deps: ['accounts', 'transactions'] },
   );
 
@@ -198,8 +212,9 @@ export function Cashflow() {
       for (const date of dueDatesBetween(todayStr, endDateStr, loan.due_day)) {
         if (owed <= 0) break;
         const split = splitPayment(owed, terms);
+        const insurance = Math.round(owed * (insuranceState.data?.get(loan.id) ?? 0));
         owed -= split.principal;
-        const out = payAcct ? -(split.principal + split.interest) : 0;
+        const out = payAcct ? -(split.principal + split.interest + insurance) : 0;
         const amount = out + (loanCounted ? split.principal : 0);
         if (amount === 0) continue;
         events.push({
@@ -223,7 +238,7 @@ export function Cashflow() {
     }
 
     return entries;
-  }, [accounts, nonCreditAccounts, balanceMap, rules, ccStatements, futureTxns, horizon, defaultCurrency, fxRates, rruleLib]);
+  }, [accounts, nonCreditAccounts, balanceMap, rules, ccStatements, futureTxns, horizon, defaultCurrency, fxRates, rruleLib, insuranceState.data]);
 
   // What the forecast leaves out, so its "Today" figure can be squared with the
   // Dashboard total: cards whose bills can't be projected, and uncounted accounts.
