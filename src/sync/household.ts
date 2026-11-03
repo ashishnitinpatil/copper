@@ -39,8 +39,9 @@ import { SYNC_KEYS } from './syncKeys';
 export { SYNC_KEYS };
 
 /**
- * A merge of this many cells or more holds the app behind the setup screen
- * (one entry is ~20 cells with its audit row, so roughly 100 entries).
+ * A first sync merging this many cells or more is marked as under way, so the
+ * setup screen still holds the app if it's cut short (one entry is ~20 cells
+ * with its audit row, so roughly 100 entries).
  */
 export const BIG_MERGE_CELLS = 2000;
 
@@ -60,9 +61,10 @@ export interface SyncResult {
 // during a big first pull.
 export interface SyncProgress {
   /** Downloading the book (bytes), getting it ready (unpacking and comparing
-   *  with this device; no count), merging (cells), then sending this device's
-   *  changes back up (no count). */
-  stage: 'download' | 'prepare' | 'apply' | 'upload';
+   *  with this device; no count), merging (cells), finishing (checking what
+   *  this device has that the book lacks; no count), then sending this
+   *  device's changes back up (no count). */
+  stage: 'download' | 'prepare' | 'apply' | 'finish' | 'upload';
   done: number;
   total: number;
 }
@@ -389,9 +391,15 @@ export async function syncNow(
       await assertKnownColumns(db, diff.toApply);
       const total = diff.toApply.length;
       onProgress?.({ stage: 'apply', done: 0, total });
-      if (total >= BIG_MERGE_CELLS) await setSetting(db, SYNC_KEYS.MERGE_PENDING, '1');
+      // Only a first sync holds the app (see SyncSetupScreen); a device that's
+      // just behind catches up in the background, still usable.
+      const firstSync = !(await getSetting(db, SYNC_KEYS.LAST_SYNC_AT));
+      if (firstSync && total >= BIG_MERGE_CELLS) await setSetting(db, SYNC_KEYS.MERGE_PENDING, '1');
       const beforeApply = await getLocalDbVersion(db);
-      pulled += await applyRemoteChanges(db, diff.toApply, (done) => onProgress?.({ stage: 'apply', done, total }));
+      pulled += await applyRemoteChanges(db, diff.toApply, (done) => onProgress?.({ stage: 'apply', done, total }), {
+        bulk: firstSync,
+      });
+      onProgress?.({ stage: 'finish', done: 0, total: 0 });
       // Cleared whatever this merge's size: one resumed after being cut short
       // can be under the threshold.
       await setSetting(db, SYNC_KEYS.MERGE_PENDING, '');

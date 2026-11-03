@@ -146,9 +146,12 @@ export async function applyRemoteChanges(
   db: DB,
   rows: ChangeRow[],
   onProgress?: (applied: number) => void,
+  // Dropping the indexes slows every query until they're back, so only while
+  // nothing else reads the book (a first sync, behind the setup screen).
+  { bulk = true }: { bulk?: boolean } = {},
 ): Promise<number> {
   if (rows.length === 0) return 0;
-  if (rows.length < BULK_APPLY_ROWS) return applyInBatches(db, rows, onProgress);
+  if (!bulk || rows.length < BULK_APPLY_ROWS) return applyInBatches(db, rows, onProgress);
   // If the page dies before the rebuild, ensureIndexes() restores them at the
   // next start-up.
   const indexes = await dropAppIndexes(db);

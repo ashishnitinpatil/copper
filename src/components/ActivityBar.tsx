@@ -54,6 +54,7 @@ const STEP: Record<SyncProgress['stage'], string> = {
   download: 'Downloading',
   prepare: 'Comparing',
   apply: 'Merging',
+  finish: 'Finishing',
   upload: 'Uploading',
 };
 
