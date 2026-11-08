@@ -97,6 +97,29 @@ test.describe('Quick Entry', () => {
     await expect(page.getByText('✓ Food & Dining  ₹155.00')).toBeVisible();
   });
 
+  test('categories go A–Z, or most used first, and the choice is remembered', async ({ page }) => {
+    const tiles = page
+      .getByRole('radiogroup', { name: 'Order categories' })
+      .locator('xpath=following-sibling::div[1]')
+      .getByRole('button');
+    const names = async () => (await tiles.allTextContents()).map((t) => t.replace(/^[^A-Za-z]+/, '').trim());
+    const az = await names();
+    expect(az).toEqual([...az].sort((a, b) => a.localeCompare(b)));
+
+    for (let i = 0; i < 2; i++) {
+      await page.getByRole('button', { name: '5', exact: true }).click();
+      await page.getByRole('button', { name: /Transport/ }).click();
+      await expect(page.getByText(/✓ Transport/)).toBeVisible();
+    }
+    await page.getByRole('radio', { name: 'Most used' }).click();
+    expect((await names())[0]).toBe('Transport');
+
+    await page.reload();
+    await waitForDB(page);
+    await expect(page.getByRole('radio', { name: 'Most used' })).toHaveAttribute('aria-checked', 'true');
+    await expect(tiles.first()).toContainText('Transport');
+  });
+
   test('backspace removes last digit', async ({ page }) => {
     await page.getByRole('button', { name: '1', exact: true }).click();
     await page.getByRole('button', { name: '2', exact: true }).click();

@@ -10,7 +10,7 @@ import { AccountGlyph, accountOptions, useAccountBalances } from '@/components/a
 import { useDB } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
 import { listAccounts } from '@/db/queries/accounts';
-import { listCategories } from '@/db/queries/categories';
+import { categoryUsage, listCategories } from '@/db/queries/categories';
 import { createTransaction, createTransfer, deleteTransaction } from '@/db/queries/transactions';
 import { suggestNotes } from '@/lib/noteSuggestions';
 import { fuzzyScore } from '@/lib/fuzzy';
@@ -22,7 +22,7 @@ import { listTags, setTransactionTags } from '@/db/queries/tags';
 import { TagPicker } from '@/components/ui/TagPicker';
 import type { Account, Category, CategoryKind, Tag } from '@/db/types';
 import { formatMoney, fromMinor, getCurrency, parseAmount } from '@/lib/money';
-import { toDateString } from '@/lib/dates';
+import { addDays, toDateString } from '@/lib/dates';
 import { FREQUENCY_OPTIONS, ruleStarting } from '@/features/recurring/frequencies';
 import { useAppSettings, useConvert, useDefaultCurrency } from './AppSettingsProvider';
 import { describeSource } from '@/components/ConvertedMark';
@@ -34,6 +34,19 @@ interface Saved {
   label: string;
   txId: string | null;
   ruleId: string | null;
+}
+
+type CategoryOrder = 'az' | 'used';
+const CATEGORY_ORDER_KEY = 'copper-category-order';
+// "Most used" counts the last half year, so old habits fade.
+const USAGE_DAYS = 182;
+
+function readCategoryOrder(): CategoryOrder {
+  try {
+    return localStorage.getItem(CATEGORY_ORDER_KEY) === 'used' ? 'used' : 'az';
+  } catch {
+    return 'az';
+  }
 }
 
 export function QuickEntry() {
@@ -81,6 +94,20 @@ export function QuickEntry() {
     useCallback((d) => listCategories(d), []),
     { deps: ['categories'] },
   );
+  // Categories A–Z, or the ones used most lately first; the choice stays on this device.
+  const [order, setOrder] = useState<CategoryOrder>(readCategoryOrder);
+  const chooseOrder = (next: CategoryOrder) => {
+    setOrder(next);
+    try {
+      localStorage.setItem(CATEGORY_ORDER_KEY, next);
+    } catch {
+      // Not remembered (private window, say); still applies now.
+    }
+  };
+  const usageState = useQuery<Map<string, number>>(
+    useCallback((d) => categoryUsage(d, toDateString(addDays(new Date(), -USAGE_DAYS))), []),
+    { deps: ['transactions'] },
+  );
   const tagsState = useQuery<Tag[]>(
     useCallback((d) => listTags(d), []),
     { deps: ['tags'] },
@@ -124,10 +151,19 @@ export function QuickEntry() {
   const options = useMemo(() => accountOptions(accounts, balances, 'md'), [accounts, balances]);
 
   const topLevel = useMemo(() => allCategories.filter((c) => !c.parent_id), [allCategories]);
-  const filteredCategories = useMemo(
-    () => topLevel.filter((c) => c.kind === mode),
-    [topLevel, mode],
-  );
+  const filteredCategories = useMemo(() => {
+    const byName = (a: Category, b: Category) => a.name.localeCompare(b.name);
+    const shown = topLevel.filter((c) => c.kind === mode).sort(byName);
+    if (order === 'az') return shown;
+    // A subcategory's entries count towards the tile it sits under.
+    const parentOf = new Map(allCategories.map((c) => [c.id, c.parent_id ?? c.id]));
+    const uses = new Map<string, number>();
+    for (const [id, n] of usageState.data ?? []) {
+      const top = parentOf.get(id) ?? id;
+      uses.set(top, (uses.get(top) ?? 0) + n);
+    }
+    return shown.sort((a, b) => (uses.get(b.id) ?? 0) - (uses.get(a.id) ?? 0) || byName(a, b));
+  }, [topLevel, allCategories, mode, order, usageState.data]);
   const searched = useMemo(() => {
     const q = search.trim();
     if (!q) return filteredCategories;
@@ -342,6 +378,28 @@ export function QuickEntry() {
         No {mode} categories yet. Add some on the Categories page.
       </div>
     ) : (
+      <>
+      <div role="radiogroup" aria-label="Order categories" className="flex justify-end gap-1 text-xs">
+        {(
+          [
+            ['az', 'A–Z'],
+            ['used', 'Most used'],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={order === value}
+            onClick={() => chooseOrder(value)}
+            className={`rounded-full px-2.5 py-1 font-medium ${
+              order === value ? 'bg-brand-500/15 text-brand-300' : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className={grid}>
         {shown.length === 0 && (
           <div className="col-span-full rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-500">
@@ -394,6 +452,7 @@ export function QuickEntry() {
             <div key={`reserve-${i}`} aria-hidden className="aspect-square" />
           ))}
       </div>
+      </>
     );
   };
 

@@ -24,6 +24,17 @@ export async function listCategories(db: DB, includeArchived = false): Promise<C
   return db.execO<Category>(sql);
 }
 
+/** How many entries each category has had since `since` (YYYY-MM-DD). */
+export async function categoryUsage(db: DB, since: string): Promise<Map<string, number>> {
+  const rows = await db.execA<[string, number]>(
+    `SELECT category_id, count(*) FROM transactions
+     WHERE category_id IS NOT NULL AND occurred_on >= ?
+     GROUP BY category_id`,
+    [since],
+  );
+  return new Map(rows);
+}
+
 export function getDescendantIds(categories: Category[], id: string): Set<string> {
   const childrenBy = new Map<string, string[]>();
   for (const c of categories) {
