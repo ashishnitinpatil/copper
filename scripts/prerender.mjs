@@ -6,7 +6,7 @@
 // dist/index.html doubles as the fallback for every app route (/dashboard …),
 // so an inline script hides the pre-rendered landing page there, and for
 // returning users (who are sent straight to their dashboard).
-import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { preview } from 'vite';
 import { chromium } from '@playwright/test';
@@ -22,8 +22,19 @@ const PAGES = [
 // has finished onboarding on this device.
 const HIDE_SCRIPT = `<script>try{if(location.pathname!=='/'||localStorage.getItem('copper-returning'))document.documentElement.classList.add('spa-route')}catch(e){}</script><style>.spa-route [data-prerendered]{display:none}</style>`;
 
-const template = await readFile('dist/index.html', 'utf8');
+let template = await readFile('dist/index.html', 'utf8');
 if (template.includes('data-prerendered')) throw new Error('dist/index.html is already pre-rendered — run vite build first.');
+
+// The fonts the first screen uses, fetched with the page rather than once the
+// stylesheet asks for them — otherwise the text paints in a fallback font and
+// re-flows as each one arrives.
+const FIRST_SCREEN_FONTS = ['fraunces-latin-wght', 'hanken-grotesk-latin-wght', 'jetbrains-mono-latin-wght'];
+const fonts = (await readdir('dist/assets')).filter((f) => FIRST_SCREEN_FONTS.some((n) => f.startsWith(`${n}-normal-`)));
+if (fonts.length !== FIRST_SCREEN_FONTS.length) throw new Error(`Expected ${FIRST_SCREEN_FONTS.length} fonts to preload, found ${fonts}`);
+template = template.replace(
+  '</head>',
+  `${fonts.map((f) => `<link rel="preload" href="/assets/${f}" as="font" type="font/woff2" crossorigin>`).join('')}</head>`,
+);
 
 const server = await preview({ preview: { port: 4179, strictPort: true }, logLevel: 'warn' });
 const browser = await chromium.launch();

@@ -124,6 +124,15 @@ function returning(): boolean {
   }
 }
 
+/** Opens a screenshot on its own, where it can be zoomed (they're shot at 2×). */
+function FullSize({ src, children }: { src: string; children: React.ReactNode }) {
+  return (
+    <a href={src} target="_blank" rel="noopener" title="See full size" className="cursor-zoom-in">
+      {children}
+    </a>
+  );
+}
+
 export function Landing() {
   if (returning()) return <Navigate to="/dashboard" replace />;
 
@@ -135,7 +144,7 @@ export function Landing() {
           aria-hidden
           className="pointer-events-none absolute left-1/2 top-24 h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(213,138,79,0.30),rgba(213,138,79,0)_62%)] blur-md"
         />
-        <div className="page-enter relative mx-auto flex max-w-2xl flex-col items-center">
+        <div className="relative mx-auto flex max-w-2xl flex-col items-center">
           <img
             src="/icon.svg"
             alt="The Copper mark: a copper coin overlapping an open ring"
@@ -170,21 +179,26 @@ export function Landing() {
           and a phone (made-up data; scripts/screenshots.mjs) ── */}
       <section className="relative z-10 -mt-24 px-6 sm:-mt-36" aria-label="Copper on a laptop and a phone">
         <div className="relative mx-auto max-w-5xl pb-10 sm:pb-16">
-          <img
-            src="/screens/dashboard.webp"
-            alt="Copper's dashboard: a total balance of $25,747, and this month's spending by category as a donut chart and bars"
-            width={2560}
-            height={1600}
-            className="w-full rounded-xl border border-[#E7C9A8]/30 shadow-[0_30px_80px_-20px_rgba(20,13,9,0.55)] sm:w-[88%] sm:rounded-2xl"
-          />
-          <img
-            src="/screens/add-phone.webp"
-            alt="Adding an expense on a phone: $18.50, with the categories to choose from"
-            width={780}
-            height={1688}
-            className="absolute bottom-0 right-0 w-[34%] max-w-[260px] rounded-[1.4rem] border-[5px] border-[#1c1410] shadow-[0_24px_60px_-12px_rgba(20,13,9,0.6)] sm:rounded-[2rem] sm:border-[7px]"
-          />
+          <FullSize src="/screens/dashboard.webp">
+            <img
+              src="/screens/dashboard.webp"
+              alt="Copper's dashboard: a total balance of $25,747, and this month's spending by category as a donut chart and bars"
+              width={2560}
+              height={1600}
+              className="w-full rounded-xl border border-[#E7C9A8]/30 shadow-[0_30px_80px_-20px_rgba(20,13,9,0.55)] sm:w-[88%] sm:rounded-2xl"
+            />
+          </FullSize>
+          <FullSize src="/screens/add-phone.webp">
+            <img
+              src="/screens/add-phone.webp"
+              alt="Adding an expense on a phone: $18.50 typed on the keypad, with its account, date and a note"
+              width={780}
+              height={1688}
+              className="absolute bottom-0 right-0 w-[34%] max-w-[260px] rounded-[1.4rem] border-[5px] border-[#1c1410] shadow-[0_24px_60px_-12px_rgba(20,13,9,0.6)] sm:rounded-[2rem] sm:border-[7px]"
+            />
+          </FullSize>
         </div>
+        <p className="-mt-4 pb-6 text-center text-xs text-[#9A8674] sm:-mt-8">Tap a screenshot to see it full size.</p>
       </section>
 
       {/* ── Features ── a ledger of what Copper actually does ── */}
@@ -228,14 +242,16 @@ export function Landing() {
         <div className="grid gap-10 sm:grid-cols-2 sm:gap-8">
           {SHOTS.map((s) => (
             <figure key={s.src}>
-              <img
-                src={s.src}
-                alt={s.alt}
-                width={2560}
-                height={1600}
-                loading="lazy"
-                className="w-full rounded-xl border border-[#EBDFD1] shadow-[0_18px_40px_-18px_rgba(51,36,26,0.35)]"
-              />
+              <FullSize src={s.src}>
+                <img
+                  src={s.src}
+                  alt={s.alt}
+                  width={2560}
+                  height={1600}
+                  loading="lazy"
+                  className="w-full rounded-xl border border-[#EBDFD1] shadow-[0_18px_40px_-18px_rgba(51,36,26,0.35)]"
+                />
+              </FullSize>
               <figcaption className="mt-4">
                 <span className="font-display text-lg font-semibold text-[#2A1B12]">{s.title}</span>
                 <span className="mt-1 block text-sm leading-relaxed text-[#6B5A49]">{s.desc}</span>

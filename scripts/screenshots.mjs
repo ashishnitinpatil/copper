@@ -136,13 +136,13 @@ try {
   await shoot(page, 'transactions');
 
   // The same book on a phone (same origin, so the same data): an expense being
-  // added, at the moment its category is chosen.
+  // added — amount, keypad, account, date and note — just before its category.
   const phone = await context.newPage();
   await phone.setViewportSize({ width: 390, height: 844 });
   await open(phone, '/add');
   for (const key of ['1', '8', '.', '5']) await phone.getByRole('button', { name: key, exact: true }).click();
-  await phone.getByLabel('Note', { exact: true }).fill('Lunch');
-  await phone.getByRole('button', { name: 'Choose category' }).click();
+  await phone.getByLabel('Note', { exact: true }).fill('Lunch with Sam');
+  await phone.getByLabel('Note', { exact: true }).blur();
   await phone.mouse.move(0, 0);
   await phone.waitForTimeout(600);
   await shoot(phone, 'add-phone');
