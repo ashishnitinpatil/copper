@@ -158,6 +158,45 @@ export async function getAccountBalances(
   );
 }
 
+/**
+ * An account's balance at the end of each day it has entries, counted like
+ * getAccountBalances (from its starts_on). Days before starts_on are left out.
+ */
+export async function getDailyBalances(db: DB, accountId: string): Promise<Map<string, number>> {
+  const rows = await db.execA<[string, number, number]>(
+    `SELECT t.occurred_on, SUM(t.amount_minor), a.opening_balance_minor
+     FROM transactions t JOIN accounts a ON a.id = t.account_id
+     WHERE t.account_id = ? AND (a.starts_on = '' OR t.occurred_on >= a.starts_on)
+     GROUP BY t.occurred_on
+     ORDER BY t.occurred_on`,
+    [accountId],
+  );
+  const byDay = new Map<string, number>();
+  let running = rows[0]?.[2] ?? 0;
+  for (const [day, sum] of rows) {
+    running += sum;
+    byDay.set(day, running);
+  }
+  return byDay;
+}
+
+/** Money in and out of one account over a range, as a statement totals it (transfers included). */
+export async function getAccountFlows(
+  db: DB,
+  accountId: string,
+  range: { dateFrom?: string; dateTo: string },
+): Promise<{ n: number; out: number; in: number }> {
+  const [[n, out, inflow]] = await db.execA<[number, number, number]>(
+    `SELECT count(*), COALESCE(SUM(CASE WHEN t.amount_minor < 0 THEN -t.amount_minor END), 0),
+            COALESCE(SUM(CASE WHEN t.amount_minor > 0 THEN t.amount_minor END), 0)
+     FROM transactions t JOIN accounts a ON a.id = t.account_id
+     WHERE t.account_id = ? AND (a.starts_on = '' OR t.occurred_on >= a.starts_on)
+       AND t.occurred_on >= ? AND t.occurred_on <= ?`,
+    [accountId, range.dateFrom ?? '', range.dateTo],
+  );
+  return { n, out, in: inflow };
+}
+
 export interface CurrencyTotal {
   currency: string;
   balance_minor: number;

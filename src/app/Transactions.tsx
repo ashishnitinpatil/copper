@@ -14,7 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useDB } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
-import { listAccounts } from '@/db/queries/accounts';
+import { getAccountFlows, getDailyBalances, listAccounts } from '@/db/queries/accounts';
 import { listCategories } from '@/db/queries/categories';
 import {
   bulkDeleteTransactions,
@@ -61,17 +61,33 @@ const PAGE_SIZE = 50;
 /** Scheduled entries all show at once (folded); this only guards against runaway rules. */
 const UPCOMING_LIMIT = 2000;
 
-export function Transactions() {
-  const [filters, setFilters] = useState<{
-    accountId: string;
-    categoryId: string;
-    tagId: string;
-    kind: '' | TransactionKind;
-    dateFrom: string;
-    dateTo: string;
-    search: string;
-  }>({ accountId: '', categoryId: '', tagId: '', kind: '', dateFrom: '', dateTo: '', search: '' });
+type Filters = {
+  accountId: string;
+  categoryId: string;
+  tagId: string;
+  kind: '' | TransactionKind;
+  dateFrom: string;
+  dateTo: string;
+  search: string;
+};
+// Filters live in the address, so they're still set on coming back to the page
+// (after adding an entry, say) and an account card can link straight to its own.
+const FILTER_PARAMS: Record<keyof Filters, string> = {
+  accountId: 'account',
+  categoryId: 'category',
+  tagId: 'tag',
+  kind: 'type',
+  dateFrom: 'from',
+  dateTo: 'to',
+  search: 'q',
+};
+const NO_FILTERS: Filters = { accountId: '', categoryId: '', tagId: '', kind: '', dateFrom: '', dateTo: '', search: '' };
+const filtersFrom = (params: URLSearchParams): Filters =>
+  Object.fromEntries(
+    Object.entries(FILTER_PARAMS).map(([key, param]) => [key, params.get(param) ?? '']),
+  ) as Filters;
 
+export function Transactions() {
   const [editing, setEditing] = useState<TransactionWithMeta | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
   // Phones only: the filters fill the first screen, so they start folded away.
@@ -84,6 +100,24 @@ export function Transactions() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get('view') === 'recurring' ? 'recurring' : 'all';
+  const filters = useMemo(() => filtersFrom(searchParams), [searchParams]);
+  // Replaces the page's history entry: changing a filter isn't a step to go back through.
+  const setFilters = useCallback(
+    (next: Filters | ((f: Filters) => Filters)) =>
+      setSearchParams(
+        (params) => {
+          const value = typeof next === 'function' ? next(filtersFrom(params)) : next;
+          const out = new URLSearchParams();
+          for (const [key, param] of Object.entries(FILTER_PARAMS)) {
+            const v = value[key as keyof Filters];
+            if (v) out.set(param, v);
+          }
+          return out;
+        },
+        { replace: true },
+      ),
+    [setSearchParams],
+  );
   const db = useDB();
   const accountsQuery = useQuery(useCallback((db) => listAccounts(db, false), []), { deps: ['accounts'] });
   const categoriesQuery = useQuery(useCallback((db) => listCategories(db, false), []), {
@@ -262,6 +296,37 @@ export function Transactions() {
   ].filter(Boolean).length;
   // Filtered to an account (or tag) the list holds single transfer legs.
   const bothLegs = !!filters.accountId || !!filters.tagId;
+  // Everything in one account: each day can show the balance it ended on, to
+  // tally against a bank or card statement and find the day it goes off.
+  const tallying =
+    !!filters.accountId && !filters.categoryId && !filters.tagId && !filters.kind && !debouncedSearch.trim();
+  const dailyQuery = useQuery(
+    useCallback(
+      (db: import('@/db/wasm').DB) => (tallying ? getDailyBalances(db, filters.accountId) : Promise.resolve(null)),
+      [tallying, filters.accountId],
+    ),
+    { deps: ['transactions', 'accounts'] },
+  );
+  const dayBalance = (date: string) => dailyQuery.data?.get(date);
+  const flowsQuery = useQuery(
+    useCallback(
+      (db: import('@/db/wasm').DB) =>
+        tallying
+          ? getAccountFlows(db, filters.accountId, {
+              dateFrom: filters.dateFrom || undefined,
+              dateTo: filters.dateTo && filters.dateTo < today ? filters.dateTo : today,
+            })
+          : Promise.resolve(null),
+      [tallying, filters.accountId, filters.dateFrom, filters.dateTo, today],
+    ),
+    { deps: ['transactions', 'accounts'] },
+  );
+  const tallyAccount = tallying ? (accountsQuery.data ?? []).find((a) => a.id === filters.accountId) : undefined;
+  const balanceToday = useMemo(() => {
+    let latest: number | undefined;
+    for (const [day, bal] of dailyQuery.data ?? []) if (day <= today) latest = bal;
+    return latest ?? tallyAccount?.opening_balance_minor;
+  }, [dailyQuery.data, today, tallyAccount]);
   const upcomingCount = upcoming.reduce((n, [, items]) => n + items.length, 0);
 
   // A day's heading and its entries; used for both past and upcoming days.
@@ -275,11 +340,18 @@ export function Transactions() {
       <div key={date}>
         <div className="mb-2 flex items-baseline justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{formatRelativeDate(date)}</h3>
-          {counted.length > 0 && (
-            <span className={`text-xs tabular-nums ${dayTotal < 0 ? 'text-clay-400' : 'text-mint-400'}`}>
-              {formatMoney(dayTotal, counted[0].account_currency, { signed: true })}
-            </span>
-          )}
+          <span className="text-xs tabular-nums">
+            {counted.length > 0 && (
+              <span className={dayTotal < 0 ? 'text-clay-400' : 'text-mint-400'}>
+                {formatMoney(dayTotal, counted[0].account_currency, { signed: true })}
+              </span>
+            )}
+            {dayBalance(date) != null && (
+              <span className="text-slate-400">
+                {' · '}balance {formatMoney(dayBalance(date)!, items[0].account_currency)}
+              </span>
+            )}
+          </span>
         </div>
         <Card className="!p-0">
           <ul className="divide-y divide-slate-800">
@@ -519,9 +591,7 @@ export function Transactions() {
             action={
               <Button
                 variant="secondary"
-                onClick={() =>
-                  setFilters({ accountId: '', categoryId: '', tagId: '', kind: '', dateFrom: '', dateTo: '', search: '' })
-                }
+                onClick={() => setFilters(NO_FILTERS)}
               >
                 Clear filters
               </Button>
@@ -535,7 +605,29 @@ export function Transactions() {
           />
         ))}
 
-      {(activeFilters > 0 || debouncedSearch.trim()) && summary.count > 0 && (
+      {tallyAccount && balanceToday != null && (
+        <div className="space-y-1 text-sm">
+          <p className="text-slate-300">
+            {tallyAccount.name} balance today{' '}
+            <span className="font-semibold tabular-nums text-slate-50">
+              {formatMoney(balanceToday, tallyAccount.currency)}
+            </span>
+            <span className="text-slate-500"> · each day shows the balance it ended on, to check against your statement</span>
+          </p>
+          {flowsQuery.data && flowsQuery.data.n > 0 && (
+            <p className="text-slate-400">
+              {flowsQuery.data.n.toLocaleString()} {flowsQuery.data.n === 1 ? 'entry' : 'entries'}
+              {filters.dateFrom || filters.dateTo ? ' in these dates' : ''}
+              {' · '}
+              <span className="text-clay-400">{formatMoney(flowsQuery.data.out, tallyAccount.currency)} out</span>
+              {' · '}
+              <span className="text-mint-400">{formatMoney(flowsQuery.data.in, tallyAccount.currency)} in</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {!tallying && (activeFilters > 0 || debouncedSearch.trim()) && summary.count > 0 && (
         <p className="text-sm text-slate-400">
           {summary.count.toLocaleString()} {summary.count === 1 ? 'entry' : 'entries'}
           {summary.spent > 0 && (

@@ -97,3 +97,14 @@ export async function expectNoConsoleErrors(page: Page) {
   );
   expect(critical).toEqual([]);
 }
+
+// The app's open database (set in development by openDB).
+export const APP_DB = `async () => window.__copperDb`;
+
+/** Runs SQL on the app's open database and returns the rows as arrays. */
+export async function appSql(page: Page, sql: string, params: unknown[] = []): Promise<unknown[][]> {
+  return page.evaluate(
+    async ([appDb, q, p]) => (await eval(appDb as string)()).execA(q, p),
+    [APP_DB, sql, params] as const,
+  );
+}

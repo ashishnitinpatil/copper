@@ -1,17 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetAndLoad, waitForDB } from './helpers';
+import { APP_DB, resetAndLoad, waitForDB } from './helpers';
 
 // Every change a device makes is something each other device merges at its
 // next sync, and a few thousand of them put up the "catching up" screen. An
 // update or a plain reload makes no change of its own, so neither may write
 // anything to sync.
-
-// The app's own database module, as the page loaded it (the dev server can
-// add a ?t= stamp; importing the bare path would load a second copy).
-const APP_DB = `async () => {
-  const url = performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes('/src/db/client.ts'));
-  return (await import(url)).getOpenDB();
-}`;
 
 /** The database's version: every change made here raises it. */
 async function dbVersion(page: Page): Promise<number> {

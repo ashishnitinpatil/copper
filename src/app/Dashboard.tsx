@@ -245,7 +245,8 @@ export function Dashboard() {
               return (
                 <Link
                   key={a.id}
-                  to="/accounts"
+                  to={`/transactions?account=${a.id}`}
+                  state={{ fromHome: true }}
                   className="flex items-center justify-between gap-3 rounded-lg px-1 py-2.5 transition hover:bg-slate-800/50 sm:border-b sm:border-slate-800/60"
                 >
                   <div className="flex min-w-0 items-center gap-2.5">

@@ -139,6 +139,8 @@ export async function openDB(): Promise<DB> {
       console.error('Failed to add automatic loan payments', err);
     });
     dbInstance = db;
+    // For the browser tests, which check what the app wrote.
+    if (import.meta.env.DEV) (window as { __copperDb?: DB }).__copperDb = db;
     // Tabs that stepped aside for an erase reload now that the book is back.
     tabs?.postMessage({ type: 'ready' } satisfies TabMessage);
     return db;

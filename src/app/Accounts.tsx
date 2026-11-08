@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ACCOUNT_ICON_GROUPS, CATEGORY_ICON_GROUPS, IconPicker } from '@/components/ui/IconPicker';
 import { AccountGlyph, accountOptions, useAccountBalances } from '@/components/accountOptions';
@@ -321,13 +322,19 @@ function AccountCard({ account, balanceMinor, onEdit, showType, paid, onPay }: A
           <LimitUsage owed={Math.max(0, -balanceMinor)} limit={limit} />
         </div>
       )}
-      {isLoan && balanceMinor < 0 && (
-        <div className="-mt-1 px-4 pb-4">
+      <div className="-mt-1 flex items-center gap-3 px-4 pb-4">
+        {isLoan && balanceMinor < 0 && (
           <Button size="sm" variant="secondary" onClick={onPay}>
             Record payment
           </Button>
-        </div>
-      )}
+        )}
+        <Link
+          to={`/transactions?account=${account.id}`}
+          className="text-sm font-medium text-brand-400 hover:text-brand-300"
+        >
+          Transactions →
+        </Link>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   PlusCircle,
@@ -76,6 +76,7 @@ export function AppShell() {
   const { onboarded } = useAppSettings();
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const mainNav = useMainNav();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Lets the pre-rendered landing page stay hidden for people who already use
   // Copper on this device (see scripts/prerender.mjs).
@@ -166,7 +167,10 @@ export function AppShell() {
                       <NavLink
                         key={item.to}
                         to={item.to}
-                        onClick={() => setMoreOpen(false)}
+                        onClick={(e) => {
+                          setMoreOpen(false);
+                          mainNav(e, item.to);
+                        }}
                         className={({ isActive }) =>
                           `flex flex-col items-center gap-1.5 rounded-xl px-3 py-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${
                             isActive ? 'bg-brand-500/15 text-brand-400' : 'text-slate-300 hover:bg-slate-800/60'
@@ -191,7 +195,10 @@ export function AppShell() {
             <li key={item.to}>
               <NavLink
                 to={item.to}
-                onClick={() => setMoreOpen(false)}
+                onClick={(e) => {
+                  setMoreOpen(false);
+                  mainNav(e, item.to);
+                }}
                 className={({ isActive }) =>
                   `flex min-w-[3.25rem] flex-col items-center gap-0.5 rounded-md px-2 py-1 text-[10px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${
                     isActive ? 'text-brand-400' : 'text-slate-400'
@@ -223,11 +230,39 @@ export function AppShell() {
   );
 }
 
+/**
+ * Going between the app's main pages doesn't pile up history (on a phone, Back
+ * would otherwise walk through every page visited before the app closes). From
+ * the Dashboard a page opens on top of it; from any other page it takes that
+ * page's place. So Back goes to the Dashboard, and Back again leaves the app.
+ */
+export function useMainNav() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (e: React.MouseEvent, to: string) => {
+    // A new tab or window (modifier keys, middle click) works as normal.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    if (to === location.pathname && !location.search) return;
+    const fromHome = !!(location.state as { fromHome?: boolean } | null)?.fromHome;
+    if (to === '/dashboard') {
+      if (fromHome) navigate(-1);
+      else navigate(to, { replace: true });
+    } else if (location.pathname === '/dashboard') {
+      navigate(to, { state: { fromHome: true } });
+    } else {
+      navigate(to, { replace: true, state: { fromHome } });
+    }
+  };
+}
+
 function SideLink({ item }: { item: NavItem }) {
+  const mainNav = useMainNav();
   return (
     <li>
       <NavLink
         to={item.to}
+        onClick={(e) => mainNav(e, item.to)}
         className={({ isActive }) => `nav-link flex items-center gap-2 ${isActive ? 'nav-link-active' : ''}`}
       >
         <item.icon className="h-4 w-4" />
