@@ -107,6 +107,11 @@ const QUIET_RETRIES = 3;
 // Coming back to the app checks for a partner's changes, but not more than
 // once a minute: switching tabs back and forth shouldn't sync each time.
 const RETURN_SYNC_GAP_MS = 60_000;
+// A change made here goes up shortly after, so a partner sees it without this
+// device having to leave the app first (which phones often cut short). Each
+// upload is the whole book, so a run of entries shares one every half minute.
+const SAVE_SYNC_DELAY_MS = 5_000;
+const SAVE_SYNC_GAP_MS = 30_000;
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const db = useDB();
@@ -335,6 +340,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [auth.google, onboarded, db]);
+
+  // Unsent changes and nothing running: send them soon. Waits out an error's
+  // backoff, being offline or signed out (those have their own triggers).
+  useEffect(() => {
+    if (!unsynced || status !== 'idle' || !auth.google || !onboarded) return;
+    const wait = Math.max(SAVE_SYNC_DELAY_MS, lastStartedAt.current + SAVE_SYNC_GAP_MS - Date.now());
+    const timer = setTimeout(() => void triggerSyncRef.current('saved'), wait);
+    return () => clearTimeout(timer);
+  }, [unsynced, status, auth.google, onboarded]);
 
   const joinBook = useCallback(
     async (id: string, mode: JoinMode) => {
