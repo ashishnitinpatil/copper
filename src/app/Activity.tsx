@@ -32,7 +32,7 @@ const PAGE_SIZE = 100;
 
 // Sources whose rows are worth listing under the summary line. An import's
 // thousands of rows and a transfer's two legs are fully said by the summary.
-const EXPANDABLE = new Set(['bulk-delete', 'bulk-category', 'tags', 'category-merge', 'account-merge']);
+const EXPANDABLE = new Set(['bulk-add', 'bulk-delete', 'bulk-category', 'tags', 'category-merge', 'account-merge']);
 
 /** Names for ids in the log — archived records included, so old entries still read right. */
 function useLookups(): Lookups | null {

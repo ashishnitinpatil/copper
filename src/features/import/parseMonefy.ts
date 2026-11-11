@@ -43,7 +43,7 @@ export interface ImportPlan {
   warnings: string[];
 }
 
-export function parseCsv(input: string): string[][] {
+export function parseCsv(input: string, delimiter = ','): string[][] {
   const rows: string[][] = [];
   let field = '';
   let row: string[] = [];
@@ -64,7 +64,7 @@ export function parseCsv(input: string): string[][] {
     } else {
       if (c === '"') {
         inQuotes = true;
-      } else if (c === ',') {
+      } else if (c === delimiter) {
         row.push(field);
         field = '';
       } else if (c === '\n' || c === '\r') {

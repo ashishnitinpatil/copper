@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DateField } from '@/components/ui/DateField';
 import { AccountGlyph, accountOptions } from '@/components/accountOptions';
 import { RecurringList } from './Recurring';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, Plus } from 'lucide-react';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
@@ -613,6 +613,10 @@ export function Transactions() {
               {formatMoney(balanceToday, tallyAccount.currency)}
             </span>
             <span className="text-slate-500"> · each day shows the balance it ended on, to check against your statement</span>
+            {' · '}
+            <Link to={`/add/several?account=${tallyAccount.id}`} className="text-brand-400 hover:text-brand-300">
+              Add missing entries
+            </Link>
           </p>
           {flowsQuery.data && flowsQuery.data.n > 0 && (
             <p className="text-slate-400">

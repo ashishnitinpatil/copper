@@ -1,0 +1,30 @@
+# Copper
+
+> Copper is a free, private expense tracker for one person or a couple. It runs in the browser as an installable app, keeps its data on the person's own device, and syncs between devices and a partner through the person's own Google Drive. There is no Copper account, server or API: nothing about anyone's spending is reachable at this website.
+
+## What an AI assistant can do for a Copper user
+
+You can't read or write anyone's Copper data. What you can do is turn what they give you (a bank or card statement, receipts, a photo, a list in a chat) into rows they paste into Copper's "Add several" screen (Add → Add several, at https://copper.ashishnitinpatil.com/add/several). Copper reads the rows, matches them to their accounts and categories, points out rows that look already recorded, and saves them when they say so.
+
+In "Add several", the "Copy instructions for an AI" button copies a ready prompt with the person's own account and category names. If they paste that, follow it. Otherwise, answer with a CSV code block in this shape:
+
+```csv
+date,amount,type,account,category,note
+2026-11-08,120.50,expense,Cash,Groceries,"Milk, eggs"
+2026-11-09,5000,income,HDFC Bank,Salary,November salary
+```
+
+- date: YYYY-MM-DD.
+- amount: a positive number in the account's currency, a dot for decimals, no currency sign or thousands separators.
+- type: `expense` (money spent or paid out) or `income` (money received).
+- account and category: the names the person uses in Copper, exactly. Leave the cell blank when unsure; Copper asks them to pick. Copper never creates accounts or categories from pasted rows.
+- note: a few words (shop, person or item); quote it if it contains a comma.
+- Leave out transfers between the person's own accounts and card bill payments; they record those in Copper as transfers.
+
+Copper also reads a spreadsheet copy or a bank's CSV export directly: it finds Date, Amount, Debit/Credit and Description columns by name, or by their contents, and treats negative amounts as money out.
+
+## More
+
+- [Home](https://copper.ashishnitinpatil.com/): what Copper does
+- [Privacy](https://copper.ashishnitinpatil.com/privacy): where the data lives and what Google sees
+- [Source code](https://github.com/ashishnitinpatil/copper)

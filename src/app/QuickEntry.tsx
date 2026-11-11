@@ -472,13 +472,22 @@ export function QuickEntry() {
           : 'Note what you spent or earned'
       }
       actions={
-        <button
-          type="button"
-          onClick={() => navigate('/transactions')}
-          className="text-sm text-slate-400 hover:text-slate-50"
-        >
-          View all →
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => navigate('/add/several')}
+            className="text-sm text-slate-400 hover:text-slate-50"
+          >
+            Add several
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/transactions')}
+            className="text-sm text-slate-400 hover:text-slate-50"
+          >
+            View all →
+          </button>
+        </>
       }
     >
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">

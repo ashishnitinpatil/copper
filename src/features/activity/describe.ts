@@ -574,6 +574,8 @@ export function describeGroup(L: Lookups, group: DescribableGroup): Description 
       ].filter(Boolean);
       return { text: `imported ${joinList(parts) || 'data'} from Monefy`, detail: null, changes: [] };
     }
+    case 'bulk-add':
+      return { text: `added ${plural(txs, 'transaction')}`, detail: null, changes: [] };
     case 'bulk-delete':
       return { text: `deleted ${plural(txs, 'transaction')}`, detail: null, changes: [] };
     case 'bulk-category': {

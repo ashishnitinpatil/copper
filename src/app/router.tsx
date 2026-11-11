@@ -3,6 +3,7 @@ import { AppShell } from './AppShell';
 import { Landing } from './Landing';
 import { Dashboard } from './Dashboard';
 import { QuickEntry } from './QuickEntry';
+import { AddSeveral } from './AddSeveral';
 import { Transactions } from './Transactions';
 import { Reports } from './Reports';
 import { Cashflow } from './Cashflow';
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
         children: [
           { path: '/dashboard', element: <Dashboard /> },
           { path: '/add', element: <QuickEntry /> },
+          { path: '/add/several', element: <AddSeveral /> },
           { path: '/transactions', element: <Transactions /> },
           { path: '/reports', element: <Reports /> },
           { path: '/cashflow', element: <Cashflow /> },

@@ -141,6 +141,41 @@ export async function createTransaction(db: DB, input: TransactionInput): Promis
   return id;
 }
 
+/** Entries on these accounts between two dates, to spot a pasted row that's already in. */
+export async function listEntriesBetween(
+  db: DB,
+  accountIds: string[],
+  from: string,
+  to: string,
+): Promise<{ id: string; account_id: string; occurred_on: string; amount_minor: number; note: string | null; category_name: string | null }[]> {
+  if (accountIds.length === 0) return [];
+  return db.execO(
+    `SELECT t.id, t.account_id, t.occurred_on, t.amount_minor, t.note, c.name AS category_name
+     FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.account_id IN (${accountIds.map(() => '?').join(', ')}) AND t.occurred_on BETWEEN ? AND ?`,
+    [...accountIds, from, to],
+  );
+}
+
+/** Add many entries at once, as one change in the Activity log (and one Undo). */
+export async function createTransactions(db: DB, inputs: TransactionInput[]): Promise<string[]> {
+  const ids = inputs.map(() => uuid());
+  const now = nowIso();
+  await db.tx(async (tx) => {
+    for (const [i, input] of inputs.entries()) {
+      const amount = input.kind === 'expense' ? -Math.abs(input.amount_minor) : Math.abs(input.amount_minor);
+      await tx.exec(
+        `INSERT INTO transactions (id, account_id, category_id, amount_minor, kind, occurred_on, note, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [ids[i], input.account_id, input.category_id, amount, input.kind, input.occurred_on ?? toDateString(), input.note ?? null, now],
+      );
+    }
+  });
+  const log = { batchId: ids.length > 1 ? newBatchId() : null, source: 'bulk-add' };
+  for (const id of ids) await logCreate(db, 'transaction', id, log);
+  return ids;
+}
+
 export async function updateTransaction(
   db: DB,
   id: string,
