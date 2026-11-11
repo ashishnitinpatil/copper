@@ -39,4 +39,21 @@ test.describe('Landing', () => {
     await page.goBack();
     await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
   });
+  test('questions are answered on the page, and the guides open without the book', async ({ page }) => {
+    await page.goto('/');
+    const faq = page.getByRole('region', { name: 'Questions people ask' });
+    await faq.getByText('Can my partner and I use it together?').click();
+    await expect(faq.getByText(/each sign in with your own Google account/)).toBeVisible();
+    // The same answers, as search engines read them.
+    const data = JSON.parse((await page.locator('script[type="application/ld+json"]').last().textContent())!);
+    expect(data['@type']).toBe('FAQPage');
+    expect(data.mainEntity.length).toBeGreaterThanOrEqual(5);
+
+    await faq.getByRole('link', { name: 'Copper for couples' }).click();
+    await expect(page).toHaveURL(/\/for-couples$/);
+    await expect(page).toHaveTitle('A shared expense tracker for couples · Copper');
+    await page.getByRole('link', { name: 'Moving from Monefy' }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Moving from Monefy');
+    expect(await page.evaluate(() => indexedDB.databases().then((d) => d.length))).toBe(0);
+  });
 });

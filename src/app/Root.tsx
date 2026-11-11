@@ -6,7 +6,7 @@ import { SyncProvider } from '@/sync/SyncProvider';
 import { AppSettingsProvider } from './AppSettingsProvider';
 
 /** Pages that read nothing from the book. */
-const PUBLIC_PATHS = new Set(['/', '/privacy', '/terms']);
+const PUBLIC_PATHS = new Set(['/', '/privacy', '/terms', '/for-couples', '/from-monefy']);
 
 /**
  * The book and everything built on it. The public pages don't need it, so a

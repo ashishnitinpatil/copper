@@ -50,7 +50,7 @@ const FEATURES: Feature[] = [
   {
     icon: ArrowLeftRight,
     title: 'Bring your history',
-    desc: 'Moving from Monefy? Import a CSV export and your accounts, categories and entries come along.',
+    desc: 'Moving from Monefy? Import its CSV export. Or paste rows from a bank statement, a spreadsheet or an AI chat.',
     tag: 'import',
   },
   {
@@ -91,6 +91,44 @@ const SHARE_STEPS: { title: string; desc: string }[] = [
     desc: 'The other opens the link and picks the book once. From then on, changes merge both ways.',
   },
 ];
+
+// Answers to what people ask before trying Copper. Also given to search
+// engines as an FAQ (see FAQ_DATA). Every answer true to what the code does.
+const FAQ: { q: string; a: string; link?: { to: string; label: string } }[] = [
+  {
+    q: 'Is Copper free?',
+    a: 'Yes. There are no ads, no paid tier and nothing to sign up for.',
+  },
+  {
+    q: 'Where is my data kept?',
+    a: 'On your device, in your browser’s storage. If you turn on sync, a copy is kept in your own Google Drive. Copper has no server that holds anyone’s data.',
+    link: { to: '/privacy', label: 'How your data is handled' },
+  },
+  {
+    q: 'Can my partner and I use it together?',
+    a: 'Yes. You each sign in with your own Google account and share one book through Drive, so entries from either phone show up for both.',
+    link: { to: '/for-couples', label: 'Copper for couples' },
+  },
+  {
+    q: 'Does it work on my phone, and offline?',
+    a: 'Yes. Install it from your browser on a phone or computer and it opens like any other app. It works without a connection and syncs when you’re back online.',
+  },
+  {
+    q: 'Can I bring my data from Monefy or a bank statement?',
+    a: 'Yes. Copper imports Monefy’s CSV export, and you can paste rows from a bank statement or spreadsheet. It points out the ones that are already in, so you only add what’s missing.',
+    link: { to: '/from-monefy', label: 'Moving from Monefy' },
+  },
+  {
+    q: 'Does an AI see my spending?',
+    a: 'No. Copper sends your data nowhere. If you like, you can ask your own AI assistant to turn a statement or receipts into rows, and paste its answer into Copper.',
+  },
+];
+
+const FAQ_DATA = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: FAQ.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+});
 
 function CopperButton({
   to,
@@ -326,6 +364,36 @@ export function Landing() {
         </div>
       </section>
 
+      {/* ── Questions ── what people ask before trying it ── */}
+      <section className="mx-auto max-w-3xl px-6 py-20 sm:py-24" aria-labelledby="faq-heading">
+        <p className="font-mono text-xs uppercase tracking-[0.28em] text-[#B4682F]">Before you start</p>
+        <h2 id="faq-heading" className="mt-3 font-display text-3xl font-semibold leading-tight text-[#2A1B12] sm:text-4xl">
+          Questions people ask
+        </h2>
+        <div className="mt-8 divide-y divide-[#EBDFD1] border-y border-[#EBDFD1]">
+          {FAQ.map((f) => (
+            <details key={f.q} className="group py-4">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-display text-lg font-semibold text-[#2A1B12] [&::-webkit-details-marker]:hidden">
+                {f.q}
+                <span aria-hidden className="text-[#B4682F] transition group-open:rotate-45">+</span>
+              </summary>
+              <p className="mt-2 text-[15px] leading-relaxed text-[#5C4B3B]">
+                {f.a}
+                {f.link && (
+                  <>
+                    {' '}
+                    <Link to={f.link.to} className="font-medium text-[#9E5429] underline underline-offset-2">
+                      {f.link.label}
+                    </Link>
+                  </>
+                )}
+              </p>
+            </details>
+          ))}
+        </div>
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: FAQ_DATA }} />
+      </section>
+
       {/* ── Closing CTA ── bookends the hero ── */}
       <section className="bg-[radial-gradient(120%_130%_at_80%_20%,#2c1d13_0%,#1c1410_60%,#140d09_100%)] px-6 py-20 text-center sm:py-24">
         <h2 className="font-display text-4xl font-semibold text-[#F6EDE3]">
@@ -344,7 +412,9 @@ export function Landing() {
             <img src="/icon.svg" alt="" aria-hidden className="h-4 w-4 opacity-80" />
             Copper — a local-first personal-finance app
           </span>
-          <span className="flex gap-4">
+          <span className="flex flex-wrap justify-center gap-x-4 gap-y-2">
+            <Link to="/for-couples" className="hover:text-[#33241A]">For couples</Link>
+            <Link to="/from-monefy" className="hover:text-[#33241A]">Moving from Monefy</Link>
             <Link to="/privacy" className="hover:text-[#33241A]">Privacy</Link>
             <Link to="/terms" className="hover:text-[#33241A]">Terms</Link>
           </span>

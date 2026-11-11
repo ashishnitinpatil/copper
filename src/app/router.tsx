@@ -19,6 +19,7 @@ import { Welcome } from './Welcome';
 import { WelcomeGate } from './WelcomeGate';
 import { JoinRoute } from './JoinRoute';
 import { Privacy, Terms } from './Legal';
+import { ForCouples, FromMonefy } from './Guides';
 import { Root } from './Root';
 
 export const router = createBrowserRouter([
@@ -40,6 +41,8 @@ export const router = createBrowserRouter([
       { path: '/join/:bookId', element: <JoinRoute /> },
       { path: '/privacy', element: <Privacy /> },
       { path: '/terms', element: <Terms /> },
+      { path: '/for-couples', element: <ForCouples /> },
+      { path: '/from-monefy', element: <FromMonefy /> },
       {
         element: <AppShell />,
         children: [

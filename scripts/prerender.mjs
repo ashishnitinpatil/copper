@@ -1,4 +1,4 @@
-// Pre-renders the public pages (home, privacy, terms) into static HTML after
+// Pre-renders the public pages (home, guides, privacy, terms) into static HTML after
 // `vite build`, so crawlers and Google's OAuth reviewers — which don't run
 // JavaScript — see real content instead of an empty <div id="root">.
 //
@@ -12,10 +12,31 @@ import { preview } from 'vite';
 import { chromium } from '@playwright/test';
 
 const SITE = 'https://copper.ashishnitinpatil.com';
+// Each page's own description: what a search result shows under its title.
 const PAGES = [
   { route: '/', file: 'dist/index.html' },
-  { route: '/privacy', file: 'dist/privacy.html' },
-  { route: '/terms', file: 'dist/terms.html' },
+  {
+    route: '/for-couples',
+    file: 'dist/for-couples.html',
+    description:
+      'A free expense tracker for couples: you and your partner each sign in with your own Google account and keep one shared book, from either phone. No sign-up, no server.',
+  },
+  {
+    route: '/from-monefy',
+    file: 'dist/from-monefy.html',
+    description:
+      'Move from Monefy to Copper: import your Monefy CSV export with its accounts, categories and transfers, check it before saving, then catch up from a bank statement.',
+  },
+  {
+    route: '/privacy',
+    file: 'dist/privacy.html',
+    description: 'How Copper handles your data: it stays on your device and in your own Google Drive. No Copper server, no analytics, no ads.',
+  },
+  {
+    route: '/terms',
+    file: 'dist/terms.html',
+    description: 'The terms for using Copper, a free, local-first expense tracker.',
+  },
 ];
 
 // Runs before first paint. `copper-returning` is set by the app once someone
@@ -39,7 +60,7 @@ template = template.replace(
 const server = await preview({ preview: { port: 4179, strictPort: true }, logLevel: 'warn' });
 const browser = await chromium.launch();
 try {
-  for (const { route, file } of PAGES) {
+  for (const { route, file, description } of PAGES) {
     // A fresh context each time: no onboarding state, so "/" shows the landing page.
     const context = await browser.newContext({ serviceWorkers: 'block' });
     const page = await context.newPage();
@@ -55,9 +76,13 @@ try {
     if (route === '/') {
       html = html.replace('</head>', `${HIDE_SCRIPT}</head>`);
     } else {
+      const shareTitle = title.replace(/ · Copper$/, '');
       html = html
         .replaceAll(`content="${SITE}/"`, `content="${SITE}${route}"`)
-        .replace(`<link rel="canonical" href="${SITE}/"`, `<link rel="canonical" href="${SITE}${route}"`);
+        .replace(`<link rel="canonical" href="${SITE}/"`, `<link rel="canonical" href="${SITE}${route}"`)
+        .replace(/(<meta name="description" content=")[^"]*"/, `$1${description}"`)
+        .replace(/(<meta (?:property|name)="(?:og|twitter):description" content=")[^"]*"/g, `$1${description}"`)
+        .replace(/(<meta (?:property|name)="(?:og|twitter):title" content=")[^"]*"/g, `$1${shareTitle}"`);
     }
     await writeFile(file, html);
     console.log(`prerendered ${route} → ${file} (${Math.round(markup.length / 1024)} KB)`);

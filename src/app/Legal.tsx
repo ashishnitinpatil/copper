@@ -42,7 +42,8 @@ function usePageTitle(title: string) {
 }
 const SITE = 'copper.ashishnitinpatil.com';
 
-function LegalPage({ title, children }: { title: string; children: ReactNode }) {
+/** The shell of Copper's public reading pages: Privacy, Terms and the guides. */
+export function LegalPage({ title, updated = UPDATED, children }: { title: string; updated?: string; children: ReactNode }) {
   usePageTitle(`${title} · Copper`);
   return (
     <main className="min-h-full bg-[#FBF7F2] px-5 py-12 text-[#33241A] sm:py-16">
@@ -52,12 +53,14 @@ function LegalPage({ title, children }: { title: string; children: ReactNode }) 
           Copper
         </Link>
         <h1 className="mt-10 font-display text-4xl font-semibold leading-tight">{title}</h1>
-        <p className="mt-2 font-mono text-xs uppercase tracking-[0.2em] text-[#9A7B5F]">Last updated {UPDATED}</p>
+        <p className="mt-2 font-mono text-xs uppercase tracking-[0.2em] text-[#9A7B5F]">Last updated {updated}</p>
         <div className="mt-8 space-y-8 text-[15px] leading-relaxed text-[#4A3728] [&_a]:font-medium [&_a]:text-[#9E5429] [&_a]:underline [&_a]:underline-offset-2 [&_h2]:mb-2 [&_h2]:font-display [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:text-[#33241A] [&_li]:mt-1.5 [&_p+p]:mt-3 [&_ul+p]:mt-3 [&_ul]:list-disc [&_ul]:pl-5">
           {children}
         </div>
         <footer className="mt-14 flex flex-wrap gap-x-5 gap-y-2 border-t border-[#E7D6C3] pt-6 text-sm text-[#7A6551]">
           <Link to="/" className="hover:text-[#33241A]">Home</Link>
+          <Link to="/for-couples" className="hover:text-[#33241A]">For couples</Link>
+          <Link to="/from-monefy" className="hover:text-[#33241A]">Moving from Monefy</Link>
           <Link to="/privacy" className="hover:text-[#33241A]">Privacy</Link>
           <Link to="/terms" className="hover:text-[#33241A]">Terms</Link>
           <ContactLink className="hover:text-[#33241A]">Contact</ContactLink>
