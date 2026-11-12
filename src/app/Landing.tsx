@@ -1,4 +1,5 @@
 import { Link, Navigate } from 'react-router-dom';
+import { returning } from './Legal';
 import {
   ShieldCheck,
   CloudUpload,
@@ -152,15 +153,6 @@ function CopperButton({
   );
 }
 
-// Set by the app once someone uses Copper on this device (AppShell); read
-// without opening the book, so first-time visitors don't wait for it.
-function returning(): boolean {
-  try {
-    return !!localStorage.getItem('copper-returning');
-  } catch {
-    return false;
-  }
-}
 
 /** Opens a screenshot on its own, where it can be zoomed (they're shot at 2×). */
 function FullSize({ src, children }: { src: string; children: React.ReactNode }) {

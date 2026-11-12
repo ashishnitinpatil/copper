@@ -25,6 +25,7 @@ import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useIsFirstPull } from '@/sync/SyncSetupScreen';
 import { useAppSettings } from './AppSettingsProvider';
 import { Glance } from './Glance';
+import { CardBillsDue } from './CardBills';
 import { NameDevicePrompt } from './NameDevicePrompt';
 import { Glyph } from '@/components/ui/Glyph';
 import { getSavedOrder, useSortedAccounts } from '@/components/accountOrder';
@@ -228,6 +229,7 @@ export function Dashboard() {
       {!firstPull && <NameDevicePrompt />}
       <TotalBalanceCard totals={totalsState.data} />
       <Glance />
+      <CardBillsDue accounts={accounts} />
 
       {/* The first few accounts, in the order picked on the Accounts page
           (most used by default), so the ones in daily use are right here. */}

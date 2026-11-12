@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCreditCardStatements } from './statementEngine';
+import { getCardBills, getCreditCardStatements } from './statementEngine';
 import type { DB } from '@/db/wasm';
 import type { Account } from '@/db/types';
 
@@ -131,5 +131,52 @@ describe('getCreditCardStatements', () => {
     expect(infos.map((i) => i.account.id)).toEqual(['a', 'b']);
     // statement day 1, today June 10 is past it, so card b's cycle ends next month
     expect(infos[1].cycleEnd).toBe('2026-07-01');
+  });
+});
+
+describe('getCardBills', () => {
+  // Answers the bill query with what the card owed at the statement and how
+  // many payments came after it, and notes the dates asked about.
+  function billDB(cards: Account[], owed: number, paid: number, asked: unknown[][] = []): DB {
+    return {
+      execO: async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM accounts')) return cards as unknown[];
+        asked.push(params ?? []);
+        return [{ owed, paid }];
+      },
+    } as unknown as DB;
+  }
+
+  it('a card that owed money at its statement has an unpaid bill until a payment goes in', async () => {
+    const asked: unknown[][] = [];
+    const [bill] = await getCardBills(billDB([card({ statement_day: 3, due_day: 18 })], -500000, 0, asked), '2026-11-12');
+    expect(bill.statementDate).toBe('2026-11-03');
+    expect(bill.dueDate).toBe('2026-11-18');
+    expect(bill.daysUntilDue).toBe(6);
+    expect(bill.paid).toBe(false);
+    // Owed is counted up to the statement; payments after it, up to the due date
+    // (a payment scheduled for it counts).
+    expect(asked[0]).toEqual([0, '2026-11-03', '2020-01-01', '2020-01-01', '2026-11-03', '2026-11-18', 'cc1']);
+
+    const [paid] = await getCardBills(billDB([card({ statement_day: 3, due_day: 18 })], -500000, 1), '2026-11-12');
+    expect(paid.paid).toBe(true);
+  });
+
+  it('no bill when nothing was owed at the statement', async () => {
+    expect(await getCardBills(billDB([card({})], 0, 0), '2026-11-12')).toEqual([]);
+    expect(await getCardBills(billDB([card({})], 2500, 0), '2026-11-12')).toEqual([]);
+  });
+
+  it('a missed due date shows as negative days; no due day, no due date', async () => {
+    const [late] = await getCardBills(billDB([card({ statement_day: 3, due_day: 18 })], -100, 0), '2026-11-20');
+    expect(late.daysUntilDue).toBe(-2);
+    const [undated] = await getCardBills(billDB([card({ statement_day: 3, due_day: null })], -100, 0), '2026-11-20');
+    expect(undated.dueDate).toBeNull();
+    expect(undated.daysUntilDue).toBeNull();
+  });
+
+  it('on the statement day itself, the bill is still the previous one', async () => {
+    const [bill] = await getCardBills(billDB([card({ statement_day: 3, due_day: 18 })], -100, 0), '2026-12-03');
+    expect(bill.statementDate).toBe('2026-11-03');
   });
 });

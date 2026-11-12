@@ -42,16 +42,37 @@ function usePageTitle(title: string) {
 }
 const SITE = 'copper.ashishnitinpatil.com';
 
+// Set by the app once someone uses Copper on this device (AppShell); read
+// without opening the book, so first-time visitors don't wait for it.
+export function returning(): boolean {
+  try {
+    return !!localStorage.getItem('copper-returning');
+  } catch {
+    return false;
+  }
+}
+
 /** The shell of Copper's public reading pages: Privacy, Terms and the guides. */
 export function LegalPage({ title, updated = UPDATED, children }: { title: string; updated?: string; children: ReactNode }) {
   usePageTitle(`${title} · Copper`);
   return (
     <main className="min-h-full bg-[#FBF7F2] px-5 py-12 text-[#33241A] sm:py-16">
       <article className="mx-auto max-w-2xl">
-        <Link to="/" className="inline-flex items-center gap-2 font-display text-lg font-semibold text-[#33241A]">
-          <img src="/icon.svg" alt="" aria-hidden className="h-6 w-6" />
-          Copper
-        </Link>
+        <div className="flex items-center justify-between gap-4">
+          <Link to="/" className="inline-flex items-center gap-2 font-display text-lg font-semibold text-[#33241A]">
+            <img src="/icon.svg" alt="" aria-hidden className="h-6 w-6" />
+            Copper
+          </Link>
+          {/* Someone who already uses Copper here came to read; this takes them back. */}
+          {returning() && (
+            <Link
+              to="/dashboard"
+              className="rounded-full bg-[#33241A] px-4 py-1.5 text-sm font-medium text-[#F6EDE3] transition hover:bg-[#4A3728]"
+            >
+              Open Copper →
+            </Link>
+          )}
+        </div>
         <h1 className="mt-10 font-display text-4xl font-semibold leading-tight">{title}</h1>
         <p className="mt-2 font-mono text-xs uppercase tracking-[0.2em] text-[#9A7B5F]">Last updated {updated}</p>
         <div className="mt-8 space-y-8 text-[15px] leading-relaxed text-[#4A3728] [&_a]:font-medium [&_a]:text-[#9E5429] [&_a]:underline [&_a]:underline-offset-2 [&_h2]:mb-2 [&_h2]:font-display [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:text-[#33241A] [&_li]:mt-1.5 [&_p+p]:mt-3 [&_ul+p]:mt-3 [&_ul]:list-disc [&_ul]:pl-5">

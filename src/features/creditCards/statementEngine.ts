@@ -120,3 +120,53 @@ function getNextDueDate(_: Date, cycleEnd: string, dueDay: number): string {
   }
   return toDateString(dueDate);
 }
+
+export interface CardBill {
+  account: Account;
+  /** The day the latest statement closed. */
+  statementDate: string;
+  /** When that statement's payment is due; null when the card has no due day. */
+  dueDate: string | null;
+  daysUntilDue: number | null;
+  /** A payment (a transfer into the card) is recorded after the statement closed, by its due date. */
+  paid: boolean;
+}
+
+/**
+ * Has each card's latest bill been paid? Deliberately not "how much": with
+ * part of a bill turned into instalments (an EPP), what's due can't be told
+ * from the entries. So a card has a bill when it owed money on the day its
+ * statement closed, and it counts as paid once any transfer goes into it after
+ * that day, up to the due date (one scheduled ahead counts too). Refunds and cashback don't count: they lower what's owed, but the
+ * bank still expects a payment.
+ */
+export async function getCardBills(db: DB, today: string = toDateString()): Promise<CardBill[]> {
+  const todayDate = new Date(today + 'T00:00:00');
+  const cards = await db.execO<Account>(
+    `SELECT * FROM accounts WHERE type = 'credit_card' AND archived_at IS NULL AND statement_day IS NOT NULL
+     ORDER BY name`,
+  );
+  const bills: CardBill[] = [];
+  for (const card of cards) {
+    const statementDate = dayBefore(getCycleDates(todayDate, card.statement_day!).cycleStart);
+    const dueDate = card.due_day ? getNextDueDate(todayDate, statementDate, card.due_day) : null;
+    const payBy = dueDate && dueDate > today ? dueDate : today;
+    const [row] = await db.execO<{ owed: number; paid: number }>(
+      `SELECT ? + COALESCE(SUM(CASE WHEN occurred_on <= ? AND (? = '' OR occurred_on >= ?) THEN amount_minor END), 0) AS owed,
+              COUNT(CASE WHEN kind = 'transfer' AND amount_minor > 0 AND occurred_on > ? AND occurred_on <= ? THEN 1 END) AS paid
+       FROM transactions WHERE account_id = ?`,
+      [card.opening_balance_minor, statementDate, card.starts_on, card.starts_on, statementDate, payBy, card.id],
+    );
+    if (!row || row.owed >= 0) continue;
+    bills.push({
+      account: card,
+      statementDate,
+      dueDate,
+      daysUntilDue: dueDate
+        ? Math.round((new Date(dueDate + 'T00:00:00').getTime() - todayDate.getTime()) / 86400000)
+        : null,
+      paid: row.paid > 0,
+    });
+  }
+  return bills;
+}
