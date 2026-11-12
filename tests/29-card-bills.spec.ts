@@ -80,4 +80,40 @@ test.describe('Card bills', () => {
     await page.getByRole('link', { name: 'Open Copper →' }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
   });
+
+  test('the forecast calendar shows what’s coming by day, card bills included', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-11-12T09:00:00'));
+    await resetAndLoad(page, '/cashflow');
+    const [[cash]] = (await appSql(page, "SELECT id FROM accounts WHERE name = 'Cash'")) as string[][];
+    await appSql(
+      page,
+      `INSERT INTO accounts (id, name, type, currency, opening_balance_minor, statement_day, due_day, starts_on, created_at)
+       VALUES ('card', 'Regalia', 'credit_card', 'INR', -100000, 3, 18, '2026-01-01', '2026-01-01')`,
+    );
+    await appSql(
+      page,
+      "INSERT INTO transactions (id, account_id, amount_minor, kind, occurred_on, note, created_at) VALUES ('rent', ?, -1250000, 'expense', '2026-11-20', 'Rent', '2026-11-12')",
+      [cash],
+    );
+    await page.reload();
+    await waitForDB(page);
+
+    await page.getByRole('button', { name: 'Calendar' }).click();
+    await expect(page.getByRole('region', { name: 'November 2026' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'December 2026' })).toBeVisible();
+    // Opens on the first day with something on it: the card bill.
+    await expect(page.getByText('Regalia bill due')).toBeVisible();
+    await expect(page.getByText('Amount on your statement')).toBeVisible();
+
+    const rentDay = page.getByRole('button', { name: /^(November 20|20 November), 1 item$/ });
+    await expect(rentDay).toContainText('−');
+    await rentDay.click();
+    await expect(page.getByText('Scheduled expense · Rent')).toBeVisible();
+    await expect(page.getByText('Balance after:')).toBeVisible();
+
+    // Remembered on this device.
+    await page.reload();
+    await waitForDB(page);
+    await expect(page.getByRole('button', { name: 'Calendar' })).toHaveAttribute('aria-pressed', 'true');
+  });
 });

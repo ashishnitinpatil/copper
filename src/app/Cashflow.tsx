@@ -35,6 +35,8 @@ import { BalanceTrendChart } from '@/components/charts/BalanceTrendChart';
 import { insuranceShare, loanTerms } from '@/db/queries/loans';
 import { dueDatesBetween, splitPayment } from '@/features/loans/loanMath';
 import { CashflowTrendChart } from '@/components/charts/CashflowTrendChart';
+import { ForecastCalendar } from './ForecastCalendar';
+import { useCardBills } from './CardBills';
 
 type Horizon = 30 | 60 | 90;
 type Mode = 'forecast' | 'trend';
@@ -43,6 +45,22 @@ type TrendWindow = 3 | 6 | 12;
 export function Cashflow() {
   const [mode, setMode] = useState<Mode>('forecast');
   const [horizon, setHorizon] = useState<Horizon>(30);
+  const [view, setView] = useState<'list' | 'calendar'>(() => {
+    try {
+      return localStorage.getItem('copper-forecast-view') === 'calendar' ? 'calendar' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+  const chooseView = (v: 'list' | 'calendar') => {
+    setView(v);
+    try {
+      localStorage.setItem('copper-forecast-view', v);
+    } catch {
+      /* remembered for this visit only */
+    }
+  };
+  const unpaidBills = (useCardBills().data ?? []).filter((b) => !b.paid);
   const { defaultCurrency, fxRates } = useAppSettings();
   // rrule is loaded lazily so the forecast enumerates future occurrences with
   // the exact same engine that materializes them — no calendar drift.
@@ -139,7 +157,7 @@ export function Cashflow() {
 
     entries.push({ date: todayStr, label: 'Today', amount: 0, balance: running });
 
-    const events: { date: string; label: string; amount: number }[] = [];
+    const events: { date: string; label: string; amount: number; cardId?: string }[] = [];
 
     const endDate = addDays(today, horizon);
     if (rruleLib) {
@@ -196,6 +214,7 @@ export function Cashflow() {
           date: stmt.dueDate,
           label: `${stmt.account.name} payment due`,
           amount: -convert(stmt.statementBalance, stmt.account.currency, defaultCurrency, defaultCurrency, fxRates),
+          cardId: stmt.account.id,
         });
       }
     }
@@ -234,6 +253,7 @@ export function Cashflow() {
         label: ev.label,
         amount: ev.amount,
         balance: running,
+        cardId: ev.cardId,
       });
     }
 
@@ -447,14 +467,31 @@ export function Cashflow() {
         />
       ) : (
         <Card>
-          <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-slate-300">
-            {/* Not "balance": the Dashboard total also counts card debt. */}
-            Forecast for the next {horizon} days
-            <ConvertedMark
-              currencies={[...nonCreditAccounts, ...ccStatements.map((st) => st.account)].map((a) => a.currency)}
-              target={defaultCurrency}
-            />
-          </h3>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-300">
+              {/* Not "balance": the Dashboard total also counts card debt. */}
+              Forecast for the next {horizon} days
+              <ConvertedMark
+                currencies={[...nonCreditAccounts, ...ccStatements.map((st) => st.account)].map((a) => a.currency)}
+                target={defaultCurrency}
+              />
+            </h3>
+            <div className="flex gap-1 rounded-lg bg-slate-900 p-0.5" role="group" aria-label="Show as">
+              {(['list', 'calendar'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={view === v}
+                  onClick={() => chooseView(v)}
+                  className={`rounded-md px-3 py-1 text-xs font-medium capitalize transition ${
+                    view === v ? 'bg-slate-700 text-slate-50' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
           {minBalance < 0 && (
             <div className="mb-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
               {forecast[0].balance < 0
@@ -462,7 +499,7 @@ export function Cashflow() {
                 : `Balance goes negative on ${formatHumanDate(forecast.find((f) => f.balance < 0)!.date)}`}
             </div>
           )}
-          {forecast.length === 1 && (
+          {forecast.length === 1 && unpaidBills.length === 0 && (
             <p className="mb-3 text-xs text-slate-500">
               Nothing is scheduled in the next {horizon} days, so your balance stays as it is today.
               Add recurring entries like rent, salary or subscriptions to see them coming.{' '}
@@ -471,6 +508,14 @@ export function Cashflow() {
               </Link>
             </p>
           )}
+          {view === 'calendar' ? (
+            <ForecastCalendar
+              entries={forecast}
+              bills={unpaidBills}
+              currency={defaultCurrency}
+              end={toDateString(addDays(new Date(), horizon))}
+            />
+          ) : (
           <div className="divide-y divide-slate-800">
             {forecast.map((entry, i) => (
               <div key={i} className="flex items-center justify-between py-2">
@@ -499,6 +544,7 @@ export function Cashflow() {
               </div>
             ))}
           </div>
+          )}
         </Card>
       )}
         </>
@@ -639,11 +685,13 @@ export function Cashflow() {
   );
 }
 
-interface ForecastEntry {
+export interface ForecastEntry {
   date: string;
   label: string;
   amount: number;
   balance: number;
+  /** A card bill's payment, so the calendar doesn't show that bill twice. */
+  cardId?: string;
 }
 
 function nameList(accounts: Account[], max = 3): string {
