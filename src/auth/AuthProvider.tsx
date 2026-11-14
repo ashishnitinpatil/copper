@@ -6,6 +6,8 @@ import {
   refreshGoogleToken,
   forgetGoogleSignIn,
   SignInClosed,
+  cancelSignIn,
+  CAN_RENEW_SILENTLY,
 } from './google';
 
 const STORAGE_KEY = 'expense-tracker.auth.identities';
@@ -97,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { google: stored.google };
   });
   const [error, setError] = useState<string | null>(null);
+  const [waiting, setWaiting] = useState(false);
 
   // Persist the full session (identity + token) so a reload within the token's
   // hour-long life reuses it instead of round-tripping to Google. Re-runs when
@@ -116,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInGoogle = useCallback(async () => {
     setError(null);
+    setWaiting(true);
     try {
       // On a reconnect we know which account this is — pin to it so a
       // multi-account browser re-mints against the right one.
@@ -124,6 +128,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       if (e instanceof SignInClosed) return;
       setError(e instanceof Error ? e.message : 'Google sign-in failed');
+    } finally {
+      setWaiting(false);
     }
   }, [state.google?.identity.email, trustDevice]);
 
@@ -177,7 +183,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {/* The sign-in window can't be watched (Google's pages cut the link), so
+          say what's happening and let the person stop waiting. Only with the
+          sign-in helper; Google's own popup reports a closed window itself. */}
+      {waiting && CAN_RENEW_SILENTLY && (
+        <div
+          role="status"
+          className="fixed inset-x-3 bottom-24 z-50 mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 shadow-2xl lg:bottom-8"
+        >
+          <span className="min-w-0 flex-1 text-sm text-slate-200">Finish signing in in the Google window.</span>
+          <button
+            type="button"
+            onClick={cancelSignIn}
+            className="shrink-0 rounded-md px-2.5 py-1 text-sm font-medium text-brand-400 hover:bg-slate-800 hover:text-brand-300"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthContextValue {

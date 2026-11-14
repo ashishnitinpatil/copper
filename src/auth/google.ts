@@ -138,14 +138,28 @@ async function sessionFromToken(token: TokenResponse): Promise<GoogleSession> {
   };
 }
 
-// How long after the app gets focus back, with no result yet, to decide the
-// sign-in window was closed. The success message normally arrives first.
-const POPUP_GONE_MS = 3000;
+// How long after the app gets focus back, with no result yet, to ask the helper
+// whether the sign-in finished elsewhere. The success message normally arrives first.
+const FOCUS_CHECK_MS = 3000;
+// Stop waiting for a sign-in window nobody finishes (the button comes back).
+const GIVE_UP_MS = 10 * 60_000;
+
+let cancelPending: (() => void) | null = null;
+
+/** Stop waiting for the sign-in window (the person chose Cancel). */
+export function cancelSignIn(): void {
+  cancelPending?.();
+}
 
 /**
  * Sign in through the helper: a popup goes to Google's consent screen and
  * back to /api/auth/callback, which sets this device's refresh-token cookie
  * and broadcasts the first access token to this tab.
+ *
+ * Google's pages cut the link to the popup, so its closing can't be seen. So
+ * this waits for the result, or for the person to cancel, rather than guessing
+ * the window is gone: a guess that fired while they were still on Google's
+ * screen lost the sign-in they then finished.
  */
 function signInViaHelper(hint: string | undefined, remember: boolean): Promise<GoogleSession> {
   const params = new URLSearchParams({ remember: remember ? '1' : '0' });
@@ -156,34 +170,70 @@ function signInViaHelper(hint: string | undefined, remember: boolean): Promise<G
       new Error('Your browser blocked the Google sign-in window. Allow pop-ups for this site and try again.'),
     );
   }
+  cancelPending?.(); // an earlier window left open
+  // A fresh sign-in (no account to match): drop any older sign-in kept on this
+  // device, so the check on coming back can't pick up a previous account.
+  if (!hint) void fetch('/api/auth/signout', { method: 'POST' }).catch(() => {});
   return new Promise((resolve, reject) => {
     const channel = new BroadcastChannel('copper-auth');
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let focusTimer: ReturnType<typeof setTimeout> | undefined;
+    let done = false;
     const finish = () => {
+      done = true;
       channel.close();
-      clearTimeout(timer);
+      clearTimeout(focusTimer);
+      clearTimeout(giveUp);
       window.removeEventListener('focus', onFocus);
+      if (cancelPending === cancel) cancelPending = null;
     };
+    const cancel = () => {
+      if (done) return;
+      finish();
+      reject(new SignInClosed());
+    };
+    const giveUp = setTimeout(cancel, GIVE_UP_MS);
+    cancelPending = cancel;
+
+    // Only the account asked for: an old sign-in on this device mustn't stand in for a new one.
+    const isAskedFor = (session: GoogleSession) =>
+      !hint || session.identity.email?.toLowerCase() === hint.toLowerCase();
+    const accept = (session: GoogleSession) => {
+      if (!isAskedFor(session)) {
+        throw new Error(`That signed in as ${session.identity.email}, not ${hint}. Sign in again with ${hint}.`);
+      }
+      return session;
+    };
+
     channel.onmessage = (e: MessageEvent<TokenResponse & { error?: string }>) => {
+      if (done) return;
       finish();
       if (e.data.error) {
         reject(e.data.error === 'cancelled' ? new SignInClosed() : new Error(e.data.error));
       } else {
-        sessionFromToken(e.data).then(resolve, reject);
+        sessionFromToken(e.data).then(accept).then(resolve, reject);
       }
     };
-    // Google's pages cut the link to the popup, so its closing can't be seen
-    // directly. When the app gets focus back with no result, ask the helper:
-    // on phones the "popup" is a browser tab that may have finished without
-    // reaching this tab, but its cookie is set either way.
+    // On phones the "popup" is a browser tab that may finish without its
+    // message reaching this tab; the helper's cookie is set either way. So on
+    // coming back, ask the helper. Nothing there yet: keep waiting.
     const onFocus = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        finish();
+      clearTimeout(focusTimer);
+      focusTimer = setTimeout(() => {
+        if (done) return;
         helperToken(remember)
-          .then((token) => (token ? sessionFromToken(token) : Promise.reject(new SignInClosed())))
-          .then(resolve, reject);
-      }, POPUP_GONE_MS);
+          .then(async (token) => {
+            if (!token || done) return;
+            const session = await sessionFromToken(token);
+            if (done || !isAskedFor(session)) return; // not this sign-in yet: keep waiting
+            finish();
+            resolve(session);
+          })
+          .catch((e) => {
+            if (done) return;
+            finish();
+            reject(e);
+          });
+      }, FOCUS_CHECK_MS);
     };
     window.addEventListener('focus', onFocus);
   });
