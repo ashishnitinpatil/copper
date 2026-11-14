@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { preloadPages } from './pages';
+import { useDB } from '@/db/DBProvider';
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -74,6 +76,7 @@ const MOBILE_MORE = [
 
 export function AppShell() {
   const { onboarded } = useAppSettings();
+  const db = useDB();
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
   const mainNav = useMainNav();
@@ -82,12 +85,13 @@ export function AppShell() {
   // Copper on this device (see scripts/prerender.mjs).
   useEffect(() => {
     if (!onboarded) return;
+    preloadPages(db);
     try {
       localStorage.setItem('copper-returning', '1');
     } catch {
       /* storage blocked — the landing page may flash briefly, nothing worse */
     }
-  }, [onboarded]);
+  }, [onboarded, db]);
   if (!onboarded) return <Navigate to="/welcome" replace />;
 
   const moreActive = MOBILE_MORE.some((g) => g.items.some((i) => location.pathname.startsWith(i.to)));

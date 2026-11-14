@@ -34,7 +34,7 @@ export function AccountGlyph({
 export function useAccountBalances(): Map<string, number> {
   const state = useQuery(
     useCallback((d) => getAccountBalances(d), []),
-    { deps: ['accounts', 'transactions'] },
+    { deps: ['accounts', 'transactions'], cacheKey: 'account-balances' },
   );
   return useMemo(
     () => new Map((state.data ?? []).map((b) => [b.account_id, b.balance_minor])),

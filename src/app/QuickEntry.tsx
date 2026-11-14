@@ -8,10 +8,11 @@ import { DateField, friendlyDate } from '@/components/ui/DateField';
 import { Button } from '@/components/ui/Button';
 import { AccountGlyph, accountOptions, useAccountBalances } from '@/components/accountOptions';
 import { useDB } from '@/db/DBProvider';
-import { useQuery } from '@/db/useQuery';
-import { listAccounts } from '@/db/queries/accounts';
+import { prefetchQuery, useQuery } from '@/db/useQuery';
+import type { DB } from '@/db/wasm';
+import { getAccountBalances, listAccounts } from '@/db/queries/accounts';
 import { categoryUsage, listCategories } from '@/db/queries/categories';
-import { createTransaction, createTransfer, deleteTransaction } from '@/db/queries/transactions';
+import { createTransaction, createTransfer, deleteTransaction, listPastNotes } from '@/db/queries/transactions';
 import { suggestNotes } from '@/lib/noteSuggestions';
 import { fuzzyScore } from '@/lib/fuzzy';
 import { evaluate, hasOperator, isOperator } from '@/lib/calc';
@@ -40,6 +41,22 @@ type CategoryOrder = 'az' | 'used';
 const CATEGORY_ORDER_KEY = 'copper-category-order';
 // "Most used" counts the last half year, so old habits fade.
 const USAGE_DAYS = 182;
+
+const usageSince = () => toDateString(addDays(new Date(), -USAGE_DAYS));
+
+/**
+ * Read what this page shows into the query cache (same keys as below), so the
+ * first visit after opening the app finds its lists ready. Run in the background
+ * once the app is up: Add is the page people open most.
+ */
+export function warmAddPage(db: DB) {
+  prefetchQuery(db, 'accounts', (d) => listAccounts(d));
+  prefetchQuery(db, 'account-balances', (d) => getAccountBalances(d));
+  prefetchQuery(db, 'categories', (d) => listCategories(d));
+  prefetchQuery(db, 'category-usage', (d) => categoryUsage(d, usageSince()));
+  prefetchQuery(db, 'tags', (d) => listTags(d));
+  prefetchQuery(db, 'past-notes:expense', (d) => listPastNotes(d, 'expense'));
+}
 
 function readCategoryOrder(): CategoryOrder {
   try {
@@ -88,11 +105,14 @@ export function QuickEntry() {
 
   const accountsState = useQuery<Account[]>(
     useCallback((d) => listAccounts(d), []),
-    { deps: ['accounts'] },
+    // Remembered across visits (and shared with the Dashboard), so the page
+    // opens with its lists in place; each still refreshes, and re-runs on any
+    // change, sync included.
+    { deps: ['accounts'], cacheKey: 'accounts' },
   );
   const categoriesState = useQuery<Category[]>(
     useCallback((d) => listCategories(d), []),
-    { deps: ['categories'] },
+    { deps: ['categories'], cacheKey: 'categories' },
   );
   // Categories A–Z, or the ones used most lately first; the choice stays on this device.
   const [order, setOrder] = useState<CategoryOrder>(readCategoryOrder);
@@ -105,12 +125,12 @@ export function QuickEntry() {
     }
   };
   const usageState = useQuery<Map<string, number>>(
-    useCallback((d) => categoryUsage(d, toDateString(addDays(new Date(), -USAGE_DAYS))), []),
-    { deps: ['transactions'] },
+    useCallback((d) => categoryUsage(d, usageSince()), []),
+    { deps: ['transactions'], cacheKey: 'category-usage' },
   );
   const tagsState = useQuery<Tag[]>(
     useCallback((d) => listTags(d), []),
-    { deps: ['tags'] },
+    { deps: ['tags'], cacheKey: 'tags' },
   );
   const pastNotes = usePastNotes(mode);
   const noteSuggestions = useMemo(() => suggestNotes(pastNotes.data ?? [], note), [pastNotes.data, note]);

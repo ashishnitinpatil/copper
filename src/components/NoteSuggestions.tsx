@@ -12,7 +12,7 @@ import type { TransactionKind } from '@/db/types';
 export function usePastNotes(kind: TransactionKind, active = true) {
   return useQuery<PastNote[]>(
     useCallback((d) => (active ? listPastNotes(d, kind) : Promise.resolve([])), [kind, active]),
-    { deps: ['transactions'] },
+    { deps: ['transactions'], cacheKey: active ? `past-notes:${kind}` : undefined },
   );
 }
 

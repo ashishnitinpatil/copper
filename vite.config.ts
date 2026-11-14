@@ -45,7 +45,9 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         navigateFallback: '/index.html',
         // The sign-in popup's /api/auth/* pages come from the Worker, never the app shell.
-        navigateFallbackDenylist: [/^\/api\//],
+        // Files opened directly (sitemap.xml, llms.txt, a full-size screenshot)
+        // come from the host too, not the app's "not found" page.
+        navigateFallbackDenylist: [/^\/api\//, /\/[^/?]+\.[a-z0-9]+(\?.*)?$/i],
         cleanupOutdatedCaches: true,
       },
       devOptions: {

@@ -22,6 +22,19 @@ interface QueryOptions {
 
 const lastResults = new Map<string, unknown>();
 
+/**
+ * Fill a cacheKey ahead of time, so the page that uses it opens with its data
+ * in place. That page still refreshes it as usual when it mounts.
+ */
+export function prefetchQuery<T>(db: DB, cacheKey: string, loader: Loader<T>): void {
+  if (lastResults.has(cacheKey)) return;
+  void loader(db)
+    .then((data) => {
+      if (!lastResults.has(cacheKey)) lastResults.set(cacheKey, data);
+    })
+    .catch(() => {});
+}
+
 // How many queries are loading right now, app-wide, so the shell can show that
 // a page is still working rather than leave it blank (see ActivityBar).
 let pending = 0;

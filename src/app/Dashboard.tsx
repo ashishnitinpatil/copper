@@ -143,11 +143,11 @@ export function Dashboard() {
 
   const accountsState = useQuery<Account[]>(
     useCallback((d) => listAccounts(d), []),
-    { deps: ['accounts'], cacheKey: 'dashboard:accounts' },
+    { deps: ['accounts'], cacheKey: 'accounts' },
   );
   const balancesState = useQuery<AccountBalance[]>(
     useCallback((d) => getAccountBalances(d), []),
-    { deps: ['accounts', 'transactions'], cacheKey: 'dashboard:balances' },
+    { deps: ['accounts', 'transactions'], cacheKey: 'account-balances' },
   );
   const totalsState = useQuery<CurrencyTotal[]>(
     useCallback((d) => getTotalsByCurrency(d), []),
