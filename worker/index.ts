@@ -74,7 +74,9 @@ function start(url: URL, env: Env): Response {
     // offline + consent: Google returns a refresh token on every sign-in, not
     // just the first — so a second device of the same person gets one too.
     access_type: 'offline',
-    prompt: 'consent',
+    // A fresh sign-in (no account to match) always shows Google's account
+    // chooser, so "Use another account" really offers one.
+    prompt: url.searchParams.get('hint') ? 'consent' : 'select_account consent',
     include_granted_scopes: 'true',
     state,
   });

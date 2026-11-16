@@ -109,6 +109,14 @@ export function Welcome() {
       setSigningIn(false);
     }
   };
+  // Signed in with the wrong account: sign out and pick again from the start.
+  const useAnotherAccount = () => {
+    auth.signOutGoogle();
+    book.clear();
+    setLookup('idle');
+    setMode('choose');
+  };
+
   // Signing in from the first screen moves on to looking for the book.
   useEffect(() => {
     if (mode === 'choose' && auth.google) setMode('cloud');
@@ -325,9 +333,16 @@ export function Welcome() {
               ) : (
                 <p className="text-sm text-slate-400">Looking for your book in Google Drive…</p>
               )}
-              <div className="flex items-center justify-between pt-2">
-                <span className="truncate text-xs text-slate-500">
-                  {auth.google?.identity.email}
+              <div className="flex items-center justify-between gap-3 pt-2">
+                <span className="min-w-0 text-xs text-slate-500">
+                  <span className="block truncate">{auth.google?.identity.email}</span>
+                  <button
+                    type="button"
+                    className="text-slate-300 underline hover:text-slate-100"
+                    onClick={useAnotherAccount}
+                  >
+                    Use another account
+                  </button>
                 </span>
                 {lookup === 'found' && book.picked && (
                   <Button onClick={startFreshFromBook} disabled={book.peekError}>
@@ -469,7 +484,15 @@ export function Welcome() {
                 <>
                   <p className="text-sm text-slate-300">
                     Signed in as{' '}
-                    <span className="font-medium text-slate-100">{auth.google.identity.email}</span>.
+                    <span className="font-medium text-slate-100">{auth.google.identity.email}</span> (
+                    <button
+                      type="button"
+                      className="underline hover:text-slate-100"
+                      onClick={useAnotherAccount}
+                    >
+                      use another account
+                    </button>
+                    ).
                     {inviteBookId
                       ? ' Open the book your partner invited you to, then confirm it in the Google window.'
                       : ' Choose the book your partner shared (“Copper-Expense-Tracker-shared-book”) to load it onto this device.'}

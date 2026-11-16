@@ -35,7 +35,7 @@ interface TokenResponse {
 }
 
 interface TokenClient {
-  requestAccessToken(options?: { prompt?: '' | 'consent' | 'none' }): void;
+  requestAccessToken(options?: { prompt?: '' | 'consent' | 'none' | 'select_account' }): void;
 }
 
 // How long to wait for a silent (no-popup) token refresh before giving up. GIS
@@ -103,7 +103,8 @@ export async function signInWithGoogle(hint?: string, remember = false): Promise
     });
     // No forced consent: Google skips its screen when access was already
     // granted, and still shows it when something (like Drive) is missing.
-    client.requestAccessToken({ prompt: '' });
+    // A fresh sign-in shows the account chooser, so another account can be picked.
+    client.requestAccessToken({ prompt: hint ? '' : 'select_account' });
   });
 
   return sessionFromToken(token);
