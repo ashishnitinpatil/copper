@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowDownUp, Repeat } from 'lucide-react';
 import { PageShell } from './PageShell';
@@ -351,8 +351,9 @@ export function QuickEntry() {
   }, []);
 
   // Typing works without the keypad on a computer: digits, Backspace, Escape to
-  // clear, and Enter to finish a transfer.
-  useEffect(() => {
+  // clear, and Enter to finish a transfer. Attached before the page is painted,
+  // so a key pressed the moment it appears isn't lost.
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target as HTMLElement | null;

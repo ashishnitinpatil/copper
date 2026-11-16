@@ -39,6 +39,8 @@ test('converted totals use the rate from your own transfer and say so', async ({
   // Spend $5 on the dollar card and ₹100 in cash, both on Food & Dining.
   await page.getByRole('link', { name: 'Add entry', exact: true }).first().click();
   await waitForDB(page);
+  // Type once the Add page is showing, as a person would (pages load on demand).
+  await expect(page.getByRole('heading', { name: 'Add transaction' })).toBeVisible();
   await page.keyboard.type('100');
   await page.getByRole('button', { name: /Food & Dining/ }).click();
   await page.waitForTimeout(500);

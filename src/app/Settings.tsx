@@ -303,7 +303,7 @@ function ResetDeviceSection() {
           <h3 className="mb-1 text-sm font-semibold text-slate-300">Erase this device</h3>
           <div className="text-xs text-slate-500">
             {synced
-              ? 'Removes Copper’s data from this device only, then loads your book again from Google Drive. Other devices aren’t affected.'
+              ? 'Removes Copper’s data from this device only, then loads your book again from Google Drive. Other devices aren’t affected. You stay signed in: to start completely fresh, sign out of Google in Sync & sharing first.'
               : 'Removes all of Copper’s data from this device and starts over.'}
           </div>
         </div>
@@ -318,6 +318,13 @@ function ResetDeviceSection() {
             This removes your accounts, transactions and settings from this device and reloads the app.
             {synced && ' Your book then loads again from Google Drive; other devices aren’t affected.'}
           </p>
+          {synced && (
+            <p className="text-sm text-slate-400">
+              You stay signed in to Google ({auth.google?.identity.email ?? 'your account'}). To start completely
+              fresh, with the setup screens and Google sign-in, cancel and sign out of Google in Sync &amp; sharing
+              first.
+            </p>
+          )}
           <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
             {synced
               ? sync.unsynced
