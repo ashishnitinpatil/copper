@@ -179,4 +179,15 @@ describe('getCardBills', () => {
     const [bill] = await getCardBills(billDB([card({ statement_day: 3, due_day: 18 })], -100, 0), '2026-12-03');
     expect(bill.statementDate).toBe('2026-11-03');
   });
+
+  it('lists the bill due soonest first, overdue before upcoming, no due day last', async () => {
+    const cards = [
+      card({ id: 'a', name: 'Alpha', statement_day: 3, due_day: 25 }), // due 25 Nov
+      card({ id: 'b', name: 'Beta', statement_day: 3, due_day: null }), // no due day
+      card({ id: 'c', name: 'Gamma', statement_day: 1, due_day: 10 }), // due 10 Nov: overdue
+      card({ id: 'd', name: 'Delta', statement_day: 3, due_day: 18 }), // due 18 Nov
+    ];
+    const bills = await getCardBills(billDB(cards, -100, 0), '2026-11-12');
+    expect(bills.map((b) => b.account.name)).toEqual(['Gamma', 'Delta', 'Alpha', 'Beta']);
+  });
 });

@@ -168,5 +168,9 @@ export async function getCardBills(db: DB, today: string = toDateString()): Prom
       paid: row.paid > 0,
     });
   }
-  return bills;
+  // Soonest due first (an overdue bill has the earliest date); no due day last.
+  return bills.sort(
+    (a, b) =>
+      (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') || a.account.name.localeCompare(b.account.name),
+  );
 }
