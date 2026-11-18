@@ -101,20 +101,22 @@ export function Welcome() {
     })();
   }, [mode, auth, lookup, book]);
 
-  const signIn = async () => {
+  const signIn = async (opts?: { anotherAccount?: boolean }) => {
     setSigningIn(true);
     try {
-      await auth.signInGoogle();
+      await auth.signInGoogle(opts);
     } finally {
       setSigningIn(false);
     }
   };
-  // Signed in with the wrong account: sign out and pick again from the start.
+  // Signed in with the wrong account: sign out and go straight to Google's
+  // account chooser. Closing it leaves the first screen, to sign in or not.
   const useAnotherAccount = () => {
     auth.signOutGoogle();
     book.clear();
     setLookup('idle');
     setMode('choose');
+    void signIn({ anotherAccount: true });
   };
 
   // Signing in from the first screen moves on to looking for the book.
@@ -256,7 +258,7 @@ export function Welcome() {
           <Card>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Button className="w-full" onClick={signIn} disabled={signingIn}>
+                <Button className="w-full" onClick={() => signIn()} disabled={signingIn}>
                   {signingIn ? 'Signing in…' : 'Sign in with Google'}
                 </Button>
                 <p className="text-xs text-slate-400">

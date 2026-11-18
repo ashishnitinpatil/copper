@@ -145,11 +145,11 @@ const FOCUS_CHECK_MS = 3000;
 // Stop waiting for a sign-in window nobody finishes (the button comes back).
 const GIVE_UP_MS = 10 * 60_000;
 
-let cancelPending: (() => void) | null = null;
+let cancelPending: ((closeWindow?: boolean) => void) | null = null;
 
-/** Stop waiting for the sign-in window (the person chose Cancel). */
+/** Stop waiting for the sign-in window and close it (the person chose Cancel). */
 export function cancelSignIn(): void {
-  cancelPending?.();
+  cancelPending?.(true);
 }
 
 /**
@@ -187,12 +187,20 @@ function signInViaHelper(hint: string | undefined, remember: boolean): Promise<G
       window.removeEventListener('focus', onFocus);
       if (cancelPending === cancel) cancelPending = null;
     };
-    const cancel = () => {
+    const cancel = (closeWindow = false) => {
       if (done) return;
       finish();
+      // Only on Cancel: a new sign-in may be reusing the same named window.
+      if (closeWindow) {
+        try {
+          popup.close();
+        } catch {
+          /* already gone */
+        }
+      }
       reject(new SignInClosed());
     };
-    const giveUp = setTimeout(cancel, GIVE_UP_MS);
+    const giveUp = setTimeout(() => cancel(), GIVE_UP_MS);
     cancelPending = cancel;
 
     // Only the account asked for: an old sign-in on this device mustn't stand in for a new one.
@@ -310,7 +318,8 @@ export async function refreshGoogleToken(hint?: string, remember = false): Promi
  * Copper's access everywhere is done from their Google Account.
  */
 export function forgetGoogleSignIn(): void {
-  if (USE_HELPER) void fetch('/api/auth/signout', { method: 'POST' }).catch(() => {});
+  // keepalive: still sent when a reload follows at once (Sign out and erase).
+  if (USE_HELPER) void fetch('/api/auth/signout', { method: 'POST', keepalive: true }).catch(() => {});
 }
 
 interface UserInfo {

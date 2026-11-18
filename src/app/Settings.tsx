@@ -294,7 +294,21 @@ function ResetDeviceSection() {
   const sync = useSync();
   const synced = !!(sync.bookId && auth.google);
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'reload' | 'fresh' | null>(null);
+
+  const erase = (signOut: boolean) => {
+    setBusy(signOut ? 'fresh' : 'reload');
+    rememberRetiringIdentity(db.siteid);
+    if (signOut) {
+      // Back to the welcome screen and Google sign-in.
+      auth.signOutGoogle();
+    } else if (sync.bookId && auth.google) {
+      // Come back as a fresh copy of the shared book: no seeded defaults merged
+      // into it, and no Welcome screen.
+      stashJoinTarget(sync.bookId);
+    }
+    requestLocalReset();
+  };
 
   return (
     <Card>
@@ -302,9 +316,7 @@ function ResetDeviceSection() {
         <div>
           <h3 className="mb-1 text-sm font-semibold text-slate-300">Erase this device</h3>
           <div className="text-xs text-slate-500">
-            {synced
-              ? 'Removes Copper’s data from this device only, then loads your book again from Google Drive. Other devices aren’t affected. You stay signed in: to start completely fresh, sign out of Google in Sync & sharing first.'
-              : 'Removes all of Copper’s data from this device and starts over.'}
+            Removes Copper’s data from this device only. Other devices aren’t affected.
           </div>
         </div>
         <Button variant="danger" className="shrink-0" onClick={() => setOpen(true)}>
@@ -315,45 +327,94 @@ function ResetDeviceSection() {
       <Modal open={open} onClose={() => !busy && setOpen(false)} title="Erase this device">
         <div className="space-y-4">
           <p className="text-sm text-slate-300">
-            This removes your accounts, transactions and settings from this device and reloads the app.
-            {synced && ' Your book then loads again from Google Drive; other devices aren’t affected.'}
+            Removes your accounts, entries and settings from this device. Other devices aren’t affected.
           </p>
-          {synced && (
-            <p className="text-sm text-slate-400">
-              You stay signed in to Google ({auth.google?.identity.email ?? 'your account'}). To start completely
-              fresh, with the setup screens and Google sign-in, cancel and sign out of Google in Sync &amp; sharing
-              first.
-            </p>
+          {synced ? (
+            <>
+              {sync.unsynced && (
+                <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+                  <strong className="font-semibold">Some changes haven’t reached Google Drive yet</strong> and will
+                  be lost. Sync first if you want to keep them.
+                </div>
+              )}
+              <div className="space-y-2">
+                <EraseChoice
+                  title="Erase and reload my book"
+                  detail={
+                    <>
+                      <strong className="font-semibold text-slate-200">You stay signed in</strong> as{' '}
+                      {auth.google?.identity.email ?? 'your Google account'}. Your book loads again from Google Drive.
+                    </>
+                  }
+                  busy={busy === 'reload'}
+                  disabled={!!busy}
+                  onClick={() => erase(false)}
+                />
+                <EraseChoice
+                  title="Sign out and erase"
+                  detail={
+                    <>
+                      <strong className="font-semibold text-slate-200">Starts completely fresh</strong>: back to the
+                      welcome screen and Google sign-in.
+                    </>
+                  }
+                  busy={busy === 'fresh'}
+                  disabled={!!busy}
+                  onClick={() => erase(true)}
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button variant="ghost" onClick={() => setOpen(false)} disabled={!!busy}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+                <strong className="font-semibold">This is your only copy</strong>: sync is off. Download a backup
+                first if you might want it back. This can’t be undone.
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setOpen(false)} disabled={!!busy}>
+                  Cancel
+                </Button>
+                <Button variant="danger" onClick={() => erase(false)} disabled={!!busy}>
+                  {busy ? 'Erasing…' : 'Erase this device'}
+                </Button>
+              </div>
+            </>
           )}
-          <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-            {synced
-              ? sync.unsynced
-                ? 'Some changes on this device haven’t reached Google Drive yet and will be lost. Sync first if you want to keep them.'
-                : 'Everything here is already in Google Drive, so nothing is lost.'
-              : 'Sync is off, so this is your only copy. Download a backup first if you might want it back. This can’t be undone.'}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                setBusy(true);
-                // Connected: come back as a fresh copy of the shared book — no
-                // seeded defaults merged into it, and no Welcome screen.
-                rememberRetiringIdentity(db.siteid);
-                if (sync.bookId && auth.google) stashJoinTarget(sync.bookId);
-                requestLocalReset();
-              }}
-              disabled={busy}
-            >
-              {busy ? 'Erasing…' : 'Erase this device'}
-            </Button>
-          </div>
         </div>
       </Modal>
     </Card>
+  );
+}
+
+/** One way to erase: what it's called and what happens after, in one tap target. */
+function EraseChoice({
+  title,
+  detail,
+  busy,
+  disabled,
+  onClick,
+}: {
+  title: string;
+  detail: React.ReactNode;
+  busy: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="block w-full rounded-lg border border-danger/40 px-3 py-2.5 text-left transition hover:border-danger hover:bg-danger/10 disabled:opacity-50"
+    >
+      <span className="block text-sm font-semibold text-danger">{busy ? 'Erasing…' : title}</span>
+      <span className="mt-0.5 block text-xs text-slate-400">{detail}</span>
+    </button>
   );
 }
 

@@ -34,7 +34,8 @@ test('Welcome offers another account after signing in', async ({ page, context }
   await expect(page.getByRole('button', { name: 'Load my book' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Use another account' }).click();
-  await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
+  // Straight on to Google's account chooser (which can't open here).
+  await expect(page.getByRole('button', { name: /Signing in…|Sign in with Google/ })).toBeVisible();
   await expect(page.getByText('wrong@example.com')).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem('expense-tracker.auth.identities'))).not.toContain('wrong@');
 });

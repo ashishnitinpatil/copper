@@ -389,16 +389,26 @@ export async function syncNow(
         ? { toApply: diffBook(known.cells, remoteCells).toApply, localAhead: 0 }
         : diffBook(await exportAllChanges(db), remoteCells);
       await assertKnownColumns(db, diff.toApply);
-      const total = diff.toApply.length;
-      onProgress?.({ stage: 'apply', done: 0, total });
+      const left = diff.toApply.length;
       // Only a first sync holds the app (see SyncSetupScreen); a device that's
       // just behind catches up in the background, still usable.
       const firstSync = !(await getSetting(db, SYNC_KEYS.LAST_SYNC_AT));
-      if (firstSync && total >= BIG_MERGE_CELLS) await setSetting(db, SYNC_KEYS.MERGE_PENDING, '1');
+      // A merge cut short keeps its full size, so picking it up again carries on
+      // from where the bar stopped instead of starting again at 0%.
+      const started = Number(await getSetting(db, SYNC_KEYS.MERGE_PENDING)) || 0;
+      const total = Math.max(started, left);
+      const already = total - left;
+      onProgress?.({ stage: 'apply', done: already, total });
+      if (firstSync && total >= BIG_MERGE_CELLS && !started) {
+        await setSetting(db, SYNC_KEYS.MERGE_PENDING, String(total));
+      }
       const beforeApply = await getLocalDbVersion(db);
-      pulled += await applyRemoteChanges(db, diff.toApply, (done) => onProgress?.({ stage: 'apply', done, total }), {
-        bulk: firstSync,
-      });
+      pulled += await applyRemoteChanges(
+        db,
+        diff.toApply,
+        (done) => onProgress?.({ stage: 'apply', done: already + done, total }),
+        { bulk: firstSync },
+      );
       onProgress?.({ stage: 'finish', done: 0, total: 0 });
       // Cleared whatever this merge's size: one resumed after being cut short
       // can be under the threshold.

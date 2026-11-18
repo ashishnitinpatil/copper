@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useSync } from './SyncProvider';
 
@@ -52,8 +52,15 @@ function useWakeLock(active: boolean) {
  */
 export function SyncSetupScreen() {
   const show = useIsFirstPull();
-  const { progress } = useSync();
+  const { progress, mergePending } = useSync();
   useWakeLock(show);
+  // Picking up a setup that was cut short (a reload, the app closed): it was
+  // already part-done before this run reached the merge.
+  const [resuming, setResuming] = useState(false);
+  const beforeMerge = !progress || ['download', 'prepare'].includes(progress.stage);
+  useEffect(() => {
+    if (mergePending && beforeMerge) setResuming(true);
+  }, [mergePending, beforeMerge]);
   if (!show) return null;
 
   // Until the merge starts there's the download (sized, when Drive says how
@@ -87,11 +94,18 @@ export function SyncSetupScreen() {
         <div className="flex items-center gap-2.5">
           <RefreshCw className="h-5 w-5 shrink-0 animate-spin text-brand-400" />
           <h2 id="sync-setup-title" className="font-display text-lg font-semibold text-slate-50">
-            Setting up your book
+            {resuming ? 'Continuing to set up your book' : 'Setting up your book'}
           </h2>
         </div>
         <p className="mt-1.5 text-sm text-slate-400">
-          Bringing your transactions in from Google Drive. Copper opens as soon as it’s done.
+          {resuming ? (
+            <>
+              <span className="font-medium text-slate-200">Picking up where it left off.</span> It fetches the
+              book again, then skips what’s already here. Copper opens as soon as it’s done.
+            </>
+          ) : (
+            'Bringing your transactions in from Google Drive. Copper opens as soon as it’s done.'
+          )}
         </p>
 
         <p className="mt-5 text-sm text-slate-300">{label}</p>

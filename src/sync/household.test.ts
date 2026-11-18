@@ -416,7 +416,14 @@ describe('single-file sync', () => {
     expect((await getSyncStatus(b.db as never)).mergePending).toBe(true);
 
     // Reopened: what's left to merge is small now, and it still clears the mark.
-    await sync(b);
+    // Its progress carries on from the first run's size, not from 0 of what's left.
+    const progress: { done: number; total: number }[] = [];
+    h.cur = b;
+    await syncNow(b.db as never, async () => 'token', (p) => {
+      if (p.stage === 'apply') progress.push({ done: p.done, total: p.total });
+    });
+    expect(progress[0].total).toBeGreaterThanOrEqual(BIG_MERGE_CELLS);
+    expect(progress[0].done).toBe(progress[0].total);
     expect((await getSyncStatus(b.db as never)).mergePending).toBe(false);
     expect(valueOf(b, `t${BIG_MERGE_CELLS}`, 'note')).toBe(`entry ${BIG_MERGE_CELLS}`);
   });

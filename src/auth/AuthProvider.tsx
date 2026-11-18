@@ -83,7 +83,8 @@ interface AuthContextValue extends AuthState {
   googleConfigured: boolean;
   trustDevice: boolean;
   setTrustDevice: (value: boolean) => void;
-  signInGoogle: () => Promise<void>;
+  /** `anotherAccount`: ignore the account signed in now and let Google ask which one. */
+  signInGoogle: (opts?: { anotherAccount?: boolean }) => Promise<void>;
   signOutGoogle: () => void;
   getGoogleAccessToken: () => Promise<string | null>;
   error: string | null;
@@ -117,13 +118,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTrustDeviceState(value);
   }, []);
 
-  const signInGoogle = useCallback(async () => {
+  const signInGoogle = useCallback(async (opts?: { anotherAccount?: boolean }) => {
     setError(null);
     setWaiting(true);
     try {
       // On a reconnect we know which account this is — pin to it so a
       // multi-account browser re-mints against the right one.
-      const session = await signInWithGoogle(state.google?.identity.email, trustDevice);
+      const hint = opts?.anotherAccount ? undefined : state.google?.identity.email;
+      const session = await signInWithGoogle(hint, trustDevice);
       setState((s) => ({ ...s, google: session }));
     } catch (e) {
       if (e instanceof SignInClosed) return;
@@ -134,6 +136,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [state.google?.identity.email, trustDevice]);
 
   const signOutGoogle = useCallback(() => {
+    // Forget it now, not on the next render: a reload may follow straight away
+    // (Sign out and erase).
+    for (const store of [localStorage, sessionStorage]) {
+      try {
+        store.removeItem(STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
     setState((s) => {
       if (s.google) forgetGoogleSignIn();
       return { ...s, google: null };
