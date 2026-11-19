@@ -80,7 +80,10 @@ CREATE INDEX IF NOT EXISTS idx_tx_payment_of ON transactions(payment_of);
 -- or a loan on the card): one card entry (a purchase, or the card's leg of a
 -- transfer out) whose principal each statement bills a share of, with interest.
 -- rate_bp is yearly (a monthly rate × 12). billed_through is the last statement
--- whose interest entry was added. Settling early bills what's left at once.
+-- whose interest entry was added (or the entry's date, once interest put on up
+-- front is added). interest_upfront: the bank puts all the interest on the
+-- card when the plan starts (null: yes for flat plans). Settling early bills
+-- what's left at once.
 CREATE TABLE IF NOT EXISTS card_plans (
   id               TEXT NOT NULL PRIMARY KEY DEFAULT '',
   card_id          TEXT NOT NULL DEFAULT '',
@@ -94,7 +97,8 @@ CREATE TABLE IF NOT EXISTS card_plans (
   billed_through   TEXT NOT NULL DEFAULT '',
   created_at       TEXT NOT NULL DEFAULT '',
   settled_on       TEXT,
-  settle_fee_minor INTEGER
+  settle_fee_minor INTEGER,
+  interest_upfront INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_card_plans_card ON card_plans(card_id);

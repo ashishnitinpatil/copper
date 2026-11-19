@@ -23,7 +23,16 @@ export interface Instalment {
 type PlanTerms = Pick<
   CardPlan,
   'principal_minor' | 'months' | 'rate_bp' | 'method' | 'fee_minor' | 'first_statement' | 'settled_on'
->;
+> &
+  Partial<Pick<CardPlan, 'interest_upfront'>>;
+
+/**
+ * Whether the bank puts all the interest on the card when the plan starts (as
+ * many do for flat-rate deals: the statement's deal amount includes it), rather
+ * than each statement adding that month's.
+ */
+export const interestUpfront = (plan: Pick<CardPlan, 'method'> & Partial<Pick<CardPlan, 'interest_upfront'>>) =>
+  plan.interest_upfront == null ? plan.method === 'flat' : plan.interest_upfront === 1;
 
 /** The fixed monthly instalment (principal + interest). */
 export function instalmentAmount(plan: Pick<CardPlan, 'principal_minor' | 'months' | 'rate_bp' | 'method'>): number {
@@ -52,13 +61,21 @@ export function planSchedule(plan: PlanTerms, statementDay: number): Instalment[
   return out;
 }
 
-/** What's still to be billed after the statement of `date` (principal only). */
+/**
+ * What's on the card but still to be billed after the statement of `date`:
+ * principal, and the interest of later instalments too when it all went on at
+ * the start.
+ */
 export function unbilledAfter(plan: PlanTerms, statementDay: number, date: string): number {
-  const billed = planSchedule(plan, statementDay)
-    .filter((i) => i.statement <= date)
-    .reduce((sum, i) => sum + i.principal, 0);
-  return Math.max(0, plan.principal_minor - billed);
+  const upfront = interestUpfront(plan);
+  return planSchedule(plan, statementDay)
+    .filter((i) => i.statement > date)
+    .reduce((sum, i) => sum + i.principal + (upfront ? i.interest : 0), 0);
 }
+
+/** The interest of the whole plan. */
+export const totalInterest = (plan: PlanTerms, statementDay: number) =>
+  planSchedule(plan, statementDay).reduce((sum, i) => sum + i.interest, 0);
 
 /** "0.89% a month" ⇄ the yearly basis points the plan stores. */
 export const monthlyRateToBp = (percentAMonth: number) => Math.round(percentAMonth * 12 * 100);

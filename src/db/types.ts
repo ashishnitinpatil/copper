@@ -173,4 +173,6 @@ export interface CardPlan {
   created_at: string;
   settled_on: string | null;
   settle_fee_minor: number | null;
+  /** 1: all the interest goes on the card when the plan starts; 0: each statement's; null: by method (flat → 1). */
+  interest_upfront: number | null;
 }

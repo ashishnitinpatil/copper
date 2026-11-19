@@ -2,7 +2,7 @@ import type { DB } from '@/db/wasm';
 import type { Account } from '@/db/types';
 import { toDateString } from '@/lib/dates';
 import { listCardPlans, type CardPlanInfo } from '@/db/queries/cardPlans';
-import { planSchedule, unbilledAfter } from './plans';
+import { interestUpfront, planSchedule, totalInterest, unbilledAfter } from './plans';
 
 export interface StatementInfo {
   account: Account;
@@ -84,17 +84,22 @@ export async function getCreditCardStatements(
 /**
  * How a cycle's bill differs from its entries because of instalment plans: an
  * entry converted in the cycle is billed only in instalments (take its amount
- * out), and each instalment the cycle's statement bills goes in — with its
- * interest and fee while they're still to come (once added, they're entries).
+ * out, and the interest put on with it up front), and each instalment the
+ * cycle's statement bills goes in — with its interest (when that wasn't put on
+ * up front, only while it's still to come: once added, it's an entry) and fee.
  */
 function planCycleShare(plans: CardPlanInfo[], start: string, end: string, today: string): number {
   let share = 0;
   for (const plan of plans) {
-    if (plan.tx_date >= start && plan.tx_date <= end) share -= plan.principal_minor;
+    const upfront = interestUpfront(plan);
+    if (plan.tx_date >= start && plan.tx_date <= end) {
+      share -= plan.principal_minor + (upfront ? totalInterest(plan, plan.statement_day) : 0);
+    }
     for (const i of planSchedule(plan, plan.statement_day)) {
       if (i.statement < start || i.statement > end) continue;
       share += i.principal;
-      if (i.statement > today) share += i.interest + i.fee;
+      if (upfront) share += i.interest;
+      if (i.statement > today) share += (upfront ? 0 : i.interest) + i.fee;
     }
   }
   return share;

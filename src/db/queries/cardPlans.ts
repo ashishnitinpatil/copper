@@ -2,7 +2,7 @@ import type { DB } from '../wasm';
 import type { CardPlan } from '../types';
 import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
-import { planSchedule } from '@/features/creditCards/plans';
+import { interestUpfront, planSchedule, totalInterest } from '@/features/creditCards/plans';
 import { partCategory } from './loans';
 
 /** A plan with what it's for: its card's statement day and the entry it converts. */
@@ -35,7 +35,15 @@ export async function getPlanForTransaction(db: DB, transactionId: string): Prom
 
 export type CardPlanInput = Pick<
   CardPlan,
-  'card_id' | 'transaction_id' | 'principal_minor' | 'months' | 'rate_bp' | 'method' | 'fee_minor' | 'first_statement'
+  | 'card_id'
+  | 'transaction_id'
+  | 'principal_minor'
+  | 'months'
+  | 'rate_bp'
+  | 'method'
+  | 'fee_minor'
+  | 'first_statement'
+  | 'interest_upfront'
 > & {
   /** Statements already past whose interest is recorded some other way: skip adding it. */
   billedThrough?: string;
@@ -45,8 +53,8 @@ export async function createCardPlan(db: DB, input: CardPlanInput): Promise<stri
   const id = uuid();
   await db.exec(
     `INSERT INTO card_plans (id, card_id, transaction_id, principal_minor, months, rate_bp, method, fee_minor,
-       first_statement, billed_through, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       first_statement, billed_through, created_at, interest_upfront)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.card_id,
@@ -59,13 +67,14 @@ export async function createCardPlan(db: DB, input: CardPlanInput): Promise<stri
       input.first_statement,
       input.billedThrough ?? '',
       nowIso(),
+      input.interest_upfront,
     ],
   );
   await materializeCardPlans(db);
   return id;
 }
 
-/** New terms. Interest already added for past statements stays as it is. */
+/** New terms. Interest already added stays as it is; how it's added (up front or monthly) isn't changed here. */
 export async function updateCardPlan(
   db: DB,
   id: string,
@@ -86,10 +95,25 @@ export async function deleteCardPlan(db: DB, id: string): Promise<void> {
 
 /**
  * Pay off what's left early: the next statement on or after `on` bills it all,
- * and no more interest is added. A settlement charge, if any, goes on the card that day.
+ * and no more interest is added — interest put on up front for the instalments
+ * not billed yet comes back off. A settlement charge, if any, goes on the card that day.
  */
 export async function settleCardPlan(db: DB, plan: CardPlanInfo, on: string, charge: number): Promise<void> {
+  const unbilledInterest =
+    interestUpfront(plan) && plan.billed_through >= plan.tx_date
+      ? planSchedule(plan, plan.statement_day)
+          .filter((i) => i.statement >= on)
+          .reduce((sum, i) => sum + i.interest, 0)
+      : 0;
   await db.exec('UPDATE card_plans SET settled_on = ?, settle_fee_minor = ? WHERE id = ?', [on, charge || null, plan.id]);
+  if (unbilledInterest > 0) {
+    const categoryId = await partCategory(db, 'interest');
+    await db.exec(
+      `INSERT OR IGNORE INTO transactions (id, account_id, category_id, amount_minor, kind, occurred_on, note, created_at)
+       VALUES (?, ?, ?, ?, 'expense', ?, ?, ?)`,
+      [`plan:${plan.id}:refund`, plan.card_id, categoryId, unbilledInterest, on, `Interest refunded on early settlement · ${label(plan)}`, nowIso()],
+    );
+  }
   if (charge > 0) {
     const categoryId = await partCategory(db, 'fee');
     await db.exec(
@@ -104,7 +128,8 @@ const label = (plan: Pick<CardPlanInfo, 'tx_note' | 'card_name'>) => plan.tx_not
 
 /**
  * Adds each statement's interest (and the first statement's fee) to the card,
- * once the statement has closed. Runs on every open; ids are made from the plan
+ * once the statement has closed — or, when the bank puts it on up front, all
+ * the interest on the day of the entry the plan is for. Runs on every open; ids are made from the plan
  * and the statement, so two devices adding the same entry write the same row,
  * and billed_through means one deleted by hand doesn't come back. Writes
  * nothing once caught up.
@@ -114,17 +139,24 @@ export async function materializeCardPlans(db: DB, today: string = toDateString(
   let interestCat: string | null = null;
   let feeCat: string | null = null;
   for (const plan of plans) {
+    const upfront = interestUpfront(plan);
+    // Up front: once, dated with the entry (billed_through then moves to that date).
+    const allInterest =
+      upfront && plan.billed_through < plan.tx_date && plan.tx_date <= today ? totalInterest(plan, plan.statement_day) : 0;
     const due = planSchedule(plan, plan.statement_day).filter(
       (i) => i.statement <= today && i.statement > plan.billed_through,
     );
-    if (due.length === 0) continue;
+    if (due.length === 0 && !(upfront && plan.billed_through < plan.tx_date && plan.tx_date <= today)) continue;
     const name = label(plan);
     // Categories first: making one writes outside the transaction below.
-    if (due.some((i) => i.interest > 0)) interestCat ??= await partCategory(db, 'interest');
+    if (allInterest > 0 || (!upfront && due.some((i) => i.interest > 0))) interestCat ??= await partCategory(db, 'interest');
     if (due.some((i) => i.fee > 0)) feeCat ??= await partCategory(db, 'fee');
     const rows: [string, string, number, string, string][] = [];
+    if (allInterest > 0) {
+      rows.push([`plan:${plan.id}:interest`, interestCat!, allInterest, plan.tx_date, `Interest for all ${plan.months} instalments · ${name}`]);
+    }
     for (const i of due) {
-      if (i.interest > 0) {
+      if (!upfront && i.interest > 0) {
         rows.push([`plan:${plan.id}:${i.statement}:interest`, interestCat!, i.interest, i.statement, `Interest ${i.n}/${plan.months} · ${name}`]);
       }
       if (i.fee > 0) rows.push([`plan:${plan.id}:${i.statement}:fee`, feeCat!, i.fee, i.statement, `Processing fee · ${name}`]);
@@ -137,7 +169,11 @@ export async function materializeCardPlans(db: DB, today: string = toDateString(
           [id, plan.card_id, categoryId, -amount, on, note, nowIso()],
         );
       }
-      await tx.exec('UPDATE card_plans SET billed_through = ? WHERE id = ?', [due[due.length - 1].statement, plan.id]);
+      const through = due.length ? due[due.length - 1].statement : plan.tx_date;
+      await tx.exec('UPDATE card_plans SET billed_through = ? WHERE id = ?', [
+        through > plan.billed_through ? through : plan.billed_through,
+        plan.id,
+      ]);
     });
   }
 }

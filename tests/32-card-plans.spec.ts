@@ -106,4 +106,33 @@ test.describe('Card instalment plans', () => {
     await expect(dialog.getByText('Instalments · settled')).toBeVisible();
     expect(await appSql(page, "SELECT amount_minor FROM transactions WHERE id LIKE 'plan:%:settle'")).toEqual([[-5000]]);
   });
+
+  test('a flat plan: all the interest goes on the card at the start, as the bank books it', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-11-12T09:00:00'));
+    await cardWithSpending(page);
+    await page.goto('/transactions');
+    await waitForDB(page);
+    await page.locator('main li', { hasText: 'Laptop' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit transaction' });
+    await dialog.getByRole('button', { name: 'Pay in instalments…' }).click();
+    await dialog.getByLabel('Months').fill('12');
+    await dialog.getByLabel('Interest rate (%)').fill('1');
+    await dialog.getByLabel('Charged', { exact: true }).selectOption('flat');
+    await expect(dialog.getByRole('checkbox', { name: /The bank adds all the interest at the start/ })).toBeChecked();
+    // 12,000 + 1% a month × 12 on the full amount = 13,440, in 12 instalments.
+    await expect(dialog.getByText(/₹1,120\.00 a month · ₹1,440\.00 interest in all/)).toBeVisible();
+    // The purchase was before the 3 Nov statement: the bank has charged it already.
+    await dialog.getByRole('checkbox', { name: /Also add the interest/ }).check();
+    await dialog.getByRole('button', { name: 'Start plan' }).click();
+    await expect(dialog.getByText('Instalments · 1 of 12 billed')).toBeVisible();
+    expect(
+      await appSql(page, "SELECT amount_minor, occurred_on FROM transactions WHERE id LIKE 'plan:%'"),
+    ).toEqual([[-144000, '2026-10-20']]);
+
+    // 1,000 of other spending + the first instalment of 1,120.
+    await page.goto('/dashboard');
+    await waitForDB(page);
+    const reminder = page.locator('div', { has: page.getByRole('heading', { name: 'Card bill to pay' }) }).last();
+    await expect(reminder).toContainText('2,120.00 on the');
+  });
 });

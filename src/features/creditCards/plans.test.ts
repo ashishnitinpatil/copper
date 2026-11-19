@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { instalmentAmount, monthlyRateToBp, planSchedule, unbilledAfter } from './plans';
+import { instalmentAmount, interestUpfront, monthlyRateToBp, planSchedule, totalInterest, unbilledAfter } from './plans';
 
 const plan = {
   principal_minor: 1_000_000, // 10,000.00
@@ -51,5 +51,35 @@ describe('card instalment plans', () => {
     expect(s[3]).toMatchObject({ statement: '2026-04-03', interest: 0, settled: true });
     expect(s.reduce((n, i) => n + i.principal, 0)).toBe(1_000_000);
     expect(unbilledAfter(settled, 3, '2026-04-03')).toBe(0);
+  });
+
+  // A Mashreq statement (23 Oct 2026): 55,000 at 0.79% a month flat over 48
+  // months, booked 24 Mar; deal amount 75,856.00, instalment 1,580.33, 41 left,
+  // 64,793.77 outstanding.
+  it('reproduces a real flat deal from a bank statement', () => {
+    const deal = {
+      principal_minor: 5_500_000,
+      months: 48,
+      rate_bp: monthlyRateToBp(0.79),
+      method: 'flat' as const,
+      fee_minor: 0,
+      first_statement: '2026-04-23',
+      settled_on: null,
+    };
+    expect(interestUpfront(deal)).toBe(true);
+    expect(instalmentAmount(deal)).toBe(158_033);
+    expect(totalInterest(deal, 23)).toBe(2_085_600);
+    expect(planSchedule(deal, 23).filter((i) => i.statement <= '2026-10-23')).toHaveLength(7);
+    // Principal and interest still to come: the deal's outstanding, to rounding.
+    expect(unbilledAfter(deal, 23, '2026-10-23')).toBe(6_479_369);
+  });
+
+  it('interest goes on up front for flat plans unless said otherwise; monthly for reducing', () => {
+    expect(interestUpfront({ method: 'flat', interest_upfront: null })).toBe(true);
+    expect(interestUpfront({ method: 'reducing', interest_upfront: null })).toBe(false);
+    expect(interestUpfront({ method: 'flat', interest_upfront: 0 })).toBe(false);
+    expect(interestUpfront({ method: 'reducing', interest_upfront: 1 })).toBe(true);
+    // Monthly interest: only principal is left to bill.
+    expect(unbilledAfter({ ...plan, interest_upfront: 0 }, 3, '2025-12-31')).toBe(1_000_000);
   });
 });

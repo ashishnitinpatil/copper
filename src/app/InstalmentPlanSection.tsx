@@ -17,6 +17,7 @@ import {
 import {
   bpToMonthlyRate,
   instalmentAmount,
+  interestUpfront,
   monthlyRateToBp,
   planSchedule,
   unbilledAfter,
@@ -122,6 +123,7 @@ function PlanSummary({ plan, currency }: { plan: CardPlanInfo; currency: string 
           ? ` · ${bpToMonthlyRate(plan.rate_bp)}% a month ${plan.method === 'flat' ? 'flat' : 'on what’s left'}`
           : ' · no interest'}
         {plan.fee_minor > 0 ? ` · ${money(plan.fee_minor)} fee` : ''}
+        {plan.rate_bp > 0 && interestUpfront(plan) ? ' · interest added at the start' : ''}
       </p>
       <p className="text-xs text-slate-400">
         {left > 0 ? (
@@ -165,6 +167,8 @@ function PlanForm({
   const [feeInput, setFeeInput] = useState(plan?.fee_minor ? String(fromMinor(plan.fee_minor, currency)) : '');
   const [first, setFirst] = useState(plan?.first_statement ?? firstChoices[0]);
   const [addPast, setAddPast] = useState(false);
+  // null: follow the method (flat plans usually have all their interest put on at the start).
+  const [upfrontChoice, setUpfrontChoice] = useState<boolean | null>(plan ? interestUpfront(plan) : null);
   const [busy, setBusy] = useState(false);
 
   const principal = parseAmount(principalInput, currency);
@@ -187,12 +191,16 @@ function PlanForm({
         settled_on: null,
       }
     : null;
+  const upfront = upfrontChoice ?? method === 'flat';
   const schedule = terms ? planSchedule(terms, statementDay) : [];
   const totalInterest = schedule.reduce((n, i) => n + i.interest, 0);
-  // A new plan for an entry from a while back: statements already closed. Their
-  // interest may already be in Copper some other way, so it's only added on request.
+  // A new plan for an entry from a while back: the bank has charged some of it
+  // already. That may be in Copper some other way, so it's only added on request.
   const pastStatements = !plan ? schedule.filter((i) => i.statement <= today) : [];
-  const pastCharges = pastStatements.some((i) => i.interest > 0 || i.fee > 0);
+  const upfrontCharged = !plan && upfront && totalInterest > 0 && date <= today;
+  const pastFee = pastStatements.some((i) => i.fee > 0);
+  const pastCharges = upfrontCharged || pastFee || (!upfront && pastStatements.some((i) => i.interest > 0));
+  const skipThrough = [date, ...pastStatements.map((i) => i.statement)].sort().pop()!;
   const money = (n: number) => formatMoney(n, currency);
 
   const save = async () => {
@@ -206,7 +214,8 @@ function PlanForm({
           ...terms,
           card_id: card.id,
           transaction_id: transactionId,
-          billedThrough: pastCharges && !addPast ? pastStatements[pastStatements.length - 1].statement : '',
+          interest_upfront: upfront ? 1 : 0,
+          billedThrough: pastCharges && !addPast ? skipThrough : '',
         });
       }
       onDone();
@@ -285,8 +294,26 @@ function PlanForm({
         <p className="text-xs text-slate-400">
           <span className="font-medium text-slate-200">{money(instalmentAmount(terms))} a month</span>
           {totalInterest > 0 ? ` · ${money(totalInterest)} interest in all` : ' · no interest'}
-          {fee ? ` · ${money(fee)} fee on the first statement` : ''}. Each statement adds its interest to the card.
+          {fee ? ` · ${money(fee)} fee on the first statement` : ''}.
+          {totalInterest > 0 && (upfront ? ' All the interest goes on the card at the start.' : ' Each statement adds its interest to the card.')}
         </p>
+      )}
+      {rateNumber > 0 && (
+        <label className="flex items-start gap-2 text-xs text-slate-400">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={upfront}
+            disabled={!!plan}
+            onChange={(e) => setUpfrontChoice(e.target.checked)}
+          />
+          <span>
+            <span className="text-slate-200">The bank adds all the interest at the start.</span>{' '}
+            {plan
+              ? 'To change this, remove the plan and start it again.'
+              : 'Tick it if the statement’s deal amount already includes the interest (the instalment × the months).'}
+          </span>
+        </label>
       )}
       {principal != null && principal > amount && (
         <p className="text-xs text-danger">More than the entry itself ({money(amount)}).</p>
@@ -295,9 +322,11 @@ function PlanForm({
         <label className="flex items-start gap-2 text-xs text-slate-400">
           <input type="checkbox" className="mt-0.5" checked={addPast} onChange={(e) => setAddPast(e.target.checked)} />
           <span>
-            Also add the interest{pastStatements.some((i) => i.fee > 0) ? ' and fee' : ''} for the{' '}
-            {pastStatements.length} {pastStatements.length === 1 ? 'statement' : 'statements'} already closed. Leave
-            it off if they’re in Copper already.
+            Also add the {[upfrontCharged || (!upfront && pastStatements.some((i) => i.interest > 0)) ? 'interest' : '', pastFee ? 'fee' : '']
+              .filter(Boolean)
+              .join(' and ')}{' '}
+            the bank has already charged. Leave it off if it’s in Copper already (say, your card’s balance matches the
+            statement).
           </span>
         </label>
       )}
