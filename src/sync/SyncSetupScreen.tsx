@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useWakeLock } from './useWakeLock';
 import { RefreshCw } from 'lucide-react';
 import { useSync } from './SyncProvider';
 
@@ -17,33 +18,6 @@ export function useIsFirstPull(): boolean {
   // first merge was cut short (the app was closed or reloaded mid-way). Signed
   // out, offline or failed, nothing is coming — let the app and its banner show.
   return !!bookId && (!lastSyncAt || mergePending) && (status === 'idle' || status === 'syncing');
-}
-
-/** Keeps a phone's screen on while `active`, so it doesn't sleep mid-setup. */
-function useWakeLock(active: boolean) {
-  useEffect(() => {
-    if (!active || !('wakeLock' in navigator)) return;
-    let lock: WakeLockSentinel | null = null;
-    let stopped = false;
-    const request = () => {
-      if (document.visibilityState !== 'visible') return;
-      navigator.wakeLock
-        .request('screen')
-        .then((l) => {
-          if (stopped) void l.release();
-          else lock = l;
-        })
-        .catch(() => {});
-    };
-    request();
-    // The browser drops the lock whenever the page is hidden; take it back on return.
-    document.addEventListener('visibilitychange', request);
-    return () => {
-      stopped = true;
-      document.removeEventListener('visibilitychange', request);
-      void lock?.release().catch(() => {});
-    };
-  }, [active]);
 }
 
 /**

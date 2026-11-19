@@ -134,9 +134,10 @@ async function encodeLocalBook(db: DB, siteHex: string): Promise<Uint8Array> {
   return encodeCells(db, await exportAllChanges(db), siteHex);
 }
 
-// How long a device goes on syncing from its copy of the book before one sync
-// compares its whole database with the book again — a backstop, should the
-// copy ever drift from what's really on the device.
+// How long a device goes on syncing from its copy of the book before checking
+// that the copy still adds up to what's really on the device — a backstop,
+// should it ever drift. The check counts cells; only a mismatch costs the full
+// compare of the whole database with the book.
 const FULL_CHECK_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface TrustedCopy {
@@ -148,9 +149,15 @@ interface TrustedCopy {
  * This device's copy of the last book it merged or wrote (bookCache.ts), when
  * it still describes this device exactly: local state = the copy + what changed
  * here since the last sync. Any doubt — no copy, a reset, a restore, another
- * book or version, an interrupted write, a week since the last full compare —
+ * book or version, an interrupted write, a weekly check that doesn't add up —
  * returns null, and the sync reads the whole database instead.
  */
+// The last copy, already unpacked: saves unzipping and decoding it again on the
+// next sync (a quarter of a second on a big book, more on a phone).
+let unpacked: { key: string; cells: ChangeRow[] } | null = null;
+const copyKey = (c: { site: string; bookId: string; version: string; dbVersion: number; generation: string }) =>
+  [c.site, c.bookId, c.version, c.dbVersion, c.generation].join('|');
+
 async function trustedCopy(db: DB, bookId: string, siteHex: string): Promise<TrustedCopy | null> {
   const copy = await loadBookCache();
   if (!copy) return null;
@@ -165,14 +172,23 @@ async function trustedCopy(db: DB, bookId: string, siteHex: string): Promise<Tru
     !!version &&
     copy.version === version &&
     String(copy.dbVersion) === synced &&
-    copy.generation === (generation ?? '') &&
-    Date.now() - copy.checkedAt < FULL_CHECK_EVERY_MS;
+    copy.generation === (generation ?? '');
   if (!matches) return null;
-  try {
-    return { cells: decodeBook(await gunzipJson<BookFile>(copy.bytes)), checkedAt: copy.checkedAt };
-  } catch {
-    return null;
+  let cells: ChangeRow[];
+  if (unpacked?.key === copyKey(copy)) {
+    cells = unpacked.cells;
+  } else {
+    try {
+      cells = decodeBook(await gunzipJson<BookFile>(copy.bytes));
+    } catch {
+      return null;
+    }
   }
+  if (Date.now() - copy.checkedAt < FULL_CHECK_EVERY_MS) return { cells, checkedAt: copy.checkedAt };
+  const rows = await db.execO<{ n: number }>('SELECT count(*) AS n FROM crsql_changes');
+  const here = overlayBook(cells, await exportChangesSince(db, Number(synced)));
+  if (here.length !== Number(rows[0]?.n ?? -1)) return null;
+  return { cells, checkedAt: Date.now() };
 }
 
 // Start a new book generation — on creating the book, or overwriting it.
@@ -205,21 +221,28 @@ async function assertKnownColumns(db: DB, rows: ChangeRow[]): Promise<void> {
 
 // Edits made on this device since `dbVersion` (merged-in cells keep their
 // origin device's site id).
-async function countOwnChangesSince(db: DB, dbVersion: number): Promise<number> {
-  const rows = await db.execO<{ n: number }>(
-    'SELECT count(*) AS n FROM crsql_changes WHERE db_version > ? AND site_id = crsql_site_id()',
-    [dbVersion],
-  );
-  return Number(rows[0]?.n ?? 0);
+// Reads the changed cells rather than count(*): cr-sqlite answers a count by
+// scanning every cell (a third of a second on a big book), but finds the cells
+// after a version through its index (milliseconds). Unless what changed is
+// itself big (a big merge just landed): then the scan is the cheaper one.
+async function countOwnChangesSince(db: DB, dbVersion: number, siteHex: string, big = false): Promise<number> {
+  if (big) {
+    const rows = await db.execO<{ n: number }>(
+      'SELECT count(*) AS n FROM crsql_changes WHERE db_version > ? AND site_id = crsql_site_id()',
+      [dbVersion],
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+  const own = hexToBase64(siteHex);
+  return (await exportChangesSince(db, dbVersion)).filter((r) => r.site_id === own).length;
 }
 
 async function countLocalChangesSince(db: DB, dbVersion: number): Promise<number> {
-  const rows = await db.execO<{ n: number }>(
-    'SELECT count(*) AS n FROM crsql_changes WHERE db_version > ?',
-    [dbVersion],
-  );
-  return Number(rows[0]?.n ?? 0);
+  return (await exportChangesSince(db, dbVersion)).length;
 }
+
+const hexToBase64 = (hex: string) =>
+  btoa(String.fromCharCode(...(hex.match(/../g) ?? []).map((b) => parseInt(b, 16))));
 
 // ── sync ────────────────────────────────────────────────────────────────────
 
@@ -254,9 +277,9 @@ async function recordSynced(
   db: DB,
   version: string | undefined,
   dbVersion: number,
-  book: { bookId: string; siteHex: string; bytes: Uint8Array; checkedAt: number },
+  book: { bookId: string; siteHex: string; bytes: Uint8Array; checkedAt: number; cells?: ChangeRow[] },
 ): Promise<void> {
-  await saveBookCache({
+  const copy = {
     site: book.siteHex,
     bookId: book.bookId,
     version: version ?? '',
@@ -264,7 +287,10 @@ async function recordSynced(
     generation: (await getSetting(db, SYNC_KEYS.BOOK_GENERATION)) ?? '',
     checkedAt: book.checkedAt,
     bytes: book.bytes,
-  });
+  };
+  unpacked = null;
+  await saveBookCache(copy);
+  if (book.cells) unpacked = { key: copyKey(copy), cells: book.cells };
   await setSetting(db, SYNC_KEYS.BOOK_VERSION, version ?? '');
   await setSetting(db, SYNC_KEYS.SYNCED_DB_VERSION, String(dbVersion));
   await setSetting(db, SYNC_KEYS.LAST_SYNC_AT, new Date().toISOString());
@@ -365,12 +391,12 @@ export async function syncNow(
     let needsUpload = localChanged;
     let mergedDbv = 0;
     const known = await getCopy();
-    // Whether this sync compares the whole local database with the book (slow;
-    // see trustedCopy), or works from this device's copy of it.
-    let full = !known;
-    // The book an upload builds on, plus what changed here since the last sync.
+    // The book an upload builds on, plus what changed here since `baseSince`.
+    // Without a copy, the upload reads the whole local database instead.
     let base: ChangeRow[] | null = known?.cells ?? null;
+    let baseSince = syncedDbv;
     let pulledBytes: Uint8Array | null = null;
+    let pulledCells: ChangeRow[] = [];
     if (remoteChanged) {
       const { book: remote, bytes } = await readBook(token, bookId, onProgress);
       const mine = await getSetting(db, SYNC_KEYS.BOOK_GENERATION);
@@ -380,14 +406,21 @@ export async function syncNow(
         if (remote.generation) await setSetting(db, SYNC_KEYS.BOOK_GENERATION, remote.generation);
       }
       const remoteCells = decodeBook(remote);
-      // A book that lost cells this device had (a write race) needs the full
-      // compare to see them and put them back.
-      full = !known || bookRegressed(known.cells, remoteCells);
+      // A book that lost cells this device had (a write race) needs everything
+      // here compared with it, to see them and put them back. With a copy that's
+      // the copy plus what changed here since; only without one is the whole
+      // database read (slow: seconds on a big book, the database held).
+      const full = !known || bookRegressed(known.cells, remoteCells);
+      const localCells = !full
+        ? null
+        : known
+          ? overlayBook(known.cells, await exportChangesSince(db, syncedDbv))
+          : await exportAllChanges(db);
       // From the copy: everything here is the copy plus local changes, so only
       // what changed in the book since the copy needs merging.
-      const diff = !full && known
-        ? { toApply: diffBook(known.cells, remoteCells).toApply, localAhead: 0 }
-        : diffBook(await exportAllChanges(db), remoteCells);
+      const diff = localCells
+        ? diffBook(localCells, remoteCells)
+        : { toApply: diffBook(known!.cells, remoteCells).toApply, localAhead: 0 };
       await assertKnownColumns(db, diff.toApply);
       const left = diff.toApply.length;
       // Only a first sync holds the app (see SyncSetupScreen); a device that's
@@ -419,38 +452,44 @@ export async function syncNow(
       // trigger an upload — a pure pull must not re-upload the whole book.
       // From the copy, only this device's own edits can be ahead of the book:
       // everything else here came from the book.
-      if (full) {
-        pushed = diff.localAhead > 0 ? diffBook(await exportAllChanges(db), remoteCells).localAhead : 0;
+      base = remoteCells;
+      if (localCells) {
+        // What was here, with what the merge changed laid over it: this device
+        // now, without reading the whole database a second time.
+        baseSince = beforeApply;
+        if (diff.localAhead > 0) {
+          base = overlayBook(localCells, await exportChangesSince(db, beforeApply));
+          pushed = diffBook(base, remoteCells).localAhead;
+        }
       } else {
-        pushed = await countOwnChangesSince(db, syncedDbv);
+        pushed = await countOwnChangesSince(db, syncedDbv, siteHex, left >= BIG_MERGE_CELLS);
       }
       // Anything added here while the merge ran is ahead of the book too.
       mergedDbv = await getLocalDbVersion(db);
-      pushed = Math.max(pushed, await countOwnChangesSince(db, beforeApply));
+      pushed = Math.max(pushed, await countOwnChangesSince(db, beforeApply, siteHex, left >= BIG_MERGE_CELLS));
       needsUpload = pushed > 0;
       pulledBytes = bytes;
-      base = full ? null : remoteCells;
+      pulledCells = remoteCells;
     } else {
       pushed = await countLocalChangesSince(db, syncedDbv);
     }
-    const checkedAt = full ? Date.now() : known!.checkedAt;
+    const checkedAt = known ? known.checkedAt : Date.now();
 
     if (!needsUpload) {
       // Only a pull gets here (a local change always uploads).
-      await recordSynced(db, meta.version, mergedDbv, { bookId, siteHex, bytes: pulledBytes!, checkedAt });
+      await recordSynced(db, meta.version, mergedDbv, { bookId, siteHex, bytes: pulledBytes!, checkedAt, cells: pulledCells });
       break;
     }
     onProgress?.({ stage: 'upload', done: 0, total: 0 });
     const dbv = await getLocalDbVersion(db);
-    const body = base
-      ? await encodeCells(db, overlayBook(base, await exportChangesSince(db, syncedDbv)), siteHex)
-      : await encodeLocalBook(db, siteHex);
+    const cells = base ? overlayBook(base, await exportChangesSince(db, baseSince)) : await exportAllChanges(db);
+    const body = await encodeCells(db, cells, siteHex);
     // Someone wrote while we merged (or encoded): merge their write too before
     // uploading. Checked after encoding, which takes seconds on a big book.
     const latest = await getFileMeta(token, bookId);
     if (latest.version !== meta.version && attempt < MAX_MERGE_ATTEMPTS) continue;
     const file = await updateBinaryFile(token, bookId, BOOK_MIME, body);
-    await recordSynced(db, file.version, dbv, { bookId, siteHex, bytes: body, checkedAt });
+    await recordSynced(db, file.version, dbv, { bookId, siteHex, bytes: body, checkedAt, cells });
     return { pushed, pulled, peers: await peerCount(db, siteHex), uploadedFile: BOOK_FILE_NAME };
   }
   await setSetting(db, SYNC_KEYS.LAST_SYNC_AT, new Date().toISOString());

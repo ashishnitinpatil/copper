@@ -538,15 +538,42 @@ describe('syncing from the device’s copy of the book', () => {
     expect(h.fullReads).toBe(0);
   });
 
-  it('compares the whole database once a week anyway', async () => {
+  it('checks the copy still adds up once a week, without reading the whole database', async () => {
     const { a } = await pair();
     const copy = h.copies.get('aa') as { checkedAt: number };
     copy.checkedAt -= 8 * 24 * 60 * 60 * 1000;
     h.fullReads = 0;
     edit(a, 't2', 'note', 'y');
     await sync(a);
-    expect(h.fullReads).toBe(1);
+    expect(h.fullReads).toBe(0);
     expect((h.copies.get('aa') as { checkedAt: number }).checkedAt).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('compares the whole database when the weekly check doesn’t add up', async () => {
+    const { a } = await pair();
+    const copy = h.copies.get('aa') as { checkedAt: number };
+    copy.checkedAt -= 8 * 24 * 60 * 60 * 1000;
+    // A cell the copy doesn't know about, though nothing changed since it.
+    a.cells.set('drift', { ...[...a.cells.values()][0], pk: 'drift', db_version: 1 });
+    h.fullReads = 0;
+    edit(a, 't2', 'note', 'y');
+    await sync(a);
+    expect(h.fullReads).toBe(1);
+    expect(sigs(await bookCells())).toEqual(sigs([...a.cells.values()]));
+  });
+
+  it('a full compare reads the database once, even when this device has news for the book', async () => {
+    const { a, b } = await pair();
+    edit(a, 't2', 'note', 'from A');
+    await sync(a);
+    // B's copy can't be trusted (as after a restore), and B has an edit of its own.
+    b.db.meta.set(SYNC_KEYS.SYNCED_DB_VERSION, String(b.dbv - 1));
+    edit(b, 't3', 'note', 'from B');
+    h.fullReads = 0;
+    await sync(b);
+    expect(h.fullReads).toBe(1);
+    expect(valueOf(b, 't2', 'note')).toBe('from A');
+    expect(sigs(await bookCells())).toEqual(sigs([...b.cells.values()]));
   });
 });
 

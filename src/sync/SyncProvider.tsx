@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useDB } from '@/db/DBProvider';
+import { useWakeLock } from './useWakeLock';
 import { useAuth } from '@/auth/AuthProvider';
 import { CAN_RENEW_SILENTLY } from '@/auth/google';
 import { useAppSettings } from '@/app/AppSettingsProvider';
@@ -121,6 +122,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [mergePending, setMergePending] = useState(false);
   const [lastResult, setLastResult] = useState<SyncResult | null>(null);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
+  // A long sync (a big pull, a full compare) stops when a phone's screen sleeps.
+  useWakeLock(progress !== null);
   const [error, setError] = useState<string | null>(null);
   const [needsReauth, setNeedsReauth] = useState(false);
   const [bookReplaced, setBookReplaced] = useState(false);
