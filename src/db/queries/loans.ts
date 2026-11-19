@@ -63,7 +63,7 @@ export function loanTerms(loan: Account): LoanTerms {
 }
 
 /** The expense category a part of payments is filed under, made the first time it's needed. */
-async function partCategory(db: DB, part: Part): Promise<string> {
+export async function partCategory(db: DB, part: Part): Promise<string> {
   const [name, icon, color] = CATEGORY[part];
   const [found] = await db.execO<{ id: string }>(
     `SELECT id FROM categories WHERE name = ? AND kind = 'expense' AND archived_at IS NULL LIMIT 1`,

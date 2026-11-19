@@ -109,6 +109,7 @@ export async function runMonefyImport(
       await tx.exec('DELETE FROM transaction_tags');
       await tx.exec('DELETE FROM tags');
       await tx.exec('DELETE FROM budgets');
+      await tx.exec('DELETE FROM card_plans');
       await tx.exec('DELETE FROM recurring_rules');
       await tx.exec('DELETE FROM transactions');
       await tx.exec('DELETE FROM categories');

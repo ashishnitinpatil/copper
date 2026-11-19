@@ -1,3 +1,4 @@
+import { InstalmentPlanSection } from './InstalmentPlanSection';
 import { useEffect, useMemo, useState } from 'react';
 import { DateField } from '@/components/ui/DateField';
 import { accountOptions } from '@/components/accountOptions';
@@ -60,6 +61,8 @@ export function TransferModal({ open, accounts, onClose, transferId, draft, onCr
   // The transfer whose values are in the form. Until it matches transferId the
   // form shows the previous use of this modal, so it isn't shown or editable.
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  // The saved transfer's leg on the paying account (a card's, for a loan on the card).
+  const [savedFrom, setSavedFrom] = useState<{ id: string; account: string; amount: number; date: string } | null>(null);
   const editing = !!transferId;
 
   useEffect(() => {
@@ -80,6 +83,12 @@ export function TransferModal({ open, accounts, onClose, transferId, draft, onCr
         setReceivedTouched(true);
         setDate(legs.from.occurred_on);
         setNote(legs.from.note ?? '');
+        setSavedFrom({
+          id: legs.from.id,
+          account: legs.from.account_id,
+          amount: -legs.from.amount_minor,
+          date: legs.from.occurred_on,
+        });
         setLoadedFor(transferId);
       });
       return () => {
@@ -219,6 +228,14 @@ export function TransferModal({ open, accounts, onClose, transferId, draft, onCr
           <DateField label="Date" value={date} onChange={setDate} />
           <Input label="Note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
           <NoteSuggestions notes={noteSuggestions} onPick={setNote} />
+          {(() => {
+            // Out of a card (cash or a loan on the card): it can be paid back in instalments.
+            const card = editing && savedFrom ? accounts.find((a) => a.id === savedFrom.account) : undefined;
+            if (card?.type !== 'credit_card') return null;
+            return (
+              <InstalmentPlanSection card={card} transactionId={savedFrom!.id} amount={savedFrom!.amount} date={savedFrom!.date} />
+            );
+          })()}
           <div className="flex items-center justify-between gap-2 pt-2">
             {editing ? (
               <Button variant="danger" onClick={handleDelete} disabled={submitting}>

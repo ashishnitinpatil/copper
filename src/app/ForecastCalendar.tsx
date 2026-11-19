@@ -6,8 +6,10 @@ import type { ForecastEntry } from './Cashflow';
 
 interface DayItem {
   label: string;
-  /** null for a card bill whose amount only the bank's statement knows. */
+  /** null for a card bill: not in the balance, as no payment for it is planned. */
   amount: number | null;
+  /** A card bill's amount, in the card's currency. */
+  bill?: { amount: number; currency: string };
 }
 
 interface Props {
@@ -49,7 +51,11 @@ export function ForecastCalendar({ entries, bills, currency, end }: Props) {
       if (!bill.dueDate || bill.dueDate > end) continue;
       if (entries.some((e) => e.cardId === bill.account.id && e.date === bill.dueDate)) continue;
       const day = map.get(bill.dueDate) ?? { items: [], net: 0 };
-      day.items.push({ label: `${bill.account.name} bill due`, amount: null });
+      day.items.push({
+        label: `${bill.account.name} bill due`,
+        amount: null,
+        bill: { amount: bill.amount, currency: bill.account.currency },
+      });
       map.set(bill.dueDate, day);
     }
     return map;
@@ -183,7 +189,11 @@ export function ForecastCalendar({ entries, bills, currency, end }: Props) {
                 <span className="min-w-0 truncate text-slate-200">{it.label}</span>
                 {it.amount === null ? (
                   <span className={`shrink-0 text-xs ${selected < today ? 'text-danger' : 'text-warning'}`}>
-                    {selected < today ? 'Overdue · not paid yet' : 'Amount on your statement'}
+                    {selected < today
+                      ? `${it.bill ? `${formatMoney(it.bill.amount, it.bill.currency)} · ` : ''}overdue`
+                      : it.bill
+                        ? `${formatMoney(it.bill.amount, it.bill.currency)} to pay`
+                        : 'Amount on your statement'}
                   </span>
                 ) : (
                   <span className={`shrink-0 tabular-nums ${it.amount < 0 ? 'text-clay-400' : 'text-mint-400'}`}>

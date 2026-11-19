@@ -154,3 +154,23 @@ export interface Device {
   /** Set once a reset replaced this identity (see retireDevice). */
   retired_at: string;
 }
+
+/** Part of a card's balance paid back in monthly instalments (see schema.ts). */
+export interface CardPlan {
+  id: string;
+  card_id: string;
+  transaction_id: string;
+  principal_minor: number;
+  months: number;
+  /** Yearly, in basis points: 0.89% a month is 1068. */
+  rate_bp: number;
+  method: 'reducing' | 'flat';
+  fee_minor: number;
+  /** The statement that bills the first instalment. */
+  first_statement: string;
+  /** The last statement whose interest (and fee) entries were added; '' for none. */
+  billed_through: string;
+  created_at: string;
+  settled_on: string | null;
+  settle_fee_minor: number | null;
+}

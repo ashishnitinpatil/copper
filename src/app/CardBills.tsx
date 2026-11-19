@@ -5,13 +5,34 @@ import { AccountGlyph } from '@/components/accountOptions';
 import { useQuery } from '@/db/useQuery';
 import type { Account } from '@/db/types';
 import { getCardBills, type CardBill } from '@/features/creditCards/statementEngine';
-import { parseDateString } from '@/lib/dates';
+import { listCardPlans } from '@/db/queries/cardPlans';
+import { unbilledAfter } from '@/features/creditCards/plans';
+import { parseDateString, toDateString } from '@/lib/dates';
+import { formatMoney } from '@/lib/money';
 import { TransferModal, type TransferDraft } from './TransferModal';
 
 export function useCardBills() {
   return useQuery<CardBill[]>(
     useCallback((d) => getCardBills(d), []),
-    { deps: ['accounts', 'transactions'], cacheKey: 'card-bills' },
+    { deps: ['accounts', 'transactions', 'card_plans'], cacheKey: 'card-bills' },
+  );
+}
+
+/** Per card: how many instalment plans are still running, and what they have left to bill. */
+export function useCardPlanTotals() {
+  return useQuery<Map<string, { count: number; left: number }>>(
+    useCallback(async (d) => {
+      const today = toDateString();
+      const totals = new Map<string, { count: number; left: number }>();
+      for (const plan of await listCardPlans(d)) {
+        const left = unbilledAfter(plan, plan.statement_day, today);
+        if (left <= 0) continue;
+        const t = totals.get(plan.card_id) ?? { count: 0, left: 0 };
+        totals.set(plan.card_id, { count: t.count + 1, left: t.left + left });
+      }
+      return totals;
+    }, []),
+    { deps: ['accounts', 'transactions', 'card_plans'], cacheKey: 'card-plan-totals' },
   );
 }
 
@@ -27,17 +48,23 @@ export function dueText(bill: CardBill): { text: string; tone: string } {
 }
 
 export function billNote(bill: CardBill): string {
+  const amount = formatMoney(bill.amount, bill.account.currency);
   return bill.paid
-    ? `Payment recorded for the ${shortDate(bill.statementDate)} statement`
-    : `No payment yet for the ${shortDate(bill.statementDate)} statement`;
+    ? `Payment recorded for the ${shortDate(bill.statementDate)} statement of ${amount}`
+    : `${amount} on the ${shortDate(bill.statementDate)} statement · no payment yet`;
 }
 
-/** Where a card's bill is paid from: its own setting, else the main account. */
-export function payDraft(card: Account, accounts: Account[]): TransferDraft {
+/** Where a card's bill is paid from (its own setting, else the main account), for the bill's amount. */
+export function payDraft(card: Account, accounts: Account[], bill?: CardBill): TransferDraft {
   const from =
     accounts.find((a) => a.id === card.pay_from_account_id && !a.archived_at) ??
     accounts.find((a) => a.is_main === 1 && a.id !== card.id && !a.archived_at);
-  return { fromId: from?.id ?? '', toId: card.id, note: `${card.name} bill` };
+  return {
+    fromId: from?.id ?? '',
+    toId: card.id,
+    note: `${card.name} bill`,
+    ...(bill && !bill.paid && from?.currency === card.currency ? { amountMinor: bill.amount } : {}),
+  };
 }
 
 /**
@@ -64,7 +91,7 @@ export function CardBillsDue({ accounts }: { accounts: Account[] }) {
                 <div className={`text-xs ${due.tone}`}>{due.text}</div>
                 <div className="text-[11px] text-slate-500">{billNote(bill)}</div>
               </div>
-              <Button size="sm" variant="secondary" onClick={() => setPaying(payDraft(bill.account, accounts))}>
+              <Button size="sm" variant="secondary" onClick={() => setPaying(payDraft(bill.account, accounts, bill))}>
                 Pay
               </Button>
             </li>

@@ -1,0 +1,143 @@
+import type { DB } from '../wasm';
+import type { CardPlan } from '../types';
+import { uuid } from '../uuid';
+import { nowIso, toDateString } from '@/lib/dates';
+import { planSchedule } from '@/features/creditCards/plans';
+import { partCategory } from './loans';
+
+/** A plan with what it's for: its card's statement day and the entry it converts. */
+export interface CardPlanInfo extends CardPlan {
+  statement_day: number;
+  card_name: string;
+  tx_date: string;
+  tx_note: string | null;
+  tx_amount: number;
+}
+
+// Plans whose card or entry is gone drop out here (no foreign keys to cascade).
+const PLANS = `SELECT p.*, a.statement_day, a.name AS card_name, t.occurred_on AS tx_date, t.note AS tx_note,
+    -t.amount_minor AS tx_amount
+  FROM card_plans p
+  JOIN accounts a ON a.id = p.card_id AND a.statement_day IS NOT NULL
+  JOIN transactions t ON t.id = p.transaction_id`;
+
+export async function listCardPlans(db: DB, cardId?: string): Promise<CardPlanInfo[]> {
+  return db.execO<CardPlanInfo>(
+    `${PLANS} ${cardId ? 'WHERE p.card_id = ?' : ''} ORDER BY t.occurred_on`,
+    cardId ? [cardId] : [],
+  );
+}
+
+export async function getPlanForTransaction(db: DB, transactionId: string): Promise<CardPlanInfo | null> {
+  const [plan] = await db.execO<CardPlanInfo>(`${PLANS} WHERE p.transaction_id = ?`, [transactionId]);
+  return plan ?? null;
+}
+
+export type CardPlanInput = Pick<
+  CardPlan,
+  'card_id' | 'transaction_id' | 'principal_minor' | 'months' | 'rate_bp' | 'method' | 'fee_minor' | 'first_statement'
+> & {
+  /** Statements already past whose interest is recorded some other way: skip adding it. */
+  billedThrough?: string;
+};
+
+export async function createCardPlan(db: DB, input: CardPlanInput): Promise<string> {
+  const id = uuid();
+  await db.exec(
+    `INSERT INTO card_plans (id, card_id, transaction_id, principal_minor, months, rate_bp, method, fee_minor,
+       first_statement, billed_through, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      input.card_id,
+      input.transaction_id,
+      input.principal_minor,
+      input.months,
+      input.rate_bp,
+      input.method,
+      input.fee_minor,
+      input.first_statement,
+      input.billedThrough ?? '',
+      nowIso(),
+    ],
+  );
+  await materializeCardPlans(db);
+  return id;
+}
+
+/** New terms. Interest already added for past statements stays as it is. */
+export async function updateCardPlan(
+  db: DB,
+  id: string,
+  terms: Pick<CardPlan, 'principal_minor' | 'months' | 'rate_bp' | 'method' | 'fee_minor' | 'first_statement'>,
+): Promise<void> {
+  await db.exec(
+    `UPDATE card_plans SET principal_minor = ?, months = ?, rate_bp = ?, method = ?, fee_minor = ?, first_statement = ?
+     WHERE id = ?`,
+    [terms.principal_minor, terms.months, terms.rate_bp, terms.method, terms.fee_minor, terms.first_statement, id],
+  );
+  await materializeCardPlans(db);
+}
+
+/** Back to an ordinary entry. Interest and fees already added stay: the bank charged them. */
+export async function deleteCardPlan(db: DB, id: string): Promise<void> {
+  await db.exec('DELETE FROM card_plans WHERE id = ?', [id]);
+}
+
+/**
+ * Pay off what's left early: the next statement on or after `on` bills it all,
+ * and no more interest is added. A settlement charge, if any, goes on the card that day.
+ */
+export async function settleCardPlan(db: DB, plan: CardPlanInfo, on: string, charge: number): Promise<void> {
+  await db.exec('UPDATE card_plans SET settled_on = ?, settle_fee_minor = ? WHERE id = ?', [on, charge || null, plan.id]);
+  if (charge > 0) {
+    const categoryId = await partCategory(db, 'fee');
+    await db.exec(
+      `INSERT OR IGNORE INTO transactions (id, account_id, category_id, amount_minor, kind, occurred_on, note, created_at)
+       VALUES (?, ?, ?, ?, 'expense', ?, ?, ?)`,
+      [`plan:${plan.id}:settle`, plan.card_id, categoryId, -charge, on, `Early settlement · ${label(plan)}`, nowIso()],
+    );
+  }
+}
+
+const label = (plan: Pick<CardPlanInfo, 'tx_note' | 'card_name'>) => plan.tx_note?.trim() || `${plan.card_name} instalments`;
+
+/**
+ * Adds each statement's interest (and the first statement's fee) to the card,
+ * once the statement has closed. Runs on every open; ids are made from the plan
+ * and the statement, so two devices adding the same entry write the same row,
+ * and billed_through means one deleted by hand doesn't come back. Writes
+ * nothing once caught up.
+ */
+export async function materializeCardPlans(db: DB, today: string = toDateString()): Promise<void> {
+  const plans = await listCardPlans(db);
+  let interestCat: string | null = null;
+  let feeCat: string | null = null;
+  for (const plan of plans) {
+    const due = planSchedule(plan, plan.statement_day).filter(
+      (i) => i.statement <= today && i.statement > plan.billed_through,
+    );
+    if (due.length === 0) continue;
+    const name = label(plan);
+    // Categories first: making one writes outside the transaction below.
+    if (due.some((i) => i.interest > 0)) interestCat ??= await partCategory(db, 'interest');
+    if (due.some((i) => i.fee > 0)) feeCat ??= await partCategory(db, 'fee');
+    const rows: [string, string, number, string, string][] = [];
+    for (const i of due) {
+      if (i.interest > 0) {
+        rows.push([`plan:${plan.id}:${i.statement}:interest`, interestCat!, i.interest, i.statement, `Interest ${i.n}/${plan.months} · ${name}`]);
+      }
+      if (i.fee > 0) rows.push([`plan:${plan.id}:${i.statement}:fee`, feeCat!, i.fee, i.statement, `Processing fee · ${name}`]);
+    }
+    await db.tx(async (tx) => {
+      for (const [id, categoryId, amount, on, note] of rows) {
+        await tx.exec(
+          `INSERT OR IGNORE INTO transactions (id, account_id, category_id, amount_minor, kind, occurred_on, note, created_at)
+           VALUES (?, ?, ?, ?, 'expense', ?, ?, ?)`,
+          [id, plan.card_id, categoryId, -amount, on, note, nowIso()],
+        );
+      }
+      await tx.exec('UPDATE card_plans SET billed_through = ? WHERE id = ?', [due[due.length - 1].statement, plan.id]);
+    });
+  }
+}

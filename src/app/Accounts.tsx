@@ -44,7 +44,7 @@ import {
 import { getLoanStats, loanTerms, type LoanStats } from '@/db/queries/loans';
 import { LoanPaymentModal } from './LoanPaymentModal';
 import { TransferModal, type TransferDraft } from './TransferModal';
-import { billNote, dueText, payDraft, useCardBills } from './CardBills';
+import { billNote, dueText, payDraft, useCardBills, useCardPlanTotals } from './CardBills';
 import type { CardBill } from '@/features/creditCards/statementEngine';
 import { getSavedOrder, ORDER_OPTIONS, saveOrder, useSortedAccounts, type AccountOrder } from '@/components/accountOrder';
 
@@ -95,6 +95,7 @@ export function Accounts() {
   const [payingCard, setPayingCard] = useState<TransferDraft | null>(null);
   const billsQuery = useCardBills();
   const bills = useMemo(() => new Map((billsQuery.data ?? []).map((b) => [b.account.id, b])), [billsQuery.data]);
+  const planTotals = useCardPlanTotals().data ?? new Map<string, { count: number; left: number }>();
 
   const accounts = useMemo(() => accountsQuery.data ?? [], [accountsQuery.data]);
   const archived = accounts.filter((a) => a.archived_at);
@@ -186,7 +187,8 @@ export function Accounts() {
                 paid={paidOnLoans.get(acct.id)}
                 onPay={() => setPayingLoan(acct.id)}
                 bill={bills.get(acct.id)}
-                onPayBill={() => setPayingCard(payDraft(acct, accounts))}
+                onPayBill={() => setPayingCard(payDraft(acct, accounts, bills.get(acct.id)))}
+                plans={planTotals.get(acct.id)}
               />
             ))}
           </div>
@@ -247,9 +249,11 @@ interface AccountCardProps {
   /** A card's latest bill, when it owed money at its statement. */
   bill?: CardBill;
   onPayBill: () => void;
+  /** Instalment plans on a card still billing. */
+  plans?: { count: number; left: number };
 }
 
-function AccountCard({ account, balanceMinor, onEdit, showType, paid, onPay, bill, onPayBill }: AccountCardProps) {
+function AccountCard({ account, balanceMinor, onEdit, showType, paid, onPay, bill, onPayBill, plans }: AccountCardProps) {
   // A loan with its terms filled in gets the loan view. Without them (say, a
   // debt between friends brought over from Monefy) it's a plain balance, which
   // may run either way.
@@ -329,7 +333,14 @@ function AccountCard({ account, balanceMinor, onEdit, showType, paid, onPay, bil
           </div>
         ) : bill ? (
           <div className="mt-2 text-xs text-slate-500">{billNote(bill)}</div>
-        ) : account.type === 'credit_card' && !account.statement_day ? (
+        ) : null}
+        {plans && (
+          <div className="mt-1 text-xs text-slate-500">
+            {plans.count === 1 ? '1 instalment plan' : `${plans.count} instalment plans`} ·{' '}
+            {formatMoney(plans.left, account.currency)} still to be billed
+          </div>
+        )}
+        {bill ? null : account.type === 'credit_card' && !account.statement_day ? (
           <div className="mt-2 text-xs text-slate-500">Add its statement day to be reminded of unpaid bills</div>
         ) : account.type === 'credit_card' && account.due_day && (
           <div className="mt-2 text-xs text-slate-500">

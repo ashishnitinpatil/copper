@@ -1,0 +1,109 @@
+import { test, expect, type Page } from '@playwright/test';
+import { appSql, resetAndLoad, waitForDB } from './helpers';
+
+// A card with its statement on the 3rd, due on the 18th, paid from Cash.
+async function cardWithSpending(page: Page) {
+  await resetAndLoad(page, '/dashboard');
+  const [[cash]] = (await appSql(page, "SELECT id FROM accounts WHERE name = 'Cash'")) as string[][];
+  await appSql(
+    page,
+    `INSERT INTO accounts (id, name, type, currency, opening_balance_minor, statement_day, due_day, pay_from_account_id, starts_on, created_at)
+     VALUES ('card', 'Mashreq', 'credit_card', 'INR', 0, 3, 18, ?, '2026-01-01', '2026-01-01')`,
+    [cash],
+  );
+  for (const [id, amount, on, note] of [
+    ['laptop', -1_200_000, '2026-10-20', 'Laptop'],
+    ['food', -100_000, '2026-10-25', 'Groceries run'],
+  ] as const) {
+    await appSql(
+      page,
+      "INSERT INTO transactions (id, account_id, amount_minor, kind, occurred_on, note, created_at) VALUES (?, 'card', ?, 'expense', ?, ?, ?)",
+      [id, amount, on, note, on],
+    );
+  }
+  return cash;
+}
+
+test.describe('Card instalment plans', () => {
+  test('a purchase paid in instalments: the bill asks only for this month’s share', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-11-12T09:00:00'));
+    await cardWithSpending(page);
+    await page.reload();
+    await waitForDB(page);
+    const reminder = page.locator('div', { has: page.getByRole('heading', { name: 'Card bill to pay' }) }).last();
+    await expect(reminder).toContainText('13,000.00 on the');
+
+    await page.goto('/transactions');
+    await waitForDB(page);
+    await page.locator('main li', { hasText: 'Laptop' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit transaction' });
+    await dialog.getByRole('button', { name: 'Pay in instalments…' }).click();
+    await expect(dialog.getByLabel('Amount converted')).toHaveValue('12000');
+    await dialog.getByLabel('Months').fill('12');
+    await expect(dialog.getByText('₹1,000.00 a month · no interest')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Start plan' }).click();
+    await expect(dialog.getByText('Instalments · 1 of 12 billed')).toBeVisible();
+    await expect(dialog.getByText('₹11,000.00')).toBeVisible();
+
+    // 1,000 of other spending + the first 1,000 instalment.
+    await page.goto('/dashboard');
+    await waitForDB(page);
+    await expect(reminder).toContainText('2,000.00 on the');
+    await page.goto('/accounts');
+    await waitForDB(page);
+    await expect(page.getByText('1 instalment plan · ₹11,000.00 still to be billed')).toBeVisible();
+  });
+
+  test('a loan on the card: monthly interest goes on the card each statement, the fee once; settling ends it', async ({
+    page,
+  }) => {
+    await page.clock.setFixedTime(new Date('2026-11-12T09:00:00'));
+    const cash = await cardWithSpending(page);
+    // 4,800 out of the card into Cash on 5 Nov.
+    await appSql(
+      page,
+      `INSERT INTO transactions (id, account_id, amount_minor, kind, transfer_peer_id, occurred_on, note, created_at) VALUES
+       ('loanOut', 'card', -480000, 'transfer', 'loanIn', '2026-11-05', 'Loan on card', '2026-11-05'),
+       ('loanIn', ?, 480000, 'transfer', 'loanOut', '2026-11-05', 'Loan on card', '2026-11-05')`,
+      [cash],
+    );
+    await page.goto('/transactions');
+    await waitForDB(page);
+    await page.locator('main li', { hasText: 'Loan on card' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit transfer' });
+    await dialog.getByRole('button', { name: 'Pay in instalments…' }).click();
+    await dialog.getByLabel('Months').fill('48');
+    await dialog.getByLabel('Interest rate (%)').fill('0.89');
+    await dialog.getByLabel('Processing fee').fill('105');
+    // 0.89% a month on what's left, over 48 months.
+    await expect(dialog.getByText(/₹123\.31 a month/)).toBeVisible();
+    await dialog.getByRole('button', { name: 'Start plan' }).click();
+    await expect(dialog.getByText('Instalments · 0 of 48 billed')).toBeVisible();
+
+    // After the 3 Dec statement: its interest (0.89% of 4,800) and the fee are on the card.
+    await page.clock.setFixedTime(new Date('2026-12-10T09:00:00'));
+    await page.reload();
+    await waitForDB(page);
+    await page.waitForFunction(() => !!(window as { __copperDb?: unknown }).__copperDb);
+    const added = (await appSql(
+      page,
+      "SELECT amount_minor, occurred_on FROM transactions WHERE account_id = 'card' AND id LIKE 'plan:%' ORDER BY amount_minor",
+    )) as [number, string][];
+    expect(added).toEqual([
+      [-10500, '2026-12-03'],
+      [-4272, '2026-12-03'],
+    ]);
+    // Opening again adds nothing more.
+    await page.reload();
+    await waitForDB(page);
+    await page.waitForFunction(() => !!(window as { __copperDb?: unknown }).__copperDb);
+    expect(await appSql(page, "SELECT count(*) FROM transactions WHERE id LIKE 'plan:%'")).toEqual([[2]]);
+
+    await page.locator('main li', { hasText: 'Mashreq → Cash' }).click();
+    await dialog.getByRole('button', { name: 'Settle the rest…' }).click();
+    await dialog.getByLabel('Settlement charge').fill('50');
+    await dialog.getByRole('button', { name: 'Settle', exact: true }).click();
+    await expect(dialog.getByText('Instalments · settled')).toBeVisible();
+    expect(await appSql(page, "SELECT amount_minor FROM transactions WHERE id LIKE 'plan:%:settle'")).toEqual([[-5000]]);
+  });
+});

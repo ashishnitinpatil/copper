@@ -76,6 +76,29 @@ CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category_id);
 CREATE INDEX IF NOT EXISTS idx_tx_recurring ON transactions(recurring_id);
 CREATE INDEX IF NOT EXISTS idx_tx_payment_of ON transactions(payment_of);
 
+-- Part of a credit card's balance paid back in monthly instalments (an EPP,
+-- or a loan on the card): one card entry (a purchase, or the card's leg of a
+-- transfer out) whose principal each statement bills a share of, with interest.
+-- rate_bp is yearly (a monthly rate × 12). billed_through is the last statement
+-- whose interest entry was added. Settling early bills what's left at once.
+CREATE TABLE IF NOT EXISTS card_plans (
+  id               TEXT NOT NULL PRIMARY KEY DEFAULT '',
+  card_id          TEXT NOT NULL DEFAULT '',
+  transaction_id   TEXT NOT NULL DEFAULT '',
+  principal_minor  INTEGER NOT NULL DEFAULT 0,
+  months           INTEGER NOT NULL DEFAULT 1,
+  rate_bp          INTEGER NOT NULL DEFAULT 0,
+  method           TEXT NOT NULL DEFAULT 'reducing',
+  fee_minor        INTEGER NOT NULL DEFAULT 0,
+  first_statement  TEXT NOT NULL DEFAULT '',
+  billed_through   TEXT NOT NULL DEFAULT '',
+  created_at       TEXT NOT NULL DEFAULT '',
+  settled_on       TEXT,
+  settle_fee_minor INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_card_plans_card ON card_plans(card_id);
+
 CREATE TABLE IF NOT EXISTS recurring_rules (
   id            TEXT NOT NULL PRIMARY KEY DEFAULT '',
   template_json TEXT NOT NULL DEFAULT '',
@@ -203,4 +226,5 @@ SELECT crsql_as_crr('review_flags');
 SELECT crsql_as_crr('change_log');
 SELECT crsql_as_crr('devices');
 SELECT crsql_as_crr('themes');
+SELECT crsql_as_crr('card_plans');
 `;

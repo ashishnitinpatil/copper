@@ -36,7 +36,8 @@ test.describe('Card bills', () => {
     const reminder = page.locator('div', { has: page.getByRole('heading', { name: 'Card bill to pay' }) }).last();
     await expect(reminder).toContainText('Regalia');
     await expect(reminder).toContainText('Due in 6 days');
-    await expect(reminder).toContainText('No payment yet for the');
+    // What the statement asked for: owed when it closed (the refund came after).
+    await expect(reminder).toContainText(/2,500\.00 on the .+ statement · no payment yet/);
     await expect(reminder).not.toContainText('Amex');
 
     // Pay opens a transfer from the card's pay-from account into the card.
@@ -44,6 +45,7 @@ test.describe('Card bills', () => {
     const dialog = page.getByRole('dialog', { name: 'New transfer' });
     await expect(dialog.getByRole('button', { name: 'From' })).toContainText('Cash');
     await expect(dialog.getByRole('button', { name: 'To' })).toContainText('Regalia');
+    await expect(dialog.getByRole('textbox', { name: 'Amount' })).toHaveValue('2500');
     await dialog.getByRole('textbox', { name: 'Amount' }).fill('2200');
     await dialog.getByRole('button', { name: 'Transfer', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Card bill to pay' })).toHaveCount(0);
@@ -103,7 +105,7 @@ test.describe('Card bills', () => {
     await expect(page.getByRole('region', { name: 'December 2026' })).toBeVisible();
     // Opens on the first day with something on it: the card bill.
     await expect(page.getByText('Regalia bill due')).toBeVisible();
-    await expect(page.getByText('Amount on your statement')).toBeVisible();
+    await expect(page.getByText('₹1,000.00 to pay')).toBeVisible();
 
     const rentDay = page.getByRole('button', { name: /^(November 20|20 November), 1 item$/ });
     await expect(rentDay).toContainText('−');

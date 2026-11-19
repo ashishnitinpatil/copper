@@ -8,6 +8,7 @@ export const BACKUP_TABLES = [
   'categories',
   'transactions',
   'recurring_rules',
+  'card_plans',
   'budgets',
   'review_flags',
   'tags',

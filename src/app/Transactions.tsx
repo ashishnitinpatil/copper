@@ -35,6 +35,7 @@ import {
 } from '@/db/queries/tags';
 import { TagChip, TagPicker } from '@/components/ui/TagPicker';
 import { EntityHistory } from './Activity';
+import { InstalmentPlanSection } from './InstalmentPlanSection';
 import { TransferModal } from './TransferModal';
 import { NoteSuggestions, usePastNotes } from '@/components/NoteSuggestions';
 import { suggestNotes } from '@/lib/noteSuggestions';
@@ -986,6 +987,19 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
             <TagPicker tags={tags} selected={tagIds} onToggle={toggleTag} />
           </div>
         )}
+        {(() => {
+          // Saved as a purchase on a card: it can be paid back in instalments.
+          const card = accounts.find((a) => a.id === existing.account_id);
+          if (card?.type !== 'credit_card' || existing.kind !== 'expense' || existing.amount_minor >= 0) return null;
+          return (
+            <InstalmentPlanSection
+              card={card}
+              transactionId={existing.id}
+              amount={-existing.amount_minor}
+              date={existing.occurred_on}
+            />
+          );
+        })()}
         <div className="flex items-center justify-between gap-2 pt-2">
           <Button variant="danger" size="sm" onClick={handleDelete} disabled={submitting}>
             Delete

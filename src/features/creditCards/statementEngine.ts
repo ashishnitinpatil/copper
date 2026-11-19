@@ -1,6 +1,8 @@
 import type { DB } from '@/db/wasm';
 import type { Account } from '@/db/types';
 import { toDateString } from '@/lib/dates';
+import { listCardPlans, type CardPlanInfo } from '@/db/queries/cardPlans';
+import { planSchedule, unbilledAfter } from './plans';
 
 export interface StatementInfo {
   account: Account;
@@ -24,6 +26,7 @@ export async function getCreditCardStatements(
   );
 
   const results: StatementInfo[] = [];
+  const plans = cards.length ? await listCardPlans(db) : [];
 
   for (const card of cards) {
     const stDay = card.statement_day!;
@@ -46,7 +49,11 @@ export async function getCreditCardStatements(
        FROM transactions WHERE account_id = ?`,
       [closed.cycleStart, closed.cycleEnd, open.cycleStart, open.cycleEnd, closedEnd, todayStr, card.id],
     );
-    const sums = rows[0] ?? { closed: 0, paid: 0, open: 0 };
+    const sums = { ...(rows[0] ?? { closed: 0, paid: 0, open: 0 }) };
+    // An entry paid in instalments bills one instalment a statement, not all at once.
+    const cardPlans = plans.filter((p) => p.card_id === card.id);
+    sums.closed += planCycleShare(cardPlans, closed.cycleStart, closed.cycleEnd, todayStr);
+    sums.open += planCycleShare(cardPlans, open.cycleStart, open.cycleEnd, todayStr);
     const closedBill = Math.max(0, sums.closed);
     // The closed statement stays up until payments cover it.
     const showClosed = closedBill > sums.paid;
@@ -72,6 +79,25 @@ export async function getCreditCardStatements(
   }
 
   return results;
+}
+
+/**
+ * How a cycle's bill differs from its entries because of instalment plans: an
+ * entry converted in the cycle is billed only in instalments (take its amount
+ * out), and each instalment the cycle's statement bills goes in — with its
+ * interest and fee while they're still to come (once added, they're entries).
+ */
+function planCycleShare(plans: CardPlanInfo[], start: string, end: string, today: string): number {
+  let share = 0;
+  for (const plan of plans) {
+    if (plan.tx_date >= start && plan.tx_date <= end) share -= plan.principal_minor;
+    for (const i of planSchedule(plan, plan.statement_day)) {
+      if (i.statement < start || i.statement > end) continue;
+      share += i.principal;
+      if (i.statement > today) share += i.interest + i.fee;
+    }
+  }
+  return share;
 }
 
 function getCycleDates(today: Date, statementDay: number): { cycleStart: string; cycleEnd: string } {
@@ -130,15 +156,21 @@ export interface CardBill {
   daysUntilDue: number | null;
   /** A payment (a transfer into the card) is recorded after the statement closed, by its due date. */
   paid: boolean;
+  /**
+   * What the statement asks for: the card's balance when it closed, less the
+   * part of instalment plans still to be billed. Right as long as every
+   * instalment plan on the card is recorded in Copper.
+   */
+  amount: number;
 }
 
 /**
- * Has each card's latest bill been paid? Deliberately not "how much": with
- * part of a bill turned into instalments (an EPP), what's due can't be told
- * from the entries. So a card has a bill when it owed money on the day its
- * statement closed, and it counts as paid once any transfer goes into it after
- * that day, up to the due date (one scheduled ahead counts too). Refunds and cashback don't count: they lower what's owed, but the
- * bank still expects a payment.
+ * Has each card's latest bill been paid, and what was it? A card has a bill
+ * when it owed money on the day its statement closed — less what instalment
+ * plans haven't billed yet — and it counts as paid once any transfer goes into
+ * it after that day, up to the due date (one scheduled ahead counts too).
+ * Refunds and cashback don't count: they lower what's owed, but the bank still
+ * expects a payment.
  */
 export async function getCardBills(db: DB, today: string = toDateString()): Promise<CardBill[]> {
   const todayDate = new Date(today + 'T00:00:00');
@@ -147,6 +179,7 @@ export async function getCardBills(db: DB, today: string = toDateString()): Prom
      ORDER BY name`,
   );
   const bills: CardBill[] = [];
+  const plans = cards.length ? await listCardPlans(db) : [];
   for (const card of cards) {
     const statementDate = dayBefore(getCycleDates(todayDate, card.statement_day!).cycleStart);
     const dueDate = card.due_day ? getNextDueDate(todayDate, statementDate, card.due_day) : null;
@@ -157,8 +190,14 @@ export async function getCardBills(db: DB, today: string = toDateString()): Prom
        FROM transactions WHERE account_id = ?`,
       [card.opening_balance_minor, statementDate, card.starts_on, card.starts_on, statementDate, payBy, card.id],
     );
-    if (!row || row.owed >= 0) continue;
+    if (!row) continue;
+    const notYetBilled = plans
+      .filter((p) => p.card_id === card.id && p.tx_date <= statementDate)
+      .reduce((sum, p) => sum + unbilledAfter(p, p.statement_day, statementDate), 0);
+    const amount = -row.owed - notYetBilled;
+    if (amount <= 0) continue;
     bills.push({
+      amount,
       account: card,
       statementDate,
       dueDate,

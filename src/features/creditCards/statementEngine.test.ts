@@ -36,9 +36,10 @@ function card(over: Partial<Account>): Account {
 
 type Sums = { closed?: number; paid?: number; open?: number };
 
-function fakeDB(cards: Account[], sumsById: Record<string, Sums> = {}): DB {
+function fakeDB(cards: Account[], sumsById: Record<string, Sums> = {}, plans: unknown[] = []): DB {
   return {
     execO: async (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM card_plans')) return plans;
       if (sql.includes('FROM accounts')) return cards as unknown[];
       const id = params?.[params.length - 1] as string;
       const s = sumsById[id] ?? {};
@@ -137,9 +138,10 @@ describe('getCreditCardStatements', () => {
 describe('getCardBills', () => {
   // Answers the bill query with what the card owed at the statement and how
   // many payments came after it, and notes the dates asked about.
-  function billDB(cards: Account[], owed: number, paid: number, asked: unknown[][] = []): DB {
+  function billDB(cards: Account[], owed: number, paid: number, asked: unknown[][] = [], plans: unknown[] = []): DB {
     return {
       execO: async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM card_plans')) return plans;
         if (sql.includes('FROM accounts')) return cards as unknown[];
         asked.push(params ?? []);
         return [{ owed, paid }];
@@ -189,5 +191,59 @@ describe('getCardBills', () => {
     ];
     const bills = await getCardBills(billDB(cards, -100, 0), '2026-11-12');
     expect(bills.map((b) => b.account.name)).toEqual(['Gamma', 'Delta', 'Alpha', 'Beta']);
+  });
+
+  // A 9,000 purchase on 20 Oct turned into 3 interest-free instalments of 3,000,
+  // the first on the 3 Nov statement. The card owed 10,000 when that closed.
+  const plan = {
+    id: 'p1',
+    card_id: 'cc1',
+    transaction_id: 't1',
+    principal_minor: 900_000,
+    months: 3,
+    rate_bp: 0,
+    method: 'reducing',
+    fee_minor: 0,
+    first_statement: '2026-11-03',
+    billed_through: '',
+    created_at: '',
+    settled_on: null,
+    settle_fee_minor: null,
+    statement_day: 3,
+    card_name: 'Card',
+    tx_date: '2026-10-20',
+    tx_note: null,
+    tx_amount: 900_000,
+  };
+
+  it('the bill is what the statement asks for: instalments not billed yet are left out', async () => {
+    const [bill] = await getCardBills(
+      billDB([card({ statement_day: 3, due_day: 18 })], -1_000_000, 0, [], [plan]),
+      '2026-11-12',
+    );
+    // 10,000 owed − 6,000 of the plan still to come = 1,000 of other spending + the first 3,000.
+    expect(bill.amount).toBe(400_000);
+  });
+
+  it('no bill when all that was owed is instalments still to come', async () => {
+    const later = { ...plan, first_statement: '2026-12-03' };
+    expect(await getCardBills(billDB([card({ statement_day: 3 })], -900_000, 0, [], [later]), '2026-11-12')).toEqual([]);
+  });
+});
+
+describe('getCreditCardStatements with instalment plans', () => {
+  it('a converted purchase counts only as the instalments its statements bill', async () => {
+    const plan = {
+      id: 'p1', card_id: 'cc1', transaction_id: 't1', principal_minor: 900_000, months: 3, rate_bp: 0,
+      method: 'reducing', fee_minor: 0, first_statement: '2026-11-03', billed_through: '', created_at: '',
+      settled_on: null, settle_fee_minor: null, statement_day: 3, card_name: 'Card', tx_date: '2026-10-20',
+      tx_note: null, tx_amount: 900_000,
+    };
+    // Closed cycle 4 Oct–3 Nov: 10,000 of charges, 9,000 of them the converted purchase.
+    const [s] = await getCreditCardStatements(
+      fakeDB([card({ statement_day: 3, due_day: 18 })], { cc1: { closed: 1_000_000 } }, [plan]),
+      '2026-11-12',
+    );
+    expect(s.statementBalance).toBe(400_000);
   });
 });

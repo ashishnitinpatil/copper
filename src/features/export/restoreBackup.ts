@@ -47,6 +47,7 @@ const ENTITY_TABLES = [
   'categories',
   'transactions',
   'recurring_rules',
+  'card_plans',
   'budgets',
   'tags',
   'review_flags',
@@ -83,6 +84,7 @@ const FOREIGN_KEYS: Record<string, Record<string, string>> = {
     recurring_id: 'recurring_rules',
   },
   budgets: { category_id: 'categories' },
+  card_plans: { card_id: 'accounts', transaction_id: 'transactions' },
   review_flags: { transaction_id: 'transactions', related_transaction_id: 'transactions' },
   transaction_tags: { transaction_id: 'transactions', tag_id: 'tags' },
 };
@@ -92,6 +94,7 @@ const FOREIGN_KEYS: Record<string, Record<string, string>> = {
 const REQUIRED_FKS: Record<string, string[]> = {
   transactions: ['account_id'],
   budgets: ['category_id'],
+  card_plans: ['card_id', 'transaction_id'],
   review_flags: ['transaction_id'],
   transaction_tags: ['transaction_id', 'tag_id'],
 };
