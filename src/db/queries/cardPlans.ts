@@ -3,6 +3,7 @@ import type { CardPlan } from '../types';
 import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
 import { interestUpfront, planSchedule, totalInterest } from '@/features/creditCards/plans';
+import { dueDateAfter, nextDueDate } from '@/features/loans/loanMath';
 import { partCategory } from './loans';
 
 /** A plan with what it's for: its card's statement day and the entry it converts. */
@@ -85,6 +86,54 @@ export async function updateCardPlan(
      WHERE id = ?`,
     [terms.principal_minor, terms.months, terms.rate_bp, terms.method, terms.fee_minor, terms.first_statement, id],
   );
+  await materializeCardPlans(db);
+}
+
+type TxFields = { account_id: string; amount_minor: number; occurred_on: string };
+
+/**
+ * The entry a plan converts was changed (edited, or an edit undone): the plan
+ * follows it. A plan of the whole amount takes the new amount; one of part of
+ * it is cut down only if the entry is now smaller. A new date moves the first
+ * instalment by as many statements as the date moved; another card takes the
+ * plan along. Interest and fees already on the card stay as they are.
+ */
+export async function followPlanTransaction(db: DB, transactionId: string, before: TxFields | null): Promise<void> {
+  if (!before) return;
+  const [plan] = await db.execO<CardPlan>('SELECT * FROM card_plans WHERE transaction_id = ?', [transactionId]);
+  if (!plan) return;
+  const [now] = await db.execO<TxFields>('SELECT account_id, amount_minor, occurred_on FROM transactions WHERE id = ?', [
+    transactionId,
+  ]);
+  if (!now) return;
+  const was = -before.amount_minor;
+  const amount = -now.amount_minor;
+  let principal = plan.principal_minor;
+  if (amount > 0 && amount !== was && (principal === was || principal > amount)) principal = amount;
+
+  let first = plan.first_statement;
+  if (now.occurred_on !== before.occurred_on || now.account_id !== before.account_id) {
+    const days = await db.execO<{ id: string; statement_day: number | null }>(
+      'SELECT id, statement_day FROM accounts WHERE id IN (?, ?)',
+      [before.account_id, now.account_id],
+    );
+    const oldDay = days.find((d) => d.id === before.account_id)?.statement_day;
+    const newDay = days.find((d) => d.id === now.account_id)?.statement_day;
+    if (oldDay && newDay) {
+      // Which statement after the entry it starts on (0: the first one).
+      const start = nextDueDate(before.occurred_on, oldDay);
+      let n = 0;
+      while (n < 120 && dueDateAfter(start, n, oldDay) < plan.first_statement) n++;
+      first = dueDateAfter(nextDueDate(now.occurred_on, newDay), n, newDay);
+    }
+  }
+  if (principal === plan.principal_minor && first === plan.first_statement && now.account_id === plan.card_id) return;
+  await db.exec('UPDATE card_plans SET principal_minor = ?, first_statement = ?, card_id = ? WHERE id = ?', [
+    principal,
+    first,
+    now.account_id,
+    plan.id,
+  ]);
   await materializeCardPlans(db);
 }
 

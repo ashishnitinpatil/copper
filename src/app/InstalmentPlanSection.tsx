@@ -237,6 +237,10 @@ function PlanForm({
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-slate-400">
+        The whole amount stays on the card as this one entry; no entries are added for the instalments. Each bill
+        just asks for that month’s share. Change this entry later and the plan follows it.
+      </p>
       <div className="grid grid-cols-2 gap-3">
         <Input
           label="Amount converted"

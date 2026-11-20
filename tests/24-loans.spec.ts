@@ -20,7 +20,10 @@ async function createLoan(page: Page, opts: { autopay?: boolean } = {}) {
   await expect(page.getByText(/12% reducing ≈ 6\.\d+% flat/)).toBeVisible();
   await page.getByLabel('Payment day').fill('15');
   await selectCombobox(page, 'Paid from', 'Cash');
-  if (opts.autopay) await page.getByLabel('Add each payment automatically on its day').check();
+  if (opts.autopay) {
+    await page.getByLabel('Add each payment automatically on its day').check();
+    await expect(page.getByText('Earlier payments aren’t filled in')).toBeVisible();
+  }
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(loanCard(page)).toBeVisible();

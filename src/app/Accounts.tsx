@@ -1057,6 +1057,12 @@ function LoanTermsFields({
         />
         Add each payment automatically on its day
       </label>
+      {form.loan_autopay && canAutopay && (
+        <p className="-mt-1 pl-6 text-xs text-slate-400">
+          Starts from the day it’s switched on. Earlier payments aren’t filled in: add any that aren’t in Copper yet with{' '}
+          <span className="font-medium text-slate-300">Record payment</span> on the loan.
+        </p>
+      )}
     </div>
   );
 }

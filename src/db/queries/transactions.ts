@@ -6,6 +6,7 @@ import { logCreate, logUpdate, logDelete, newBatchId, snapshotEntity } from '../
 import { fuzzyScore } from '@/lib/fuzzy';
 import { parseAmount, getCurrency } from '@/lib/money';
 import type { PastNote } from '@/lib/noteSuggestions';
+import { followPlanTransaction } from './cardPlans';
 
 export interface TransactionInput {
   account_id: string;
@@ -199,6 +200,7 @@ export async function updateTransaction(
     ],
   );
   await logUpdate(db, 'transaction', id, before);
+  await followPlanTransaction(db, id, before as Transaction | null);
 }
 
 export async function deleteTransaction(db: DB, id: string): Promise<void> {
@@ -517,6 +519,7 @@ export async function updateTransfer(db: DB, id: string, input: TransferInput): 
   const batchId = newBatchId();
   await logUpdate(db, 'transaction', legs.from.id, beforeFrom, { batchId, source: 'transfer' });
   await logUpdate(db, 'transaction', legs.to.id, beforeTo, { batchId, source: 'transfer' });
+  await followPlanTransaction(db, legs.from.id, legs.from);
 }
 
 export async function createTransfer(db: DB, input: TransferInput): Promise<[string, string]> {

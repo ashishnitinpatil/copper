@@ -4,6 +4,7 @@ import { ENTITY_TABLE, newBatchId, recordChange } from '@/db/changeLog';
 import { listAccounts } from '@/db/queries/accounts';
 import { listCategories } from '@/db/queries/categories';
 import { listTags } from '@/db/queries/tags';
+import { followPlanTransaction } from '@/db/queries/cardPlans';
 import { nowIso } from '@/lib/dates';
 import { describeEntry, describeGroup, parseDiff, type Lookups } from '@/features/activity/describe';
 
@@ -134,6 +135,8 @@ export async function undoLast(db: DB, defaultCurrency: string): Promise<UndoRes
   const batchId = newBatchId();
   const log = { batchId, source: 'undo' };
   let conflict = false;
+  // Entries put back to how they were: what they were just before, for an instalment plan to follow.
+  const reverted: { id: string; before: Row }[] = [];
 
   await db.tx(async (tx) => {
     const opts = { ...log, exec: tx };
@@ -223,6 +226,9 @@ export async function undoLast(db: DB, defaultCurrency: string): Promise<UndoRes
           }
         }
         if (Object.keys(back).length > 0) {
+          if (r.entity === 'transaction') {
+            reverted.push({ id: r.entity_id, before: { ...now, ...Object.fromEntries(Object.entries(back).map(([k, c]) => [k, c.old])) } });
+          }
           await recordChange(db, r.entity, r.entity_id, 'update', { changes: back }, opts);
         }
       }
@@ -238,6 +244,9 @@ export async function undoLast(db: DB, defaultCurrency: string): Promise<UndoRes
     return { ok: false, reason: 'That has been changed again since, so it can’t be undone. Edit it directly instead.' };
   }
   for (const r of rows) undone.add(groupKey(r));
+  for (const { id, before } of reverted) {
+    await followPlanTransaction(db, id, before as Parameters<typeof followPlanTransaction>[2]);
+  }
   return { ok: true, text };
 }
 

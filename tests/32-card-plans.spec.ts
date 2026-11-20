@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { appSql, resetAndLoad, waitForDB } from './helpers';
+import { APP_DB, appSql, resetAndLoad, waitForDB } from './helpers';
 
 // A card with its statement on the 3rd, due on the 18th, paid from Cash.
 async function cardWithSpending(page: Page) {
@@ -134,5 +134,61 @@ test.describe('Card instalment plans', () => {
     await waitForDB(page);
     const reminder = page.locator('div', { has: page.getByRole('heading', { name: 'Card bill to pay' }) }).last();
     await expect(reminder).toContainText('2,120.00 on the');
+  });
+
+  test('the plan follows its entry: a new amount, a new date, and undo', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-11-12T09:00:00'));
+    await cardWithSpending(page);
+    await page.goto('/transactions');
+    await waitForDB(page);
+    await page.locator('main li', { hasText: 'Laptop' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit transaction' });
+    await dialog.getByRole('button', { name: 'Pay in instalments…' }).click();
+    await expect(dialog.getByText('no entries are added for the instalments')).toBeVisible();
+    await dialog.getByLabel('Months').fill('12');
+    await dialog.getByRole('button', { name: 'Start plan' }).click();
+    await expect(dialog.getByText('Instalments · 1 of 12 billed')).toBeVisible();
+    const plan = () => appSql(page, 'SELECT principal_minor, first_statement FROM card_plans');
+    expect(await plan()).toEqual([[1_200_000, '2026-11-03']]);
+
+    // The bank's figure was 9,000: the plan of the whole amount takes it.
+    await dialog.getByLabel('Amount', { exact: true }).fill('9000');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(plan).toEqual([[900_000, '2026-11-03']]);
+
+    // A month later: the first instalment moves a statement on with it.
+    await page.evaluate(async (appDb) => {
+      const db = await eval(appDb)();
+      const { updateTransaction } = await import('/src/db/queries/transactions.ts');
+      await updateTransaction(db, 'laptop', {
+        account_id: 'card',
+        category_id: null,
+        amount_minor: 900_000,
+        kind: 'expense',
+        occurred_on: '2026-11-20',
+        note: 'Laptop',
+      });
+    }, APP_DB);
+    expect(await plan()).toEqual([[900_000, '2026-12-03']]);
+
+    // Undo puts the date, and the plan, back.
+    await page.locator('body').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('Control+z');
+    await expect(page.getByRole('status')).toContainText('Undone');
+    await expect.poll(plan).toEqual([[900_000, '2026-11-03']]);
+
+    // A plan of part of an entry keeps its amount, unless the entry drops below it.
+    await appSql(page, 'UPDATE card_plans SET principal_minor = 500000');
+    await page.locator('main li', { hasText: 'Laptop' }).click();
+    await dialog.getByLabel('Amount', { exact: true }).fill('8000');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(plan).toEqual([[500_000, '2026-11-03']]);
+    await page.locator('main li', { hasText: 'Laptop' }).click();
+    await dialog.getByLabel('Amount', { exact: true }).fill('4000');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(plan).toEqual([[400_000, '2026-11-03']]);
   });
 });

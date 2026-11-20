@@ -78,6 +78,8 @@ export async function mergeCategory(db: DB, sourceId: string, targetId: string):
     sourceId,
   ]);
   for (const row of txns) await logUpdate(db, 'transaction', row.id, asRow(row), opts);
+  // Instalment plans on its entries go with them.
+  await db.exec('UPDATE card_plans SET card_id = ? WHERE card_id = ?', [targetId, sourceId]);
 
   // The target keeps its own budget; one of the source's for the same period
   // would count the same spending twice, so it goes.
