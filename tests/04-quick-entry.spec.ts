@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAndLoad, waitForDB } from './helpers';
+import { appSql, resetAndLoad, waitForDB } from './helpers';
 
 test.describe('Quick Entry', () => {
   test.beforeEach(async ({ page }) => {
@@ -102,8 +102,10 @@ test.describe('Quick Entry', () => {
       .getByRole('radiogroup', { name: 'Order categories' })
       .locator('xpath=following-sibling::div[1]')
       .getByRole('button');
-    const names = async () => (await tiles.allTextContents()).map((t) => t.replace(/^[^A-Za-z]+/, '').trim());
-    const az = await names();
+    const names = async () =>
+      (await tiles.allTextContents()).map((t) => t.replace('Last used', '').replace(/^[^A-Za-z]+/, '').trim());
+    // A–Z, after the one used last.
+    const az = (await names()).slice(1);
     expect(az).toEqual([...az].sort((a, b) => a.localeCompare(b)));
 
     for (let i = 0; i < 2; i++) {
@@ -118,6 +120,53 @@ test.describe('Quick Entry', () => {
     await waitForDB(page);
     await expect(page.getByRole('radio', { name: 'Most used' })).toHaveAttribute('aria-checked', 'true');
     await expect(tiles.first()).toContainText('Transport');
+  });
+
+  test('the category used last comes first; a category with subcategories opens them', async ({ page }) => {
+    const [[food]] = (await appSql(page, "SELECT id FROM categories WHERE name = 'Food & Dining'")) as string[][];
+    await appSql(
+      page,
+      `INSERT INTO categories (id, parent_id, name, kind, icon, color, sort_order, created_at)
+       VALUES ('snacks', ?, 'Snacks', 'expense', '🍿', '#f59e0b', 99, '2026-01-01')`,
+      [food],
+    );
+    const tiles = page
+      .getByRole('radiogroup', { name: 'Order categories' })
+      .locator('xpath=following-sibling::div[1]')
+      .getByRole('button');
+
+    await page.getByRole('button', { name: '5', exact: true }).click();
+    await page.getByRole('button', { name: /Transport/ }).click();
+    await expect(page.getByText(/✓ Transport/)).toBeVisible();
+    await expect(tiles.first()).toContainText('Transport');
+    await expect(tiles.first()).toContainText('Last used');
+
+    // Food & Dining has Snacks under it: tapping it offers both.
+    await page.getByRole('button', { name: '8', exact: true }).click();
+    await page.getByRole('button', { name: /Food & Dining ›/ }).click();
+    await expect(page.getByText('Food & Dining, or one under it')).toBeVisible();
+    await page.getByRole('button', { name: /Snacks/ }).click();
+    await expect(page.getByText('✓ Snacks  ₹8.00')).toBeVisible();
+    expect(await appSql(page, "SELECT count(*) FROM transactions WHERE category_id = 'snacks'")).toEqual([[1]]);
+
+    // Back to all of them, Snacks first (saying what it's under), in either order.
+    await expect(tiles.first()).toContainText('Snacks');
+    await expect(tiles.first()).toContainText('Food & Dining');
+    await page.getByRole('radio', { name: 'Most used' }).click();
+    await expect(tiles.first()).toContainText('Snacks');
+
+    // The parent itself can still be picked.
+    await page.getByRole('button', { name: '3', exact: true }).click();
+    await page.getByRole('button', { name: /Food & Dining ›/ }).click();
+    await page.getByRole('button', { name: /^\W*Food & Dining$/ }).click();
+    await expect(page.getByText('✓ Food & Dining  ₹3.00')).toBeVisible();
+
+    // Search finds subcategories by name.
+    await page.keyboard.type('4');
+    const search = page.getByRole('searchbox', { name: 'Search categories' });
+    await search.fill('snac');
+    await search.press('Enter');
+    await expect(page.getByText('✓ Snacks  ₹4.00')).toBeVisible();
   });
 
   test('backspace removes last digit', async ({ page }) => {

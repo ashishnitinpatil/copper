@@ -11,7 +11,7 @@ import { useDB } from '@/db/DBProvider';
 import { prefetchQuery, useQuery } from '@/db/useQuery';
 import type { DB } from '@/db/wasm';
 import { getAccountBalances, listAccounts } from '@/db/queries/accounts';
-import { categoryUsage, listCategories } from '@/db/queries/categories';
+import { categoryUsage, listCategories, recentCategories } from '@/db/queries/categories';
 import { createTransaction, createTransfer, deleteTransaction, listPastNotes } from '@/db/queries/transactions';
 import { suggestNotes } from '@/lib/noteSuggestions';
 import { fuzzyScore } from '@/lib/fuzzy';
@@ -42,7 +42,12 @@ const CATEGORY_ORDER_KEY = 'copper-category-order';
 // "Most used" counts the last half year, so old habits fade.
 const USAGE_DAYS = 182;
 
+/** A category tile; a subcategory shown on its own says what it's under. */
+type Tile = Category & { under?: string };
+
 const usageSince = () => toDateString(addDays(new Date(), -USAGE_DAYS));
+// "Used last" looks at entries dated in the last three months.
+const recentSince = () => toDateString(addDays(new Date(), -90));
 
 /**
  * Read what this page shows into the query cache (same keys as below), so the
@@ -54,6 +59,7 @@ export function warmAddPage(db: DB) {
   prefetchQuery(db, 'account-balances', (d) => getAccountBalances(d));
   prefetchQuery(db, 'categories', (d) => listCategories(d));
   prefetchQuery(db, 'category-usage', (d) => categoryUsage(d, usageSince()));
+  prefetchQuery(db, 'recent-categories', (d) => recentCategories(d, recentSince()));
   prefetchQuery(db, 'tags', (d) => listTags(d));
   prefetchQuery(db, 'past-notes:expense', (d) => listPastNotes(d, 'expense'));
 }
@@ -94,6 +100,8 @@ export function QuickEntry() {
   const [search, setSearch] = useState('');
   const [flash, setFlash] = useState<Saved | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
+  // A category with subcategories, opened to pick one of them.
+  const [openParent, setOpenParent] = useState<string | null>(null);
   const flashTimer = useRef<number | null>(null);
   const savedTimer = useRef<number | null>(null);
 
@@ -127,6 +135,10 @@ export function QuickEntry() {
   const usageState = useQuery<Map<string, number>>(
     useCallback((d) => categoryUsage(d, usageSince()), []),
     { deps: ['transactions'], cacheKey: 'category-usage' },
+  );
+  const recentState = useQuery<string[]>(
+    useCallback((d) => recentCategories(d, recentSince()), []),
+    { deps: ['transactions'], cacheKey: 'recent-categories' },
   );
   const tagsState = useQuery<Tag[]>(
     useCallback((d) => listTags(d), []),
@@ -170,35 +182,95 @@ export function QuickEntry() {
   const meta = getCurrency(currency);
   const options = useMemo(() => accountOptions(accounts, balances, 'md'), [accounts, balances]);
 
-  const topLevel = useMemo(() => allCategories.filter((c) => !c.parent_id), [allCategories]);
-  const filteredCategories = useMemo(() => {
-    const byName = (a: Category, b: Category) => a.name.localeCompare(b.name);
-    const shown = topLevel.filter((c) => c.kind === mode).sort(byName);
-    if (order === 'az') return shown;
-    // A subcategory's entries count towards the tile it sits under.
-    const parentOf = new Map(allCategories.map((c) => [c.id, c.parent_id ?? c.id]));
-    const uses = new Map<string, number>();
-    for (const [id, n] of usageState.data ?? []) {
-      const top = parentOf.get(id) ?? id;
-      uses.set(top, (uses.get(top) ?? 0) + n);
+  const byId = useMemo(() => new Map(allCategories.map((c) => [c.id, c])), [allCategories]);
+  // A subcategory whose parent was archived stands on its own.
+  const topLevel = useMemo(
+    () => allCategories.filter((c) => !c.parent_id || !byId.has(c.parent_id)),
+    [allCategories, byId],
+  );
+  const childrenOf = useMemo(() => {
+    const map = new Map<string, Category[]>();
+    for (const c of allCategories) {
+      if (c.parent_id && byId.has(c.parent_id)) map.set(c.parent_id, [...(map.get(c.parent_id) ?? []), c]);
     }
-    return shown.sort((a, b) => (uses.get(b.id) ?? 0) - (uses.get(a.id) ?? 0) || byName(a, b));
-  }, [topLevel, allCategories, mode, order, usageState.data]);
-  const searched = useMemo(() => {
+    return map;
+  }, [allCategories, byId]);
+  // Everything under a category, A–Z, each named with the levels between ("Food › Snacks").
+  const subcategoriesOf = useCallback(
+    (id: string): Tile[] => {
+      const out: Tile[] = [];
+      const walk = (parentId: string, prefix: string) => {
+        for (const c of [...(childrenOf.get(parentId) ?? [])].sort((a, b) => a.name.localeCompare(b.name))) {
+          out.push({ ...c, under: prefix || undefined });
+          walk(c.id, prefix ? `${prefix} › ${c.name}` : c.name);
+        }
+      };
+      walk(id, '');
+      return out;
+    },
+    [childrenOf],
+  );
+  const underName = useCallback(
+    (c: Category) => {
+      const names: string[] = [];
+      for (let p = c.parent_id && byId.get(c.parent_id); p && names.length < 64; p = p.parent_id && byId.get(p.parent_id)) {
+        names.unshift(p.name);
+      }
+      return names.join(' › ') || undefined;
+    },
+    [byId],
+  );
+  // The category of the last entry added by hand, first in either order, so
+  // the same again is one tap.
+  const lastUsedId = useMemo(
+    () => (recentState.data ?? []).find((id) => byId.get(id)?.kind === mode) ?? null,
+    [recentState.data, byId, mode],
+  );
+  const filteredCategories = useMemo((): Tile[] => {
+    const byName = (a: Category, b: Category) => a.name.localeCompare(b.name);
+    const shown: Tile[] = topLevel.filter((c) => c.kind === mode).sort(byName);
+    if (order === 'used') {
+      // A subcategory's entries count towards the tile it sits under.
+      const topOf = (id: string) => {
+        let c = byId.get(id);
+        for (let n = 0; c?.parent_id && byId.has(c.parent_id) && n < 64; n++) c = byId.get(c.parent_id);
+        return c?.id ?? id;
+      };
+      const uses = new Map<string, number>();
+      for (const [id, n] of usageState.data ?? []) {
+        const top = topOf(id);
+        uses.set(top, (uses.get(top) ?? 0) + n);
+      }
+      shown.sort((a, b) => (uses.get(b.id) ?? 0) - (uses.get(a.id) ?? 0) || byName(a, b));
+    }
+    const last = lastUsedId ? byId.get(lastUsedId) : undefined;
+    if (!last) return shown;
+    const at = shown.findIndex((c) => c.id === last.id);
+    // A subcategory gets its own tile up front; its parent keeps its place.
+    const first: Tile = at >= 0 ? shown.splice(at, 1)[0] : { ...last, under: underName(last) };
+    return [first, ...shown];
+  }, [topLevel, byId, mode, order, usageState.data, lastUsedId, underName]);
+  const searched = useMemo((): Tile[] => {
     const q = search.trim();
     if (!q) return filteredCategories;
-    return filteredCategories
+    // Subcategories are found by name too.
+    const seen = new Set(filteredCategories.map((c) => c.id));
+    const subs = allCategories
+      .filter((c) => c.kind === mode && !seen.has(c.id))
+      .map((c): Tile => ({ ...c, under: underName(c) }));
+    return [...filteredCategories, ...subs]
       .map((c) => ({ c, score: fuzzyScore(q, c.name) }))
       .filter((m) => m.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((m) => m.c);
-  }, [filteredCategories, search]);
+  }, [filteredCategories, allCategories, mode, underName, search]);
   // Reserve grid space for whichever mode has more categories so switching
   // expense/income never grows or shrinks the panel — no layout shift.
   const reserveCount = useMemo(() => {
     const expense = topLevel.filter((c) => c.kind === 'expense').length;
     const income = topLevel.filter((c) => c.kind === 'income').length;
-    return Math.max(expense, income);
+    // One more for a last-used subcategory's tile.
+    return Math.max(expense, income) + 1;
   }, [topLevel]);
 
   // The keypad can do sums ("120+35"); the amount is the answer, to the currency's decimals.
@@ -258,6 +330,7 @@ export function QuickEntry() {
     setRaw('0');
     setNote('');
     setSearch('');
+    setOpenParent(null);
     setReceivedInput('');
     setReceivedTouched(false);
     // Long enough to notice and reach for Undo on a phone.
@@ -291,7 +364,7 @@ export function QuickEntry() {
     if (!canCommit || !account || mode === 'transfer') return;
     setCommitting(true);
     try {
-      const cat = filteredCategories.find((c) => c.id === categoryId);
+      const cat = byId.get(categoryId);
       const amountLabel = `${cat?.name ?? 'Saved'}  ${formatMoney(minor!, currency)}`;
       if (repeat) {
         // A repeating entry is a recurring rule starting on the chosen date;
@@ -384,7 +457,12 @@ export function QuickEntry() {
   // panel keeps its height steady between expense and income, until a search
   // narrows it.
   const categoryGrid = (desktop: boolean) => {
-    const shown = desktop ? searched : filteredCategories;
+    const parent = openParent ? byId.get(openParent) : undefined;
+    const shown: Tile[] = parent
+      ? [{ ...parent, under: undefined }, ...subcategoriesOf(parent.id)]
+      : desktop
+        ? searched
+        : filteredCategories;
     const grid = desktop ? 'grid grid-cols-5 gap-2 xl:grid-cols-6' : 'grid grid-cols-3 gap-3 sm:grid-cols-4';
     return categoriesState.data === null && !categoriesState.error ? (
       // Still opening the book: placeholders, not "no categories yet".
@@ -400,6 +478,18 @@ export function QuickEntry() {
       </div>
     ) : (
       <>
+      {parent ? (
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => setOpenParent(null)}
+            className="rounded-full px-2.5 py-1 font-medium text-slate-400 hover:text-slate-100"
+          >
+            ‹ All categories
+          </button>
+          <span className="text-slate-500">{parent.name}, or one under it</span>
+        </div>
+      ) : (
       <div role="radiogroup" aria-label="Order categories" className="flex justify-end gap-1 text-xs">
         {(
           [
@@ -421,6 +511,7 @@ export function QuickEntry() {
           </button>
         ))}
       </div>
+      )}
       <div className={grid}>
         {shown.length === 0 && (
           <div className="col-span-full rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-500">
@@ -433,13 +524,18 @@ export function QuickEntry() {
           // even though the amount has reset to 0 (which dims the rest).
           const dim = !canCommit && !saved;
           const usual = c.id === lastCategoryId && !saved;
+          const last = !parent && c.id === lastUsedId && !saved && !usual;
+          // A tile with subcategories opens them; inside, every tile saves.
+          const subs = !parent && (childrenOf.get(c.id)?.length ?? 0) > 0;
           return (
             <button
               key={c.id}
               type="button"
               disabled={!canCommit}
-              onClick={() => commit(c.id)}
-              aria-description={usual ? 'Used with this note last time' : undefined}
+              onClick={() => (subs ? setOpenParent(c.id) : commit(c.id))}
+              aria-description={
+                usual ? 'Used with this note last time' : last ? 'Used last' : subs ? 'Has subcategories' : undefined
+              }
               className={`group relative flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center transition active:scale-[0.97] enabled:hover:-translate-y-0.5 enabled:hover:bg-slate-800 disabled:cursor-not-allowed ${
                 saved
                   ? 'border-mint-400 bg-mint-500/10 ring-2 ring-mint-400/50'
@@ -451,6 +547,7 @@ export function QuickEntry() {
               {usual && (
                 <span className="absolute inset-x-0 top-1.5 text-[10px] font-medium text-brand-400">Last time</span>
               )}
+              {last && <span className="absolute inset-x-0 top-1.5 text-[10px] font-medium text-slate-500">Last used</span>}
               {saved && (
                 <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-mint-500 text-xs font-bold text-slate-950">
                   ✓
@@ -463,7 +560,11 @@ export function QuickEntry() {
                 size={desktop ? 'md' : 'lg'}
                 className={`transition group-hover:scale-105 ${saved ? 'motion-safe:animate-coin-pop' : ''}`}
               />
-              <div className="line-clamp-2 text-xs font-medium text-slate-200">{c.name}</div>
+              <div className="line-clamp-2 text-xs font-medium text-slate-200">
+                {c.name}
+                {subs && <span className="text-slate-500"> ›</span>}
+              </div>
+              {c.under && <div className="-mt-1.5 line-clamp-1 text-[10px] text-slate-500">{c.under}</div>}
             </button>
           );
         })}
@@ -520,7 +621,10 @@ export function QuickEntry() {
                 type="button"
                 role="tab"
                 aria-selected={mode === m}
-                onClick={() => setMode(m)}
+                onClick={() => {
+                  setMode(m);
+                  setOpenParent(null);
+                }}
                 className={`flex-1 rounded-md py-1.5 text-sm font-medium transition ${
                   mode === m ? `${tone.tab} text-slate-950 shadow-sm` : 'text-slate-400 hover:text-slate-200'
                 }`}
@@ -747,7 +851,10 @@ export function QuickEntry() {
             <input
               type="search"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setOpenParent(null);
+              }}
               onKeyDown={(e) => {
                 // Enter saves to the best match, so an entry needs no mouse at all.
                 if (e.key === 'Enter' && search.trim() && searched[0]) void commit(searched[0].id);
@@ -764,7 +871,10 @@ export function QuickEntry() {
 
       <Modal
         open={picking && mode !== 'transfer'}
-        onClose={() => setPicking(false)}
+        onClose={() => {
+          setPicking(false);
+          setOpenParent(null);
+        }}
         title={minor ? `${formatMoney(minor, currency)} · choose a category` : 'Choose a category'}
       >
         {categoryGrid(false)}

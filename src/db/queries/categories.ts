@@ -35,6 +35,24 @@ export async function categoryUsage(db: DB, since: string): Promise<Map<string, 
   return new Map(rows);
 }
 
+/**
+ * The categories of the latest entries someone added by hand, newest first.
+ * Entries added for them (recurring, loan payments, card plan interest) don't
+ * count: they'd put "Loan interest" first every morning.
+ */
+export async function recentCategories(db: DB, since: string): Promise<string[]> {
+  // Dated since `since` (the last few months), so the date index keeps it
+  // quick on a big book; the "+"s keep SQLite on that index.
+  const rows = await db.execA<[string]>(
+    `SELECT category_id FROM transactions
+     WHERE occurred_on >= ? AND +category_id IS NOT NULL AND +recurring_id IS NULL AND +payment_of IS NULL
+       AND id NOT LIKE 'plan:%'
+     ORDER BY created_at DESC, occurred_on DESC LIMIT 50`,
+    [since],
+  );
+  return rows.map(([id]) => id);
+}
+
 export function getDescendantIds(categories: Category[], id: string): Set<string> {
   const childrenBy = new Map<string, string[]>();
   for (const c of categories) {
@@ -129,4 +147,11 @@ export async function archiveCategory(db: DB, id: string): Promise<void> {
   const before = await snapshotEntity(db, 'category', id);
   await db.exec('UPDATE categories SET archived_at = ? WHERE id = ?', [nowIso(), id]);
   await logUpdate(db, 'category', id, before);
+}
+
+/** Every category named with what it's under ("Food › Snacks"), A–Z by that, so each sits below its parent. */
+export function categoryPaths<T extends Category>(categories: T[]): (T & { path: string })[] {
+  return categories
+    .map((c) => ({ ...c, path: buildCategoryPath(categories, c.id) }))
+    .sort((a, b) => a.path.localeCompare(b.path));
 }

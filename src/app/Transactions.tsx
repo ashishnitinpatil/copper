@@ -15,7 +15,7 @@ import { CategoryCoin } from '@/components/ui/CategoryCoin';
 import { useDB } from '@/db/DBProvider';
 import { useQuery } from '@/db/useQuery';
 import { getAccountFlows, getDailyBalances, listAccounts } from '@/db/queries/accounts';
-import { listCategories } from '@/db/queries/categories';
+import { categoryPaths, listCategories } from '@/db/queries/categories';
 import {
   bulkDeleteTransactions,
   bulkSetCategory,
@@ -505,9 +505,9 @@ export function Transactions() {
               value={filters.categoryId}
               onChange={(v) => setFilters((f) => ({ ...f, categoryId: v }))}
               emptyOption={{ value: '', label: 'All' }}
-              options={(categoriesQuery.data ?? []).map((c) => ({
+              options={categoryPaths(categoriesQuery.data ?? []).map((c) => ({
                 value: c.id,
-                label: c.name,
+                label: c.path,
                 icon: <Glyph icon={c.icon} className="h-4 w-4 text-slate-400" />,
               }))}
             />
@@ -815,9 +815,9 @@ function RecategorizeModal({ open, count, categories, onApply, onClose }: Recate
           value={categoryId}
           onChange={setCategoryId}
           placeholder="Choose a category…"
-          options={categories.map((c) => ({
+          options={categoryPaths(categories).map((c) => ({
             value: c.id,
-            label: c.name,
+            label: c.path,
             icon: <Glyph icon={c.icon} className="h-4 w-4 text-slate-400" />,
           }))}
         />
@@ -967,11 +967,11 @@ function EditTransactionModal({ open, existing, accounts, categories, tags, onCl
           value={form.category_id}
           onChange={(v) => setForm((f) => ({ ...f, category_id: v }))}
           emptyOption={{ value: '', label: '— None —' }}
-          options={categories
+          options={categoryPaths(categories)
             .filter((c) => c.kind === form.kind)
             .map((c) => ({
               value: c.id,
-              label: c.name,
+              label: c.path,
               icon: <Glyph icon={c.icon} className="h-4 w-4 text-slate-400" />,
             }))}
         />
