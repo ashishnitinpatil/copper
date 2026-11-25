@@ -75,7 +75,11 @@ export function ForecastCalendar({ entries, bills, currency, end }: Props) {
   }, [entries]);
 
   const firstBusy = [...days.keys()].filter((d) => d >= today).sort()[0];
-  const [selected, setSelected] = useState<string>(firstBusy ?? today);
+  // Opens on the first day with something on it. The forecast and the card
+  // bills load separately, so that day isn't known until both are in: follow
+  // it until a day is tapped.
+  const [tapped, setSelected] = useState<string | null>(null);
+  const selected = tapped ?? firstBusy ?? today;
 
   const months = useMemo(() => {
     const out: { year: number; month: number }[] = [];
