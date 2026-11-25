@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowDownUp, Repeat } from 'lucide-react';
 import { PageShell } from './PageShell';
@@ -496,9 +496,14 @@ export function QuickEntry() {
             ['az', 'A–Z'],
             ['used', 'Most used'],
           ] as const
-        ).map(([value, label]) => (
+        ).map(([value, label], i) => (
+          <Fragment key={value}>
+          {i > 0 && (
+            <span aria-hidden className="self-center text-slate-700">
+              |
+            </span>
+          )}
           <button
-            key={value}
             type="button"
             role="radio"
             aria-checked={order === value}
@@ -509,6 +514,7 @@ export function QuickEntry() {
           >
             {label}
           </button>
+          </Fragment>
         ))}
       </div>
       )}
@@ -602,6 +608,9 @@ export function QuickEntry() {
           >
             Add several
           </button>
+          <span aria-hidden className="text-sm text-slate-700">
+            |
+          </span>
           <button
             type="button"
             onClick={() => navigate('/transactions')}
