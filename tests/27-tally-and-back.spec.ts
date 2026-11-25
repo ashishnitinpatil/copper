@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { appSql, resetAndLoad, waitForDB } from './helpers';
+import { appSql, resetAndLoad, waitForDB, reloadAfterWrites } from './helpers';
 
 test.describe('One account’s transactions', () => {
   test('each day shows the balance it ended on, and the filter survives leaving the page', async ({ page }) => {
@@ -18,7 +18,7 @@ test.describe('One account’s transactions', () => {
     await add('c', 30000, '2026-11-09');
 
     // From the account's card.
-    await page.reload();
+    await reloadAfterWrites(page);
     await waitForDB(page);
     await page.locator('div.rounded-xl', { hasText: 'Cash' }).first().getByRole('link', { name: 'Transactions →' }).click();
     await expect(page).toHaveURL(/\/transactions\?account=/);

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { appSql, resetAndLoad, waitForDB } from './helpers';
+import { appSql, reloadAfterWrites, resetAndLoad, waitForDB } from './helpers';
 
 // A device that's signed in and syncing (faked: a saved session, a book id,
 // and Drive answering 404) gets two clear ways to erase.
@@ -21,7 +21,7 @@ async function syncedDevice(page: Page) {
     );
   });
   await appSql(page, "INSERT INTO meta (key, value) VALUES ('sync.book_file_id', 'book-1') ON CONFLICT(key) DO UPDATE SET value = excluded.value");
-  await page.reload();
+  await reloadAfterWrites(page);
   await waitForDB(page);
   await page.getByRole('tab', { name: 'Your data' }).click();
   await page.getByRole('button', { name: 'Erase…' }).click();

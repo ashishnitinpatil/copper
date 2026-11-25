@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { APP_DB, appSql, resetAndLoad, waitForDB } from './helpers';
+import { APP_DB, appSql, resetAndLoad, waitForDB, reloadAfterWrites } from './helpers';
 
 // A card with its statement on the 3rd, due on the 18th, paid from Cash.
 async function cardWithSpending(page: Page) {
@@ -21,6 +21,8 @@ async function cardWithSpending(page: Page) {
       [id, amount, on, note, on],
     );
   }
+  await reloadAfterWrites(page);
+  await waitForDB(page);
   return cash;
 }
 
@@ -28,7 +30,7 @@ test.describe('Card instalment plans', () => {
   test('a purchase paid in instalments: the bill asks only for this month’s share', async ({ page }) => {
     await page.clock.setFixedTime(new Date('2026-11-12T09:00:00'));
     await cardWithSpending(page);
-    await page.reload();
+    await reloadAfterWrites(page);
     await waitForDB(page);
     const reminder = page.locator('div', { has: page.getByRole('heading', { name: 'Card bill to pay' }) }).last();
     await expect(reminder).toContainText('13,000.00 on the');
@@ -67,7 +69,7 @@ test.describe('Card instalment plans', () => {
        ('loanIn', ?, 480000, 'transfer', 'loanOut', '2026-11-05', 'Loan on card', '2026-11-05')`,
       [cash],
     );
-    await page.goto('/transactions');
+    await reloadAfterWrites(page, '/transactions');
     await waitForDB(page);
     await page.locator('main li', { hasText: 'Loan on card' }).click();
     const dialog = page.getByRole('dialog', { name: 'Edit transfer' });
@@ -82,7 +84,7 @@ test.describe('Card instalment plans', () => {
 
     // After the 3 Dec statement: its interest (0.89% of 4,800) and the fee are on the card.
     await page.clock.setFixedTime(new Date('2026-12-10T09:00:00'));
-    await page.reload();
+    await reloadAfterWrites(page);
     await waitForDB(page);
     await page.waitForFunction(() => !!(window as { __copperDb?: unknown }).__copperDb);
     const added = (await appSql(
@@ -94,7 +96,7 @@ test.describe('Card instalment plans', () => {
       [-4272, '2026-12-03'],
     ]);
     // Opening again adds nothing more.
-    await page.reload();
+    await reloadAfterWrites(page);
     await waitForDB(page);
     await page.waitForFunction(() => !!(window as { __copperDb?: unknown }).__copperDb);
     expect(await appSql(page, "SELECT count(*) FROM transactions WHERE id LIKE 'plan:%'")).toEqual([[2]]);
@@ -180,6 +182,8 @@ test.describe('Card instalment plans', () => {
 
     // A plan of part of an entry keeps its amount, unless the entry drops below it.
     await appSql(page, 'UPDATE card_plans SET principal_minor = 500000');
+    // The list catches up with the undo (the entry leaves Upcoming).
+    await expect(page.locator('main li', { hasText: 'Laptop' })).toHaveCount(1);
     await page.locator('main li', { hasText: 'Laptop' }).click();
     await dialog.getByLabel('Amount', { exact: true }).fill('8000');
     await dialog.getByRole('button', { name: 'Save' }).click();

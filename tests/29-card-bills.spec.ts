@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { appSql, resetAndLoad, waitForDB } from './helpers';
+import { appSql, resetAndLoad, waitForDB, reloadAfterWrites } from './helpers';
 
 test.describe('Card bills', () => {
   test('an unpaid statement is a reminder until a payment goes in; refunds don’t count', async ({ page }) => {
@@ -30,7 +30,7 @@ test.describe('Card bills', () => {
         [id, 'card', amount, kind, on, on],
       );
     }
-    await page.reload();
+    await reloadAfterWrites(page);
     await waitForDB(page);
 
     const reminder = page.locator('div', { has: page.getByRole('heading', { name: 'Card bill to pay' }) }).last();
@@ -67,7 +67,7 @@ test.describe('Card bills', () => {
       `INSERT INTO accounts (id, name, type, currency, opening_balance_minor, statement_day, due_day, starts_on, created_at)
        VALUES ('card', 'Regalia', 'credit_card', 'INR', -100000, 3, 18, '2026-01-01', '2026-01-01')`,
     );
-    await page.reload();
+    await reloadAfterWrites(page);
     await waitForDB(page);
     await expect(page.getByText('2 days overdue')).toBeVisible();
     await page.goto('/accounts');
@@ -99,7 +99,7 @@ test.describe('Card bills', () => {
       "INSERT INTO transactions (id, account_id, amount_minor, kind, occurred_on, note, created_at) VALUES ('rent', ?, -1250000, 'expense', '2026-11-20', 'Rent', '2026-11-12')",
       [cash],
     );
-    await page.reload();
+    await reloadAfterWrites(page);
     await waitForDB(page);
 
     await page.getByRole('button', { name: 'Calendar' }).click();
@@ -116,7 +116,7 @@ test.describe('Card bills', () => {
     await expect(page.getByText('Balance after:')).toBeVisible();
 
     // Remembered on this device.
-    await page.reload();
+    await reloadAfterWrites(page);
     await waitForDB(page);
     await expect(page.getByRole('button', { name: 'Calendar' })).toHaveAttribute('aria-pressed', 'true');
   });

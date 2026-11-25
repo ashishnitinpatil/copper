@@ -221,6 +221,6 @@ test.describe('Quick Entry on a phone', () => {
 
     await expect(sheet).toHaveCount(0);
     await expect(page.getByText(/✓ Food & Dining/)).toBeVisible();
-    await expect(page.locator('main').getByText('₹0')).toBeVisible();
+    await expect(page.locator('main').getByText('₹0', { exact: true })).toBeVisible();
   });
 });

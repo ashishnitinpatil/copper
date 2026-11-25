@@ -108,3 +108,21 @@ export async function appSql(page: Page, sql: string, params: unknown[] = []): P
     [APP_DB, sql, params] as const,
   );
 }
+
+/**
+ * Reload (or go to `path`) after writing straight to the database (appSql): close it first, so
+ * those writes are stored before the page goes. A plain reload can beat the
+ * last write to storage and come back without it.
+ */
+export async function reloadAfterWrites(page: Page, path?: string) {
+  await page.evaluate(async () => {
+    // Close and open again, as the app does before reloading after a restore:
+    // opening waits until the earlier writes are in storage.
+    const { closeDB, openDB } = await import('/src/db/client.ts');
+    await closeDB();
+    await openDB();
+  });
+  if (path) await page.goto(path);
+  else await page.reload();
+  await page.waitForFunction(() => !!(window as { __copperDb?: unknown }).__copperDb);
+}
