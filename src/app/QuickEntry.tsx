@@ -102,6 +102,9 @@ export function QuickEntry() {
   const [savedId, setSavedId] = useState<string | null>(null);
   // A category with subcategories, opened to pick one of them.
   const [openParent, setOpenParent] = useState<string | null>(null);
+  // Times the amount was tapped: each one lights the keypad up, since the
+  // amount itself takes no typing.
+  const [nudge, setNudge] = useState(0);
   const flashTimer = useRef<number | null>(null);
   const savedTimer = useRef<number | null>(null);
 
@@ -691,7 +694,10 @@ export function QuickEntry() {
           )}
 
           {/* The account is picked just above; the amount box shows only the amount. */}
-          <div className={`rounded-2xl border bg-slate-900/70 px-5 py-3 text-right sm:p-5 shadow-inner ${tone.border}`}>
+          <div
+            onClick={() => setNudge((n) => n + 1)}
+            className={`cursor-pointer rounded-2xl border bg-slate-900/70 px-5 py-3 text-right sm:p-5 shadow-inner ${tone.border}`}
+          >
             <div
               className={`flex items-baseline justify-end font-display font-semibold tabular-nums ${
                 raw.length > 9 ? 'text-3xl sm:text-4xl' : 'text-5xl sm:text-6xl'
@@ -751,13 +757,15 @@ export function QuickEntry() {
             )}
           </div>
           <div className="grid grid-cols-4 gap-2">
-            {KEYS.map((k) => (
+            {KEYS.map((k, i) => (
               <button
-                key={k}
+                key={`${k}-${nudge}`}
                 type="button"
                 onClick={() => press(k)}
                 aria-label={OPERATOR_NAMES[k]}
-                className={`select-none rounded-xl py-2.5 text-xl font-medium sm:py-4 transition-[transform,background-color] duration-100 active:scale-90 ${
+                // A quick ripple across the keys, row by row.
+                style={nudge ? { animationDelay: `${Math.floor(i / 4) * 40 + (i % 4) * 20}ms` } : undefined}
+                className={`${nudge ? 'motion-safe:animate-key-nudge' : ''} select-none rounded-xl py-2.5 text-xl font-medium sm:py-4 transition-[transform,background-color] duration-100 active:scale-90 ${
                   isOperator(k)
                     ? 'bg-slate-800 font-semibold text-brand-400 hover:bg-slate-700 active:bg-slate-700'
                     : `bg-slate-800 hover:bg-slate-700 active:bg-slate-700 ${k === '.' || k === '⌫' ? 'text-slate-400' : 'text-slate-50'}`

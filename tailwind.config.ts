@@ -43,6 +43,11 @@ export default {
           '55%': { transform: 'scale(1.035)' },
           '100%': { transform: 'scale(1)' },
         },
+        // Tapping the amount (it takes no typing) points at the keypad instead.
+        'key-nudge': {
+          '0%, 100%': { boxShadow: '0 0 0 0 rgb(var(--b-400) / 0)' },
+          '35%': { boxShadow: '0 0 0 2px rgb(var(--b-400) / 0.75)', transform: 'scale(1.04)' },
+        },
         // The tapped category coin acknowledges the save.
         'coin-pop': {
           '0%': { transform: 'scale(1)' },
@@ -65,6 +70,7 @@ export default {
       animation: {
         'amount-pop': 'amount-pop 180ms ease-out',
         'coin-pop': 'coin-pop 320ms ease-out',
+        'key-nudge': 'key-nudge 450ms ease-out both',
         'snack-in': 'snack-in 220ms cubic-bezier(0.16, 1, 0.3, 1)',
         'progress-slide': 'progress-slide 1.1s ease-in-out infinite',
         'loading-breathe': 'loading-breathe 1.8s ease-in-out infinite',

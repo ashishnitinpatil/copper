@@ -169,6 +169,14 @@ test.describe('Quick Entry', () => {
     await expect(page.getByText('✓ Snacks  ₹4.00')).toBeVisible();
   });
 
+  test('tapping the amount points at the keypad', async ({ page }) => {
+    const seven = page.getByRole('button', { name: '7', exact: true });
+    await expect(seven).not.toHaveClass(/animate-key-nudge/);
+    await page.locator('main').getByText('0', { exact: true }).first().click();
+    await expect(seven).toHaveClass(/animate-key-nudge/);
+    expect(await seven.evaluate((el) => getComputedStyle(el).animationName)).toBe('key-nudge');
+  });
+
   test('backspace removes last digit', async ({ page }) => {
     await page.getByRole('button', { name: '1', exact: true }).click();
     await page.getByRole('button', { name: '2', exact: true }).click();
