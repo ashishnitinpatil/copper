@@ -3,6 +3,7 @@ import type { Account } from '@/db/types';
 import { toDateString } from '@/lib/dates';
 import { listCardPlans, type CardPlanInfo } from '@/db/queries/cardPlans';
 import { interestUpfront, planSchedule, totalInterest, unbilledAfter } from './plans';
+import { dueDateAfter } from '@/features/loans/loanMath';
 
 export interface StatementInfo {
   account: Account;
@@ -217,4 +218,22 @@ export async function getCardBills(db: DB, today: string = toDateString()): Prom
     (a, b) =>
       (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') || a.account.name.localeCompare(b.account.name),
   );
+}
+
+/**
+ * A statement named by the months its spending fell in, as people write it on
+ * the payment: "August - September statement" for one closing on 23 Sep, or
+ * "September statement" when the cycle is (all but a few days of) one month.
+ */
+export function statementName(statementDate: string, statementDay: number): string {
+  const end = new Date(statementDate + 'T00:00:00');
+  const start = new Date(dueDateAfter(statementDate, -1, statementDay) + 'T00:00:00');
+  start.setDate(start.getDate() + 1);
+  const month = (d: Date) => d.toLocaleDateString(undefined, { month: 'long' });
+  const lastOfStart = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+  // A few days at either end don't make it a two-month statement.
+  const FEW = 3;
+  if (start.getMonth() === end.getMonth() || end.getDate() <= FEW) return `${month(start)} statement`;
+  if (lastOfStart - start.getDate() + 1 <= FEW) return `${month(end)} statement`;
+  return `${month(start)} - ${month(end)} statement`;
 }

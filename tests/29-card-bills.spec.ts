@@ -46,6 +46,8 @@ test.describe('Card bills', () => {
     await expect(dialog.getByRole('button', { name: 'From' })).toContainText('Cash');
     await expect(dialog.getByRole('button', { name: 'To' })).toContainText('Regalia');
     await expect(dialog.getByRole('textbox', { name: 'Amount' })).toHaveValue('2500');
+    // Named by the months it covers (4 Oct – 3 Nov), as people write it.
+    await expect(dialog.getByRole('textbox', { name: 'Note' })).toHaveValue('October statement');
     await dialog.getByRole('textbox', { name: 'Amount' }).fill('2200');
     await dialog.getByRole('button', { name: 'Transfer', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Card bill to pay' })).toHaveCount(0);

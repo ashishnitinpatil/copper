@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { AccountGlyph } from '@/components/accountOptions';
 import { useQuery } from '@/db/useQuery';
 import type { Account } from '@/db/types';
-import { getCardBills, type CardBill } from '@/features/creditCards/statementEngine';
+import { getCardBills, statementName, type CardBill } from '@/features/creditCards/statementEngine';
 import { listCardPlans } from '@/db/queries/cardPlans';
 import { unbilledAfter } from '@/features/creditCards/plans';
 import { parseDateString, toDateString } from '@/lib/dates';
@@ -62,7 +62,8 @@ export function payDraft(card: Account, accounts: Account[], bill?: CardBill): T
   return {
     fromId: from?.id ?? '',
     toId: card.id,
-    note: `${card.name} bill`,
+    // Named like people write it on the payment: "August - September statement".
+    note: bill && card.statement_day ? statementName(bill.statementDate, card.statement_day) : `${card.name} bill`,
     ...(bill && !bill.paid && from?.currency === card.currency ? { amountMinor: bill.amount } : {}),
   };
 }

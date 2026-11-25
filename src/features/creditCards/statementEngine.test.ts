@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCardBills, getCreditCardStatements } from './statementEngine';
+import { getCardBills, getCreditCardStatements, statementName } from './statementEngine';
 import type { DB } from '@/db/wasm';
 import type { Account } from '@/db/types';
 
@@ -245,5 +245,19 @@ describe('getCreditCardStatements with instalment plans', () => {
       '2026-11-12',
     );
     expect(s.statementBalance).toBe(400_000);
+  });
+});
+
+describe('statementName', () => {
+  it('names a cycle across two months by both', () => {
+    expect(statementName('2026-09-23', 23)).toBe('August - September statement');
+    expect(statementName('2026-01-15', 15)).toBe('December - January statement');
+  });
+  it('names a cycle that is (nearly) one month by that month', () => {
+    expect(statementName('2026-10-01', 1)).toBe('September statement');
+    expect(statementName('2026-09-30', 30)).toBe('September statement');
+    expect(statementName('2026-11-30', 31)).toBe('November statement');
+    expect(statementName('2026-02-28', 28)).toBe('February statement');
+    expect(statementName('2026-10-03', 3)).toBe('September statement');
   });
 });
