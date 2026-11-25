@@ -10,7 +10,11 @@
       // :root (no attribute), every other theme sets data-theme on <html>.
       (function () {
         try {
-          var t = localStorage.getItem('et-theme') || 'copper';
+          // Following the device's light/dark setting: its pick wins.
+          var a = JSON.parse(localStorage.getItem('et-theme-auto') || 'null');
+          var t = a
+            ? (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? a.dark : a.light)
+            : localStorage.getItem('et-theme') || 'copper';
           var root = document.documentElement;
           if (t.indexOf('custom:') === 0) {
             // A theme made in Settings: its colours are cached alongside.

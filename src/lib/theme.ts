@@ -57,14 +57,67 @@ export const THEMES: {
 ];
 
 const KEY = 'et-theme';
+// Set when the theme follows the device's light/dark setting: which theme for each.
+const AUTO_KEY = 'et-theme-auto';
 // The active custom theme's colours, so index.html can paint it before the
 // book (where custom themes live) has opened.
 const CUSTOM_KEY = 'et-theme-custom';
 const CHANGED = 'copper-theme-changed';
 const VALID = new Set<string>(['copper', 'warm', 'slate', 'monokai', 'daylight', 'classic']);
 
+export interface AutoTheme {
+  light: ThemeId;
+  dark: ThemeId;
+}
+
+const DARK_QUERY = '(prefers-color-scheme: dark)';
+const deviceIsDark = () => typeof matchMedia === 'function' && matchMedia(DARK_QUERY).matches;
+
+/** The pair of themes the device's light/dark setting picks between, when it does. */
+export function getAutoTheme(): AutoTheme | null {
+  try {
+    const a = JSON.parse(localStorage.getItem(AUTO_KEY) ?? 'null');
+    if (a && VALID.has(a.light) && VALID.has(a.dark)) return a;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** A sensible pair to start from: the current theme in its own slot, Copper and Warm Ledger otherwise. */
+export function defaultAutoTheme(): AutoTheme {
+  const current = THEMES.find((t) => t.id === getTheme());
+  return {
+    light: current?.mode === 'Light' ? current.id : 'copper',
+    dark: current?.mode === 'Dark' ? current.id : 'warm',
+  };
+}
+
+/** Follow the device's light/dark setting with this pair, or stop (keeping what's showing). */
+export function setAutoTheme(auto: AutoTheme | null) {
+  try {
+    if (auto) localStorage.setItem(AUTO_KEY, JSON.stringify(auto));
+    else localStorage.removeItem(AUTO_KEY);
+  } catch {
+    /* ignore */
+  }
+  if (auto) applyTheme(deviceIsDark() ? auto.dark : auto.light);
+  else window.dispatchEvent(new Event(CHANGED));
+}
+
+/** Switch along with the device when it goes light or dark. Call once at startup. */
+export function followDevice() {
+  if (typeof matchMedia !== 'function') return;
+  matchMedia(DARK_QUERY).addEventListener('change', () => {
+    const auto = getAutoTheme();
+    if (auto) applyTheme(deviceIsDark() ? auto.dark : auto.light);
+  });
+}
+
 /** What this device shows: a built-in theme id, or `custom:<theme id>`. */
 export function getTheme(): string {
+  const auto = getAutoTheme();
+  if (auto) return deviceIsDark() ? auto.dark : auto.light;
   try {
     const t = localStorage.getItem(KEY);
     if (t && (VALID.has(t) || (t.startsWith('custom:') && localStorage.getItem(CUSTOM_KEY)))) return t;
@@ -128,4 +181,15 @@ export function useTheme() {
     return () => window.removeEventListener(CHANGED, sync);
   }, []);
   return theme;
+}
+
+/** The light/dark pair this device follows, or null; kept up to date. */
+export function useAutoTheme() {
+  const [auto, set] = useState(() => getAutoTheme());
+  useEffect(() => {
+    const sync = () => set(getAutoTheme());
+    window.addEventListener(CHANGED, sync);
+    return () => window.removeEventListener(CHANGED, sync);
+  }, []);
+  return auto;
 }

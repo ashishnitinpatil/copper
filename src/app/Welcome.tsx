@@ -13,6 +13,7 @@ import { parseBackup, restoreBackup } from '@/features/export/restoreBackup';
 import { decryptBackup, isEncryptedBackup, type EncryptedBackup } from '@/features/export/crypto';
 import type { BackupFile } from '@/features/export/exportData';
 import { closeDB, openDB, requestLocalReset } from '@/db/client';
+import { THEMES, applyTheme, defaultAutoTheme, setAutoTheme, useAutoTheme, useTheme } from '@/lib/theme';
 import { useAuth } from '@/auth/AuthProvider';
 import { isPickerConfigured } from '@/sync/googlePicker';
 import { stashJoinTarget } from '@/sync/joinFresh';
@@ -552,6 +553,7 @@ export function Welcome() {
                 We guessed this from your device. You can change it later in Settings, and each
                 account can still use a different currency.
               </p>
+              <LookPicker />
               <div className="flex items-center justify-between">
                 {auth.googleConfigured ? (
                   <Button variant="ghost" onClick={() => setMode(auth.google ? 'cloud' : 'choose')}>
@@ -628,6 +630,55 @@ export function Welcome() {
           {' · '}
           <Link to="/terms" className="underline hover:text-slate-400">Terms</Link>
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * An optional first touch of making Copper yours: tap a look to try it on.
+ * Everything here is also in Settings › Appearance.
+ */
+function LookPicker() {
+  const theme = useTheme();
+  const auto = useAutoTheme();
+  const chip = (active: boolean) =>
+    `flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+      active ? 'border-brand-400 text-slate-50' : 'border-slate-700 text-slate-400 hover:text-slate-200'
+    }`;
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs font-medium text-slate-400">Look (optional)</div>
+      <div role="radiogroup" aria-label="Look" className="flex flex-wrap gap-1.5">
+        {THEMES.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="radio"
+            aria-checked={!auto && theme === t.id}
+            onClick={() => {
+              setAutoTheme(null);
+              applyTheme(t.id);
+            }}
+            className={chip(!auto && theme === t.id)}
+          >
+            <span
+              aria-hidden
+              className="h-3.5 w-3.5 rounded-full ring-1 ring-inset ring-black/10"
+              style={{ background: `linear-gradient(135deg, ${t.swatch[0]} 50%, ${t.swatch[1]} 50%)` }}
+            />
+            {t.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          role="radio"
+          aria-checked={!!auto}
+          onClick={() => setAutoTheme(auto ?? defaultAutoTheme())}
+          className={chip(!!auto)}
+        >
+          Match my device
+        </button>
       </div>
     </div>
   );

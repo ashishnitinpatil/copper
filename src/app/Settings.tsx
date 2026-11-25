@@ -4,7 +4,7 @@ import { RefreshCw, Palette, Download, Pencil, Plus, type LucideIcon } from 'luc
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
+import { Input, Select } from '@/components/ui/Input';
 import { Combobox } from '@/components/ui/Combobox';
 import { Modal } from '@/components/ui/Modal';
 import { useDB } from '@/db/DBProvider';
@@ -58,7 +58,17 @@ import {
 import type { Device } from '@/db/types';
 import { closeDB, openDB, requestLocalReset } from '@/db/client';
 import type { BackupFile } from '@/features/export/exportData';
-import { useTheme, applyTheme, applyCustomTheme, getCustomColors, THEMES } from '@/lib/theme';
+import {
+  useTheme,
+  useAutoTheme,
+  applyTheme,
+  applyCustomTheme,
+  getCustomColors,
+  setAutoTheme,
+  defaultAutoTheme,
+  THEMES,
+  type ThemeId,
+} from '@/lib/theme';
 import { buildTheme } from '@/lib/customTheme';
 import { listThemes, type CustomTheme } from '@/db/queries/themes';
 import { ThemeEditor } from './ThemeEditor';
@@ -420,6 +430,12 @@ function EraseChoice({
 
 function AppearanceSection() {
   const theme = useTheme();
+  const auto = useAutoTheme();
+  // Following the device: a theme card fills the slot for its own mode.
+  const pick = (id: ThemeId, mode: 'Light' | 'Dark') => {
+    if (auto) setAutoTheme({ ...auto, [mode === 'Light' ? 'light' : 'dark']: id });
+    else applyTheme(id);
+  };
   const custom = useQuery<CustomTheme[]>(useCallback((db) => listThemes(db), []), { deps: ['themes'] });
   const [editing, setEditing] = useState<CustomTheme | null>(null);
   const [creating, setCreating] = useState(false);
@@ -429,14 +445,45 @@ function AppearanceSection() {
       <p className="mb-3 text-xs text-slate-500">
         Pick the look for this device. Themes you make are shared with every device in your book.
       </p>
+      <div className="mb-3 space-y-2 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+        <label className="flex items-center gap-2 text-sm text-slate-200">
+          <input
+            type="checkbox"
+            checked={!!auto}
+            onChange={(e) => setAutoTheme(e.target.checked ? defaultAutoTheme() : null)}
+            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-brand-500 focus:ring-brand-400"
+          />
+          Match my device’s light or dark setting
+        </label>
+        {auto && (
+          <div className="grid grid-cols-2 gap-3 pl-6">
+            {(['light', 'dark'] as const).map((slot) => (
+              <Select
+                key={slot}
+                label={slot === 'light' ? 'When light' : 'When dark'}
+                value={auto[slot]}
+                onChange={(e) => setAutoTheme({ ...auto, [slot]: e.target.value as ThemeId })}
+              >
+                {THEMES.filter((t) => t.mode.toLowerCase() === slot).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {THEMES.map((t) => {
           const active = theme === t.id;
+          // Following the device, the other mode's pick is in use too, just not right now.
+          const paired = !!auto && !active && auto[t.mode === 'Light' ? 'light' : 'dark'] === t.id;
           return (
             <button
               key={t.id}
               type="button"
-              onClick={() => applyTheme(t.id)}
+              onClick={() => pick(t.id, t.mode)}
               className={`rounded-xl border p-3 text-left transition ${
                 active
                   ? 'border-brand-400 bg-slate-800/60'
@@ -447,6 +494,8 @@ function AppearanceSection() {
                 <span className="text-sm font-medium text-slate-100">{t.label}</span>
                 {active ? (
                   <span className="text-xs font-medium text-brand-500">Active</span>
+                ) : paired ? (
+                  <span className="text-xs font-medium text-slate-400">When {t.mode.toLowerCase()}</span>
                 ) : (
                   <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
                     {t.mode}
@@ -479,7 +528,15 @@ function AppearanceSection() {
                 active ? 'border-brand-400 bg-slate-800/60' : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
               }`}
             >
-              <button type="button" onClick={() => applyCustomTheme(t)} className="block w-full p-3 text-left">
+              <button
+                type="button"
+                // A theme you made is one look: picking it stops following the device.
+                onClick={() => {
+                  setAutoTheme(null);
+                  applyCustomTheme(t);
+                }}
+                className="block w-full p-3 text-left"
+              >
                 <div className="flex items-center gap-2 pr-8">
                   <span className="truncate text-sm font-medium text-slate-100">{t.name}</span>
                   {active ? (

@@ -8,6 +8,10 @@ import '@fontsource-variable/jetbrains-mono';
 import './index.css';
 // Listen for the browser's install offer from the first moment, before the book opens.
 import './pwa/install';
+import { followDevice } from './lib/theme';
+
+// A theme set to match the device switches when the device goes light or dark.
+followDevice();
 
 // A page's code is fetched when it's first opened. If a new version went live
 // since this tab loaded, the old file is gone: reload once to pick up the new one.

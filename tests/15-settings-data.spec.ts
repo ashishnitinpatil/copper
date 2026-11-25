@@ -25,6 +25,57 @@ test.describe('Settings — appearance & data', () => {
     expect(stored).toBe('slate');
   });
 
+  test('the theme can follow the device between a light and a dark pick', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' });
+    await resetAndLoad(page, '/settings#preferences');
+    await waitForDB(page);
+    const html = page.locator('html');
+    await page.getByLabel('Match my device’s light or dark setting').check();
+    // Starts from Copper for light, Warm Ledger (no attribute) for dark.
+    await expect(html).toHaveAttribute('data-theme', 'copper');
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await expect(html).not.toHaveAttribute('data-theme', /./);
+
+    // A theme card fills its own mode's slot; the dark one shows now.
+    await page.getByRole('button').filter({ hasText: 'Slate' }).click();
+    await expect(html).toHaveAttribute('data-theme', 'slate');
+    await page.getByLabel('When light').selectOption('classic');
+    await expect(page.getByRole('button').filter({ hasText: 'Classic' }).filter({ hasText: 'When light' })).toBeVisible();
+
+    // Painted before the app loads, by the device's setting.
+    await page.reload();
+    await expect(html).toHaveAttribute('data-theme', 'slate');
+    await page.emulateMedia({ colorScheme: 'light' });
+    await expect(html).toHaveAttribute('data-theme', 'classic');
+    await page.reload();
+    await expect(html).toHaveAttribute('data-theme', 'classic');
+
+    // Off: stays on what's showing, whatever the device does.
+    await waitForDB(page);
+    await page.getByLabel('Match my device’s light or dark setting').uncheck();
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await expect(html).toHaveAttribute('data-theme', 'classic');
+  });
+
+  test('Welcome offers a look to try, optionally', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/welcome');
+    const local = page.getByRole('button', { name: 'Continue without an account' });
+    const look = page.getByRole('radiogroup', { name: 'Look' });
+    await local.or(look).first().waitFor();
+    if (await local.isVisible()) await local.click();
+    const html = page.locator('html');
+    await look.getByRole('radio', { name: 'Slate' }).click();
+    await expect(html).toHaveAttribute('data-theme', 'slate');
+    await expect(look.getByRole('radio', { name: 'Slate' })).toHaveAttribute('aria-checked', 'true');
+    // Match my device: Slate stays as the dark pick, the device is dark.
+    await look.getByRole('radio', { name: 'Match my device' }).click();
+    await expect(look.getByRole('radio', { name: 'Match my device' })).toHaveAttribute('aria-checked', 'true');
+    await expect(html).toHaveAttribute('data-theme', 'slate');
+    await page.emulateMedia({ colorScheme: 'light' });
+    await expect(html).toHaveAttribute('data-theme', 'copper');
+  });
+
   test('make, use, edit and delete a theme of your own', async ({ page }) => {
     await resetAndLoad(page, '/settings#preferences');
     await waitForDB(page);
