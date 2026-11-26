@@ -75,7 +75,12 @@ export async function createCardPlan(db: DB, input: CardPlanInput): Promise<stri
   return id;
 }
 
-/** New terms. Interest already added stays as it is; how it's added (up front or monthly) isn't changed here. */
+/**
+ * New terms. Interest added at the start is worked out again: the terms were
+ * corrected, so the bank's charge was the new figure all along. Monthly interest
+ * already added stays (the bank charged it). How it's added (up front or monthly)
+ * isn't changed here.
+ */
 export async function updateCardPlan(
   db: DB,
   id: string,
@@ -86,6 +91,15 @@ export async function updateCardPlan(
      WHERE id = ?`,
     [terms.principal_minor, terms.months, terms.rate_bp, terms.method, terms.fee_minor, terms.first_statement, id],
   );
+  const [plan] = await db.execO<CardPlanInfo>(`${PLANS} WHERE p.id = ?`, [id]);
+  // Not once settled: the refund was worked out from the old figure.
+  if (plan && interestUpfront(plan) && !plan.settled_on) {
+    await db.exec('UPDATE transactions SET amount_minor = ?, note = ? WHERE id = ?', [
+      -totalInterest(plan, plan.statement_day),
+      `Interest for all ${plan.months} instalments · ${label(plan)}`,
+      `plan:${id}:interest`,
+    ]);
+  }
   await materializeCardPlans(db);
 }
 

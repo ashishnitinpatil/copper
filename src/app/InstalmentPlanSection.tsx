@@ -351,7 +351,11 @@ function PlanForm({
         </div>
       </div>
       {plan && (
-        <p className="text-[11px] text-slate-500">Interest already added to the card stays when the plan changes or is removed.</p>
+        <p className="text-[11px] text-slate-500">
+          {interestUpfront(plan) && !plan.settled_on
+            ? 'The interest added at the start changes with the plan. It stays if the plan is removed.'
+            : 'Interest already added to the card stays when the plan changes or is removed.'}
+        </p>
       )}
     </div>
   );

@@ -142,11 +142,25 @@ test.describe('Card instalment plans', () => {
       await appSql(page, "SELECT amount_minor, occurred_on FROM transactions WHERE id LIKE 'plan:%'"),
     ).toEqual([[-144000, '2026-10-20']]);
 
+
     // 1,000 of other spending + the first instalment of 1,120.
     await page.goto('/dashboard');
     await waitForDB(page);
     const reminder = page.locator('div', { has: page.getByRole('heading', { name: 'Card bill to pay' }) }).last();
     await expect(reminder).toContainText('2,120.00 on the');
+
+    // The months were wrong: the interest added at the start follows the corrected plan.
+    await page.goto('/transactions');
+    await waitForDB(page);
+    await page.locator('main li', { hasText: 'Laptop', hasNotText: 'Interest' }).click();
+    await dialog.getByRole('button', { name: 'Change plan' }).click();
+    await expect(dialog.getByText('The interest added at the start changes with the plan.')).toBeVisible();
+    await dialog.getByLabel('Months').fill('24');
+    await dialog.getByRole('button', { name: 'Save plan' }).click();
+    await expect(dialog.getByText('Instalments · 1 of 24 billed')).toBeVisible();
+    expect(
+      await appSql(page, "SELECT amount_minor, occurred_on, note FROM transactions WHERE id LIKE 'plan:%'"),
+    ).toEqual([[-288000, '2026-10-20', 'Interest for all 24 instalments · Laptop']]);
   });
 
   test('the plan follows its entry: a new amount, a new date, and undo', async ({ page }) => {
