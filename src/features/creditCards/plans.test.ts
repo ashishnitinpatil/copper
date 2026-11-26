@@ -23,9 +23,12 @@ describe('card instalment plans', () => {
     expect(s[47].statement).toBe('2029-12-03');
   });
 
-  it('flat interest stays the same every month; 0% has none', () => {
+  it('flat interest comes mostly early, adding up to amount × rate × months; 0% has none', () => {
     const flat = planSchedule({ ...plan, method: 'flat', months: 12 }, 3);
-    expect(new Set(flat.map((i) => i.interest)).size).toBe(1);
+    const interest = flat.map((i) => i.interest);
+    expect(interest[0]).toBeGreaterThan(interest[10]);
+    expect(interest.reduce((n, i) => n + i, 0)).toBe(Math.round((1_000_000 * plan.rate_bp * 12) / 120_000));
+    expect(flat.reduce((n, i) => n + i.principal, 0)).toBe(1_000_000);
     const free = planSchedule({ ...plan, rate_bp: 0, months: 3 }, 3);
     expect(free.map((i) => i.interest)).toEqual([0, 0, 0]);
     expect(free.reduce((n, i) => n + i.principal, 0)).toBe(1_000_000);
@@ -72,6 +75,13 @@ describe('card instalment plans', () => {
     expect(planSchedule(deal, 23).filter((i) => i.statement <= '2026-10-23')).toHaveLength(7);
     // Principal and interest still to come: the deal's outstanding, to rounding.
     expect(unbilledAfter(deal, 23, '2026-10-23')).toBe(6_479_369);
+    // The bank splits each instalment at the rate it works out to (about 1.4% a
+    // month on what's left): 8 statements in (23 Nov), 5,820 of interest has
+    // been billed and 48,178 of the 55,000 is still owed.
+    const billed = planSchedule({ ...deal, interest_upfront: 0 }, 23).filter((i) => i.statement <= '2026-11-23');
+    expect(billed).toHaveLength(8);
+    expect(Math.abs(billed.reduce((n, i) => n + i.interest, 0) - 582_029)).toBeLessThan(10);
+    expect(Math.abs(unbilledAfter({ ...deal, interest_upfront: 0 }, 23, '2026-11-23') - 4_817_765)).toBeLessThan(10);
   });
 
   it('interest goes on up front for flat plans unless said otherwise; monthly for reducing', () => {

@@ -4,8 +4,10 @@ import { toDateString } from '@/lib/dates';
 //  - reducing: each month's interest is the yearly rate / 12 on what's still
 //    owed, so it shrinks as the loan is paid down (most home and car loans);
 //  - flat: interest is worked out once on the amount borrowed (amount × rate ×
-//    years, "simple interest") and spread evenly, so every month carries the
-//    same interest. The same rate costs far more charged flat.
+//    years, "simple interest"), which fixes the payment. The same rate costs
+//    far more charged flat. Banks then split each payment as a reducing loan
+//    would at the rate that payment works out to, so early payments are mostly
+//    interest (and settling early saves less of it).
 // Either way the monthly payment is fixed, covering that month's interest
 // first and paying down the principal with the rest.
 
@@ -35,12 +37,41 @@ export function monthlyPayment(method: InterestMethod, principal: number, rateBp
   return Math.round((principal * r) / (1 - (1 + r) ** -months));
 }
 
+const effectiveRates = new Map<string, number>();
+
+/** The monthly rate at which `payment` a month pays off `principal` in `months`. */
+function effectiveRate(principal: number, payment: number, months: number): number {
+  const key = `${principal}:${payment}:${months}`;
+  let rate = effectiveRates.get(key);
+  if (rate == null) {
+    // The payment grows with the rate: home in on the one that matches.
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if ((principal * mid) / (1 - (1 + mid) ** -months) < payment) lo = mid;
+      else hi = mid;
+    }
+    rate = (lo + hi) / 2;
+    effectiveRates.set(key, rate);
+  }
+  return rate;
+}
+
 /** How the monthly payment splits when `owed` is still owed. */
 export function splitPayment(owed: number, terms: LoanTerms): { principal: number; interest: number } {
-  const base = terms.method === 'flat' ? terms.principal : owed;
-  const interest = Math.max(0, Math.round(base * monthlyRate(terms.rateBp)));
-  // The last payment is only what's left.
-  const principal = Math.max(0, Math.min(terms.payment - interest, owed));
+  let rate = monthlyRate(terms.rateBp);
+  let months = 0;
+  if (terms.method === 'flat' && rate > 0) {
+    // The payments a flat loan takes, and the rate they come to on what's left.
+    const flatInterest = terms.principal * rate;
+    months = terms.payment > flatInterest ? Math.round(terms.principal / (terms.payment - flatInterest)) : 0;
+    rate = months > 0 ? effectiveRate(terms.principal, terms.payment, months) : 0;
+  }
+  const interest = Math.max(0, Math.round(owed * rate));
+  // The last payment is only what's left (and takes the rounding of the others).
+  let principal = Math.max(0, Math.min(terms.payment - interest, owed));
+  if (owed - principal <= months) principal = owed;
   return { principal, interest: Math.min(interest, Math.max(0, terms.payment)) };
 }
 

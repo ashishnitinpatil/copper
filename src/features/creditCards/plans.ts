@@ -45,6 +45,9 @@ export function planSchedule(plan: PlanTerms, statementDay: number): Instalment[
   const terms = { method: plan.method, rateBp: plan.rate_bp, principal: plan.principal_minor, payment };
   const out: Instalment[] = [];
   let owed = plan.principal_minor;
+  // Flat: the last instalment brings the interest to the bank's figure (amount × rate × months).
+  const flatInterest = plan.method === 'flat' ? Math.round((plan.principal_minor * plan.rate_bp * plan.months) / 120_000) : null;
+  let interestSoFar = 0;
   for (let i = 0; i < plan.months && owed > 0; i++) {
     const statement = dueDateAfter(plan.first_statement, i, statementDay);
     const fee = i === 0 ? plan.fee_minor : 0;
@@ -54,9 +57,12 @@ export function planSchedule(plan: PlanTerms, statementDay: number): Instalment[
     }
     const s = splitPayment(owed, terms);
     // The last instalment takes whatever rounding left over.
-    const principal = i === plan.months - 1 ? owed : s.principal;
-    out.push({ n: i + 1, statement, principal, interest: s.interest, fee });
+    const last = i === plan.months - 1;
+    const principal = last ? owed : s.principal;
+    const interest = last && flatInterest != null ? Math.max(0, flatInterest - interestSoFar) : s.interest;
+    out.push({ n: i + 1, statement, principal, interest, fee });
     owed -= principal;
+    interestSoFar += interest;
   }
   return out;
 }

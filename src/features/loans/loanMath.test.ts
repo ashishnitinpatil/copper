@@ -52,17 +52,19 @@ describe('remainingSchedule', () => {
 });
 
 describe('flat-rate loans', () => {
-  // ₹1,00,000 at 10% flat for 2 years: ₹20,000 interest, ₹5,000 a month of
-  // which ₹833.33 is interest, every month.
+  // ₹1,00,000 at 10% flat for 2 years: ₹20,000 interest, ₹5,000 a month. Each
+  // payment splits as a reducing loan at the rate ₹5,000 works out to (~18%).
   const flat: LoanTerms = { method: 'flat', rateBp: 1000, principal: 10_000_000, payment: 500_000 };
 
   it('spreads amount × rate × years evenly over the term', () => {
     expect(monthlyPayment('flat', 10_000_000, 1000, 24)).toBe(500_000);
   });
 
-  it('charges the same interest every month, however much is left', () => {
-    expect(splitPayment(10_000_000, flat)).toEqual({ principal: 416_667, interest: 83_333 });
-    expect(splitPayment(1_000_000, flat)).toEqual({ principal: 416_667, interest: 83_333 });
+  it('charges more interest early on, less as it is paid down', () => {
+    const first = splitPayment(10_000_000, flat);
+    expect(first.interest).toBeGreaterThan(83_333);
+    expect(first.principal + first.interest).toBe(500_000);
+    expect(splitPayment(1_000_000, flat).interest).toBeLessThan(20_000);
     const s = remainingSchedule(10_000_000, flat)!;
     expect(s.payments).toBe(24);
     expect(Math.abs(s.interest - 2_000_000)).toBeLessThan(24);
