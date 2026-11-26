@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { ACCOUNT_ICON_GROUPS, CATEGORY_ICON_GROUPS, IconPicker } from '@/components/ui/IconPicker';
 import { AccountGlyph, accountOptions, useAccountBalances } from '@/components/accountOptions';
 import { DateField } from '@/components/ui/DateField';
@@ -62,16 +63,33 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
 type CountedFilter = 'all' | 'counted' | 'not-counted';
 
 // What you have, then what you owe. Cash and wallets are both everyday money.
-const ACCOUNT_GROUPS: { label: string; types: AccountType[] }[] = [
-  { label: 'Bank accounts', types: ['bank'] },
-  { label: 'Cash & wallets', types: ['cash', 'wallet'] },
-  { label: 'Credit cards', types: ['credit_card'] },
-  { label: 'Loans', types: ['loan'] },
-  { label: 'Other', types: ['other'] },
+const ACCOUNT_GROUPS: { label: string; short: string; types: AccountType[] }[] = [
+  { label: 'Bank accounts', short: 'Bank', types: ['bank'] },
+  { label: 'Cash & wallets', short: 'Cash', types: ['cash', 'wallet'] },
+  { label: 'Credit cards', short: 'Cards', types: ['credit_card'] },
+  { label: 'Loans', short: 'Loans', types: ['loan'] },
+  { label: 'Other', short: 'Other', types: ['other'] },
 ];
 
+// Below Tailwind's `sm`: a phone held upright.
+const PHONE = '(max-width: 639px)';
+const usePhone = () =>
+  useSyncExternalStore(
+    (onChange) => {
+      const q = matchMedia(PHONE);
+      q.addEventListener('change', onChange);
+      return () => q.removeEventListener('change', onChange);
+    },
+    () => matchMedia(PHONE).matches,
+  );
+
+const chipClass = (on: boolean) =>
+  `shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+    on ? 'bg-brand-500 text-slate-950' : 'bg-slate-800/70 text-slate-400 hover:text-slate-200'
+  }`;
+
 const COUNTED_FILTERS: { value: CountedFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
+  { value: 'all', label: 'All accounts' },
   { value: 'counted', label: 'In total' },
   { value: 'not-counted', label: 'Not counted' },
 ];
@@ -80,6 +98,8 @@ export function Accounts() {
   const [editing, setEditing] = useState<Account | null>(null);
   const [creating, setCreating] = useState(false);
   const [counted, setCounted] = useState<CountedFilter>('all');
+  const [kind, setKind] = useState<string>('all');
+  const phone = usePhone();
   const [order, setOrder] = useState<AccountOrder>(getSavedOrder);
 
   const accountsQuery = useQuery(useCallback((db) => listAccounts(db, true), []), {
@@ -109,10 +129,13 @@ export function Accounts() {
     [unarchived, filter],
   );
   const active = useSortedAccounts(shown, order, balances);
-  // Headings only once there's more than one kind.
-  const groups = ACCOUNT_GROUPS.map((g) => ({ ...g, accounts: active.filter((a) => g.types.includes(a.type)) })).filter(
+  const allGroups = ACCOUNT_GROUPS.map((g) => ({ ...g, accounts: active.filter((a) => g.types.includes(a.type)) })).filter(
     (g) => g.accounts.length > 0,
   );
+  // A kind picked earlier that's no longer there (say, filtered out) shows everything.
+  const kindShown = allGroups.some((g) => g.label === kind) ? kind : 'all';
+  // Headings only once there's more than one kind.
+  const groups = kindShown === 'all' ? allGroups : allGroups.filter((g) => g.label === kindShown);
 
   const chooseOrder = (next: AccountOrder) => {
     setOrder(next);
@@ -125,24 +148,38 @@ export function Accounts() {
       subtitle="Cash, bank, credit cards and wallets"
       actions={<Button onClick={() => setCreating(true)}>+ New account</Button>}
     >
+      {allGroups.length > 1 && (
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1" role="group" aria-label="Type">
+          {[{ label: 'all', short: 'All' }, ...allGroups].map((g) => (
+            <button
+              key={g.label}
+              type="button"
+              aria-pressed={kindShown === g.label}
+              onClick={() => setKind(g.label)}
+              className={chipClass(kindShown === g.label)}
+            >
+              {g.short}
+            </button>
+          ))}
+        </div>
+      )}
       {unarchived.length > 1 && (
         <div className="flex flex-wrap items-center gap-2">
           {anyNotCounted && (
-            <div className="-mx-1 flex gap-1 overflow-x-auto px-1" role="group" aria-label="Show">
-              {COUNTED_FILTERS.map((f) => (
-                <button
-                  key={f.value}
-                  type="button"
-                  aria-pressed={filter === f.value}
-                  onClick={() => setCounted(f.value)}
-                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
-                    filter === f.value ? 'bg-brand-500 text-slate-950' : 'bg-slate-800/70 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-400">
+              <span className="sr-only sm:not-sr-only">Show</span>
+              <select
+                value={filter}
+                onChange={(e) => setCounted(e.target.value as CountedFilter)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+              >
+                {COUNTED_FILTERS.map((f) => (
+                  <option key={f.value} value={f.value}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
           <label className="ml-auto flex items-center gap-2 text-xs text-slate-400">
             <span className="sr-only sm:not-sr-only">Order by</span>
@@ -176,7 +213,7 @@ export function Accounts() {
               {g.label} <span className="font-normal">· {g.accounts.length}</span>
             </h2>
           )}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
             {g.accounts.map((acct) => (
               <AccountCard
                 key={acct.id}
@@ -184,13 +221,14 @@ export function Accounts() {
                 balanceMinor={balances.get(acct.id) ?? acct.opening_balance_minor}
                 onEdit={() => setEditing(acct)}
                 // The heading already names the type, unless the group mixes them.
-                showType={groups.length === 1 || g.types.length > 1}
+                showType={(groups.length === 1 && kindShown === 'all') || g.types.length > 1}
                 paid={paidOnLoans.get(acct.id)}
                 onPay={() => setPayingLoan(acct.id)}
                 bill={bills.get(acct.id)}
                 onPayBill={() => setPayingCard(payDraft(acct, accounts, bills.get(acct.id)))}
                 plans={planTotals.get(acct.id)}
                 onShowPlans={() => setPlansOf(acct)}
+                compact={phone}
               />
             ))}
           </div>
@@ -255,6 +293,8 @@ interface AccountCardProps {
   /** Instalment plans on a card still billing. */
   plans?: { count: number; left: number };
   onShowPlans?: () => void;
+  /** On a phone: a plain balance takes one line. */
+  compact?: boolean;
 }
 
 function AccountCard({
@@ -268,6 +308,7 @@ function AccountCard({
   onPayBill,
   plans,
   onShowPlans,
+  compact,
 }: AccountCardProps) {
   // A loan with its terms filled in gets the loan view. Without them (say, a
   // debt between friends brought over from Monefy) it's a plain balance, which
@@ -278,11 +319,60 @@ function AccountCard({
   const limit = account.type === 'credit_card' ? (account.credit_limit_minor ?? 0) : 0;
   // A card in credit (paid more than owed) has more than its limit to spend.
   const available = limit + balanceMinor;
+
+  const badges = (
+    <>
+      {account.include_in_total === 0 && (
+        <span
+          title="Not included in your total balance"
+          className="shrink-0 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
+        >
+          not counted
+        </span>
+      )}
+      {account.is_main === 1 && (
+        <span className="shrink-0 rounded-md bg-brand-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
+          Main
+        </span>
+      )}
+    </>
+  );
+  // Just a balance (no bill, limit or loan terms): on a phone it's one line.
+  if (compact && !isLoan && account.type !== 'credit_card') {
+    return (
+      <div className="flex items-center rounded-xl border border-slate-800 bg-slate-900/40">
+        <button onClick={onEdit} className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 text-left">
+          <AccountGlyph account={account} size="md" />
+          <div className="min-w-0 flex-1">
+            {showType && (
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">{account.type.replace('_', ' ')}</div>
+            )}
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-sm font-semibold text-slate-50">{account.name}</span>
+              {badges}
+            </div>
+          </div>
+          <Money
+            minor={balanceMinor}
+            currency={account.currency}
+            className={`shrink-0 text-base font-semibold tabular-nums ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
+          />
+        </button>
+        <Link
+          to={`/transactions?account=${account.id}`}
+          aria-label={`${account.name} transactions`}
+          className="self-stretch px-3 py-2.5 text-brand-400 hover:text-brand-300"
+        >
+          <ChevronRight className="h-full w-4" />
+        </Link>
+      </div>
+    );
+  }
   // The usage row has its own "why" button, so it sits outside the card's
   // edit button (a button can't hold another).
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 transition hover:-translate-y-0.5 hover:border-brand-500 hover:bg-slate-900/70">
-      <button onClick={onEdit} className="block w-full rounded-xl p-4 text-left">
+      <button onClick={onEdit} className="block w-full rounded-xl p-3 text-left sm:p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-3">
             <AccountGlyph account={account} size="md" />
@@ -293,21 +383,7 @@ function AccountCard({
               <div className="mt-0.5 truncate text-base font-semibold text-slate-50">{account.name}</div>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {account.include_in_total === 0 && (
-              <span
-                title="Not included in your total balance"
-                className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
-              >
-                not counted
-              </span>
-            )}
-            {account.is_main === 1 && (
-              <span className="rounded-md bg-brand-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
-                Main
-              </span>
-            )}
-          </div>
+          <div className="flex shrink-0 items-center gap-1.5">{badges}</div>
         </div>
         {limit > 0 ? (
           // With a limit, a card reads the way the bank shows it: what you owe,
@@ -318,7 +394,7 @@ function AccountCard({
               <Money
                 minor={Math.max(0, -balanceMinor)}
                 currency={account.currency}
-                className={`block text-2xl font-semibold tabular-nums ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
+                className={`block text-xl font-semibold tabular-nums sm:text-2xl ${balanceMinor < 0 ? 'text-clay-400' : 'text-slate-50'}`}
               />
             </div>
             <div>
@@ -328,7 +404,7 @@ function AccountCard({
               <Money
                 minor={Math.abs(available)}
                 currency={account.currency}
-                className={`block text-2xl font-semibold tabular-nums ${available < 0 ? 'text-danger' : 'text-slate-50'}`}
+                className={`block text-xl font-semibold tabular-nums sm:text-2xl ${available < 0 ? 'text-danger' : 'text-slate-50'}`}
               />
             </div>
           </div>
@@ -359,13 +435,13 @@ function AccountCard({
         )}
       </button>
       {limit > 0 && (
-        <div className="-mt-2 px-4 pb-4">
+        <div className="-mt-2 px-3 pb-3 sm:px-4 sm:pb-4">
           <LimitUsage owed={Math.max(0, -balanceMinor)} limit={limit} />
         </div>
       )}
       {plans && (
         // Outside the card's edit button: it opens the card's plans.
-        <div className="-mt-2 px-4 pb-3">
+        <div className="-mt-2 px-3 pb-3 sm:px-4">
           <button
             type="button"
             onClick={onShowPlans}
@@ -376,7 +452,7 @@ function AccountCard({
           </button>
         </div>
       )}
-      <div className="-mt-1 flex items-center gap-3 px-4 pb-4">
+      <div className="-mt-1 flex items-center gap-3 px-3 pb-3 sm:px-4 sm:pb-4">
         {isLoan && balanceMinor < 0 && (
           <Button size="sm" variant="secondary" onClick={onPay}>
             Record payment

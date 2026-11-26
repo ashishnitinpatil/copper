@@ -104,11 +104,19 @@ test.describe('Accounts CRUD', () => {
     const loanCard = page.locator('main .grid > div > button', { hasText: 'Home loan' });
     await expect(loanCard.getByText('not counted')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Not counted', exact: true }).click();
+    await page.getByLabel('Show').selectOption('not-counted');
     await expect(names).toHaveText(['Home loan']);
-    await page.getByRole('button', { name: 'In total', exact: true }).click();
+    await page.getByLabel('Show').selectOption('counted');
     await expect(loanCard).toHaveCount(0);
-    await page.getByRole('button', { name: 'All', exact: true }).click();
+    await page.getByLabel('Show').selectOption('all');
+
+    // A quick filter by type.
+    const types = page.getByRole('group', { name: 'Type' });
+    await types.getByRole('button', { name: 'Loans' }).click();
+    await expect(names).toHaveText(['Home loan']);
+    await expect(page.getByRole('heading', { name: /Cash & wallets/ })).toHaveCount(0);
+    await types.getByRole('button', { name: 'All' }).click();
+    await expect(page.getByRole('heading', { name: /Cash & wallets/ })).toBeVisible();
 
     // Within a group, main stays first and the rest follow the chosen order.
     const everyday = page.locator('section', { has: page.getByRole('heading', { name: /Cash & wallets/ }) });
@@ -125,6 +133,16 @@ test.describe('Accounts CRUD', () => {
     await page.reload();
     await waitForDB(page);
     await expect(page.getByLabel('Order by')).toHaveValue('balance');
+  });
+
+  test('on a phone, an account that is just a balance takes one line', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const row = page.locator('main .grid > div', { hasText: 'Cash' });
+    await expect(row).toContainText('₹0.00');
+    await expect(row.getByRole('link', { name: 'Cash transactions' })).toBeVisible();
+    await expect(row.getByText('Transactions →')).toHaveCount(0);
+    await row.getByRole('link', { name: 'Cash transactions' }).click();
+    await expect(page).toHaveURL(/\/transactions\?account=/);
   });
 
   test('archive an account', async ({ page }) => {
