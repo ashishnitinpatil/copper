@@ -44,7 +44,7 @@ import {
 import { getLoanStats, loanTerms, type LoanStats } from '@/db/queries/loans';
 import { LoanPaymentModal } from './LoanPaymentModal';
 import { TransferModal, type TransferDraft } from './TransferModal';
-import { billNote, dueText, payDraft, useCardBills, useCardPlanTotals } from './CardBills';
+import { billNote, CardPlansModal, dueText, payDraft, useCardBills, useCardPlanTotals } from './CardBills';
 import type { CardBill } from '@/features/creditCards/statementEngine';
 import { getSavedOrder, ORDER_OPTIONS, saveOrder, useSortedAccounts, type AccountOrder } from '@/components/accountOrder';
 
@@ -93,6 +93,7 @@ export function Accounts() {
   );
   const [payingLoan, setPayingLoan] = useState<string | null>(null);
   const [payingCard, setPayingCard] = useState<TransferDraft | null>(null);
+  const [plansOf, setPlansOf] = useState<Account | null>(null);
   const billsQuery = useCardBills();
   const bills = useMemo(() => new Map((billsQuery.data ?? []).map((b) => [b.account.id, b])), [billsQuery.data]);
   const planTotals = useCardPlanTotals().data ?? new Map<string, { count: number; left: number }>();
@@ -189,6 +190,7 @@ export function Accounts() {
                 bill={bills.get(acct.id)}
                 onPayBill={() => setPayingCard(payDraft(acct, accounts, bills.get(acct.id)))}
                 plans={planTotals.get(acct.id)}
+                onShowPlans={() => setPlansOf(acct)}
               />
             ))}
           </div>
@@ -218,6 +220,7 @@ export function Accounts() {
       )}
 
       <TransferModal open={!!payingCard} draft={payingCard} accounts={unarchived} onClose={() => setPayingCard(null)} />
+      <CardPlansModal card={plansOf} onClose={() => setPlansOf(null)} />
       <LoanPaymentModal
         open={payingLoan !== null}
         loanId={payingLoan}
@@ -251,9 +254,21 @@ interface AccountCardProps {
   onPayBill: () => void;
   /** Instalment plans on a card still billing. */
   plans?: { count: number; left: number };
+  onShowPlans?: () => void;
 }
 
-function AccountCard({ account, balanceMinor, onEdit, showType, paid, onPay, bill, onPayBill, plans }: AccountCardProps) {
+function AccountCard({
+  account,
+  balanceMinor,
+  onEdit,
+  showType,
+  paid,
+  onPay,
+  bill,
+  onPayBill,
+  plans,
+  onShowPlans,
+}: AccountCardProps) {
   // A loan with its terms filled in gets the loan view. Without them (say, a
   // debt between friends brought over from Monefy) it's a plain balance, which
   // may run either way.
@@ -334,12 +349,6 @@ function AccountCard({ account, balanceMinor, onEdit, showType, paid, onPay, bil
         ) : bill ? (
           <div className="mt-2 text-xs text-slate-500">{billNote(bill)}</div>
         ) : null}
-        {plans && (
-          <div className="mt-1 text-xs text-slate-500">
-            {plans.count === 1 ? '1 instalment plan' : `${plans.count} instalment plans`} ·{' '}
-            {formatMoney(plans.left, account.currency)} still to be billed
-          </div>
-        )}
         {bill ? null : account.type === 'credit_card' && !account.statement_day ? (
           <div className="mt-2 text-xs text-slate-500">Add its statement day to be reminded of unpaid bills</div>
         ) : account.type === 'credit_card' && account.due_day && (
@@ -352,6 +361,19 @@ function AccountCard({ account, balanceMinor, onEdit, showType, paid, onPay, bil
       {limit > 0 && (
         <div className="-mt-2 px-4 pb-4">
           <LimitUsage owed={Math.max(0, -balanceMinor)} limit={limit} />
+        </div>
+      )}
+      {plans && (
+        // Outside the card's edit button: it opens the card's plans.
+        <div className="-mt-2 px-4 pb-3">
+          <button
+            type="button"
+            onClick={onShowPlans}
+            className="text-left text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-200"
+          >
+            {plans.count === 1 ? '1 instalment plan' : `${plans.count} instalment plans`} ·{' '}
+            {formatMoney(plans.left, account.currency)} still to be billed
+          </button>
         </div>
       )}
       <div className="-mt-1 flex items-center gap-3 px-4 pb-4">

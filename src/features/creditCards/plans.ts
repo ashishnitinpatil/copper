@@ -80,3 +80,33 @@ export const totalInterest = (plan: PlanTerms, statementDay: number) =>
 /** "0.89% a month" ⇄ the yearly basis points the plan stores. */
 export const monthlyRateToBp = (percentAMonth: number) => Math.round(percentAMonth * 12 * 100);
 export const bpToMonthlyRate = (bp: number) => Number((bp / 12 / 100).toFixed(4));
+
+export interface PlanProgress {
+  /** Instalments on statements up to `today`. */
+  billed: number;
+  total: number;
+  settled: boolean;
+  /** The next statement with an instalment, if any are left. */
+  next: string | null;
+  /** On the card, still to come on statements (principal, plus interest when it went on at the start). */
+  left: number;
+}
+
+/** Where a plan is on `today`. */
+export function planProgress(plan: PlanTerms, statementDay: number, today: string): PlanProgress {
+  const schedule = planSchedule(plan, statementDay);
+  return {
+    billed: schedule.filter((i) => i.statement <= today).length,
+    total: schedule.length,
+    settled: !!plan.settled_on,
+    next: schedule.find((i) => i.statement > today)?.statement ?? null,
+    left: unbilledAfter(plan, statementDay, today),
+  };
+}
+
+/** "Instalments · 8 of 48" (with `billed`, "8 of 48 billed"), "Instalments · all 48 billed", "Instalments · settled". */
+export function progressLabel(p: PlanProgress, billed = false): string {
+  if (p.settled) return 'Instalments · settled';
+  if (p.billed >= p.total) return `Instalments · all ${p.total} billed`;
+  return `Instalments · ${p.billed} of ${p.total}${billed ? ' billed' : ''}`;
+}

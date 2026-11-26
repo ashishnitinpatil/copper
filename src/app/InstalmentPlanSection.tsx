@@ -19,7 +19,9 @@ import {
   instalmentAmount,
   interestUpfront,
   monthlyRateToBp,
+  planProgress,
   planSchedule,
+  progressLabel,
   unbilledAfter,
 } from '@/features/creditCards/plans';
 import { dueDateAfter, nextDueDate } from '@/features/loans/loanMath';
@@ -105,17 +107,13 @@ export function InstalmentPlanSection({ card, transactionId, amount, date }: Pro
 }
 
 function PlanSummary({ plan, currency }: { plan: CardPlanInfo; currency: string }) {
-  const today = toDateString();
-  const schedule = planSchedule(plan, plan.statement_day);
-  const billed = schedule.filter((i) => i.statement <= today);
-  const next = schedule.find((i) => i.statement > today);
-  const left = unbilledAfter(plan, plan.statement_day, today);
+  const { left, next, ...progress } = planProgress(plan, plan.statement_day, toDateString());
   const money = (n: number) => formatMoney(n, currency);
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
         <CalendarClock className="h-4 w-4 text-brand-400" />
-        {plan.settled_on ? 'Instalments · settled' : `Instalments · ${billed.length} of ${schedule.length} billed`}
+        {progressLabel({ left, next, ...progress }, true)}
       </div>
       <p className="text-xs text-slate-400">
         {money(instalmentAmount(plan))} a month for {plan.months} months
@@ -129,7 +127,7 @@ function PlanSummary({ plan, currency }: { plan: CardPlanInfo; currency: string 
         {left > 0 ? (
           <>
             <span className="font-medium text-slate-200">{money(left)}</span> still to be billed
-            {next ? ` · next on the ${shortDate(next.statement)} statement` : ''}
+            {next ? ` · next on the ${shortDate(next)} statement` : ''}
           </>
         ) : (
           'All billed.'

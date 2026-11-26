@@ -3,7 +3,9 @@ import { DateField } from '@/components/ui/DateField';
 import { AccountGlyph, accountOptions } from '@/components/accountOptions';
 import { RecurringList } from './Recurring';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Check, Plus } from 'lucide-react';
+import { CalendarClock, Check, Plus } from 'lucide-react';
+import { listCardPlans } from '@/db/queries/cardPlans';
+import { planProgress, progressLabel } from '@/features/creditCards/plans';
 import { PageShell } from './PageShell';
 import { Button } from '@/components/ui/Button';
 import { Card, EmptyState, LoadingRows } from '@/components/ui/Card';
@@ -131,6 +133,16 @@ export function Transactions() {
     () => new Map((tagsQuery.data ?? []).map((t) => [t.id, t])),
     [tagsQuery.data],
   );
+  // Entries paid in instalments on a card say how far along they are.
+  const plansQuery = useQuery(useCallback((db) => listCardPlans(db), []), {
+    deps: ['card_plans', 'transactions', 'accounts'],
+  });
+  const planLabelByTx = useMemo(() => {
+    const today = toDateString();
+    return new Map(
+      (plansQuery.data ?? []).map((p) => [p.transaction_id, progressLabel(planProgress(p, p.statement_day, today))]),
+    );
+  }, [plansQuery.data]);
   const tagsByTx = useMemo(() => {
     const m = new Map<string, Tag[]>();
     for (const l of linksQuery.data ?? []) {
@@ -360,6 +372,8 @@ export function Transactions() {
               const txTags = tagsByTx.get(t.id) ?? [];
               const isSel = selected.has(t.id);
               const route = transferRoute(t);
+              // A transfer shows once; its plan sits on the card's side.
+              const planLabel = planLabelByTx.get(t.id) ?? (t.transfer_peer_id ? planLabelByTx.get(t.transfer_peer_id) : undefined);
               return (
                 <li key={t.id}>
                   <button
@@ -404,8 +418,14 @@ export function Transactions() {
                             {t.note ? ` · ${t.note}` : ''}
                           </span>
                         </div>
-                        {txTags.length > 0 && (
+                        {(txTags.length > 0 || planLabel) && (
                           <div className="mt-1 flex flex-wrap gap-1">
+                            {planLabel && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-medium text-brand-300">
+                                <CalendarClock aria-hidden className="h-3 w-3" />
+                                {planLabel}
+                              </span>
+                            )}
                             {txTags.map((tg) => (
                               <TagChip key={tg.id} tag={tg} />
                             ))}

@@ -6,7 +6,10 @@ import { useQuery } from '@/db/useQuery';
 import type { Account } from '@/db/types';
 import { getCardBills, statementName, type CardBill } from '@/features/creditCards/statementEngine';
 import { listCardPlans } from '@/db/queries/cardPlans';
-import { unbilledAfter } from '@/features/creditCards/plans';
+import { instalmentAmount, planProgress, progressLabel, unbilledAfter } from '@/features/creditCards/plans';
+import { Modal } from '@/components/ui/Modal';
+import { useNavigate } from 'react-router-dom';
+import { CalendarClock } from 'lucide-react';
 import { parseDateString, toDateString } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
 import { TransferModal, type TransferDraft } from './TransferModal';
@@ -101,5 +104,66 @@ export function CardBillsDue({ accounts }: { accounts: Account[] }) {
       </ul>
       <TransferModal open={!!paying} draft={paying} accounts={accounts} onClose={() => setPaying(null)} />
     </Card>
+  );
+}
+
+/**
+ * A card's instalment plans: how far along each is and what's left to bill,
+ * running ones first. Tapping one shows its entry in Transactions.
+ */
+export function CardPlansModal({ card, onClose }: { card: Account | null; onClose: () => void }) {
+  const navigate = useNavigate();
+  const cardId = card?.id ?? '';
+  const plans = useQuery(
+    useCallback((d) => (cardId ? listCardPlans(d, cardId) : Promise.resolve([])), [cardId]),
+    { deps: ['card_plans', 'transactions', 'accounts'] },
+  );
+  const today = toDateString();
+  const rows = (plans.data ?? [])
+    .map((plan) => ({ plan, progress: planProgress(plan, plan.statement_day, today) }))
+    .sort((a, b) => Number(a.progress.left <= 0) - Number(b.progress.left <= 0));
+  const money = (n: number) => formatMoney(n, card?.currency ?? 'USD');
+  return (
+    <Modal open={!!card} onClose={onClose} title={card ? `Instalment plans · ${card.name}` : 'Instalment plans'}>
+      <ul className="divide-y divide-slate-800">
+        {rows.map(({ plan, progress }) => (
+          <li key={plan.id}>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                navigate(`/transactions?account=${plan.card_id}&from=${plan.tx_date}&to=${plan.tx_date}`);
+              }}
+              className="flex w-full items-start justify-between gap-3 py-3 text-left hover:bg-slate-800/40"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-slate-100">
+                  {plan.tx_note || 'Card purchase'}
+                  <span className="font-normal text-slate-500"> · {shortDate(plan.tx_date)}</span>
+                </div>
+                <div className="mt-0.5 flex items-center gap-1 text-xs text-brand-300">
+                  <CalendarClock aria-hidden className="h-3 w-3" />
+                  {progressLabel(progress)}
+                </div>
+                <div className="mt-0.5 text-xs text-slate-400">
+                  {progress.left > 0 ? (
+                    <>
+                      {money(progress.left)} still to be billed
+                      {progress.next ? ` · next on the ${shortDate(progress.next)} statement` : ''}
+                    </>
+                  ) : (
+                    'Nothing left to bill'
+                  )}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-sm font-semibold tabular-nums text-slate-100">{money(instalmentAmount(plan))}</div>
+                <div className="text-[11px] text-slate-500">a month</div>
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Modal>
   );
 }

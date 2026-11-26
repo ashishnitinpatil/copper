@@ -53,7 +53,18 @@ test.describe('Card instalment plans', () => {
     await expect(reminder).toContainText('2,000.00 on the');
     await page.goto('/accounts');
     await waitForDB(page);
-    await expect(page.getByText('1 instalment plan · ₹11,000.00 still to be billed')).toBeVisible();
+    await page.getByRole('button', { name: '1 instalment plan · ₹11,000.00 still to be billed' }).click();
+    const list = page.getByRole('dialog', { name: 'Instalment plans · Mashreq' });
+    await expect(list).toContainText('Laptop');
+    await expect(list).toContainText('Instalments · 1 of 12');
+    await expect(list).toContainText('₹11,000.00 still to be billed · next on the');
+    await expect(list).toContainText('₹1,000.00');
+
+    // Tapping it shows the entry, tagged with how far along it is.
+    await list.getByRole('button', { name: /Laptop/ }).click();
+    await expect(page).toHaveURL(/\/transactions\?account=card&from=2026-10-20&to=2026-10-20/);
+    await expect(page.locator('main li', { hasText: 'Laptop' })).toContainText('Instalments · 1 of 12');
+    await expect(page.locator('main li', { hasText: 'Groceries run' })).toHaveCount(0);
   });
 
   test('a loan on the card: monthly interest goes on the card each statement, the fee once; settling ends it', async ({
