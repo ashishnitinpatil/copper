@@ -33,7 +33,7 @@ import {
 } from '@/features/cashflow/trends';
 import { BalanceTrendChart } from '@/components/charts/BalanceTrendChart';
 import { insuranceShare, loanTerms } from '@/db/queries/loans';
-import { dueDatesBetween, splitPayment } from '@/features/loans/loanMath';
+import { daysSincePayment, dueDatesBetween, splitPayment } from '@/features/loans/loanMath';
 import { CashflowTrendChart } from '@/components/charts/CashflowTrendChart';
 import { ForecastCalendar } from './ForecastCalendar';
 import { useCardBills } from './CardBills';
@@ -230,7 +230,7 @@ export function Cashflow() {
       let owed = Math.max(0, -(balanceMap.get(loan.id) ?? loan.opening_balance_minor));
       for (const date of dueDatesBetween(todayStr, endDateStr, loan.due_day)) {
         if (owed <= 0) break;
-        const split = splitPayment(owed, terms);
+        const split = splitPayment(owed, terms, daysSincePayment(date, loan.due_day));
         const insurance = Math.round(owed * (insuranceState.data?.get(loan.id) ?? 0));
         owed -= split.principal;
         const out = payAcct ? -(split.principal + split.interest + insurance) : 0;

@@ -1,8 +1,10 @@
 import { toDateString } from '@/lib/dates';
 
 // How banks charge interest on a loan paid back monthly:
-//  - reducing: each month's interest is the yearly rate / 12 on what's still
-//    owed, so it shrinks as the loan is paid down (most home and car loans);
+//  - reducing: interest on what's still owed, so it shrinks as the loan is
+//    paid down (most home and car loans). Banks charge it by the day (yearly
+//    rate × days / 365), so a 31-day month carries a little more than a 30-day
+//    one; without the dates it's the yearly rate / 12;
 //  - flat: interest is worked out once on the amount borrowed (amount × rate ×
 //    years, "simple interest"), which fixes the payment. The same rate costs
 //    far more charged flat. Banks then split each payment as a reducing loan
@@ -58,9 +60,9 @@ function effectiveRate(principal: number, payment: number, months: number): numb
   return rate;
 }
 
-/** How the monthly payment splits when `owed` is still owed. */
-export function splitPayment(owed: number, terms: LoanTerms): { principal: number; interest: number } {
-  let rate = monthlyRate(terms.rateBp);
+/** How the monthly payment splits when `owed` is still owed, `days` (when known) since the last payment. */
+export function splitPayment(owed: number, terms: LoanTerms, days?: number): { principal: number; interest: number } {
+  let rate = terms.method === 'reducing' && days ? (terms.rateBp / 10_000) * (days / 365) : monthlyRate(terms.rateBp);
   let months = 0;
   if (terms.method === 'flat' && rate > 0) {
     // The payments a flat loan takes, and the rate they come to on what's left.
@@ -154,6 +156,14 @@ export function nextDueDate(from: string, day: number): string {
   const start = new Date(from + 'T00:00:00');
   const thisMonth = toDateString(dayInMonth(start, 0, day));
   return thisMonth >= from ? thisMonth : toDateString(dayInMonth(start, 1, day));
+}
+
+/** Days from the payment before `date` (payment day `day`) to `date`; undefined without a payment day. */
+export function daysSincePayment(date: string, day: number | null | undefined): number | undefined {
+  if (!day) return undefined;
+  const d = new Date(date + 'T00:00:00');
+  const before = dayInMonth(d, -1, day);
+  return Math.round((d.getTime() - before.getTime()) / 86_400_000);
 }
 
 /** The due date `n` payments after `first` (0 is `first` itself). */

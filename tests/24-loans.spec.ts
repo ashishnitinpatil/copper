@@ -1,8 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { resetAndLoad, waitForDB, selectCombobox } from './helpers';
 
-// ₹100,000 at 12% a year over 12 months: ₹8,884.88 a month. The first
-// month's interest is 1% of what's owed, ₹1,000, so ₹7,884.88 pays it down.
+// ₹100,000 at 12% a year over 12 months: ₹8,884.88 a month. Interest is by
+// the day: paid on 10 Nov, 26 days after the 15 Oct payment day, it's
+// ₹100,000 × 12% × 26/365 = ₹854.79, so ₹8,030.09 pays it down.
 
 async function createLoan(page: Page, opts: { autopay?: boolean } = {}) {
   await page.goto('/accounts');
@@ -45,12 +46,12 @@ test.describe('Loans', () => {
     // Filled in from the loan's terms.
     await card.getByRole('button', { name: 'Record payment' }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog.getByLabel('Principal')).toHaveValue('7884.88');
-    await expect(dialog.getByLabel('Interest')).toHaveValue('1000');
+    await expect(dialog.getByLabel('Principal')).toHaveValue('8030.09');
+    await expect(dialog.getByLabel('Interest')).toHaveValue('854.79');
     await dialog.getByRole('button', { name: 'Record payment' }).click();
 
-    await expect(card).toContainText('Still owed₹92,115.12');
-    await expect(card).toContainText('Interest paid ₹1,000.00');
+    await expect(card).toContainText('Still owed₹91,969.91');
+    await expect(card).toContainText('Interest paid ₹854.79');
     await expect(card).toContainText('8% of ₹100,000.00 paid off');
 
     // One entry for the whole payment; the interest isn't a row of its own.
@@ -58,20 +59,21 @@ test.describe('Loans', () => {
     await waitForDB(page);
     const row = page.locator('main li', { hasText: 'Loan payment' });
     await expect(row).toHaveCount(1);
-    await expect(row).toContainText('Cash → Car loan · ₹7,884.88 principal · ₹1,000.00 interest');
+    await expect(row).toContainText('Cash → Car loan · ₹8,030.09 principal · ₹854.79 interest');
     await expect(row).toContainText('₹8,884.88');
     await expect(page.locator('main li', { hasText: 'Loan interest' })).toHaveCount(0);
 
     // Interest well off what 12% gives suggests the rate changed.
     await row.click();
-    await expect(dialog.getByLabel('Interest')).toHaveValue('1000');
+    await expect(dialog.getByLabel('Interest')).toHaveValue('854.79');
     await dialog.getByLabel('Interest').fill('1500');
     await expect(dialog.getByText(/more interest than 12%/)).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'Change the rate to 18%' })).toBeVisible();
-    await dialog.getByLabel('Interest').fill('1020');
+    // 1,500 for 26 days is 21.06% a year.
+    await expect(dialog.getByRole('button', { name: 'Change the rate to 21.05%' })).toBeVisible();
+    await dialog.getByLabel('Interest').fill('870');
     await expect(dialog.getByText(/more interest than 12%/)).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Save' }).click();
-    await expect(row).toContainText('₹8,904.88');
+    await expect(row).toContainText('₹8,900.09');
 
     // Deleting it removes all of it.
     await row.click();
@@ -94,13 +96,13 @@ test.describe('Loans', () => {
     await waitForDB(page);
     const rows = page.locator('main li', { hasText: 'Loan payment' });
     await expect(rows).toHaveCount(2);
-    // December's interest is 1% of the ₹92,115.12 left after November's.
-    await expect(rows.first()).toContainText('₹7,963.73 principal · ₹921.15 interest');
-    await expect(rows.last()).toContainText('₹7,884.88 principal · ₹1,000.00 interest');
+    // November's for its 31 days on ₹100,000; December's for 30 days on the ₹92,134.30 left.
+    await expect(rows.first()).toContainText('₹7,976.16 principal · ₹908.72 interest');
+    await expect(rows.last()).toContainText('₹7,865.70 principal · ₹1,019.18 interest');
 
     await page.goto('/accounts');
     await waitForDB(page);
-    await expect(loanCard(page)).toContainText('Still owed₹84,151.39');
+    await expect(loanCard(page)).toContainText('Still owed₹84,158.14');
   });
 
   test('insurance is what the total paid has beyond principal and interest, and next time follows what is owed', async ({ page }) => {
@@ -115,20 +117,20 @@ test.describe('Loans', () => {
     await dialog.getByLabel('Total paid').fill('8984.88');
     await expect(dialog.getByLabel('Insurance')).toHaveValue('100');
     await dialog.getByRole('button', { name: 'Record payment' }).click();
-    await expect(card).toContainText('Still owed₹92,115.12');
-    await expect(card).toContainText('Interest paid ₹1,000.00');
+    await expect(card).toContainText('Still owed₹91,969.91');
+    await expect(card).toContainText('Interest paid ₹854.79');
     await expect(card).toContainText('Insurance paid ₹100.00');
 
     // A month on, insurance is the same share (0.1%) of the less that's owed.
     await page.clock.setFixedTime(new Date('2026-12-10T09:00:00'));
     await card.getByRole('button', { name: 'Record payment' }).click();
-    await expect(dialog.getByLabel('Insurance')).toHaveValue('92.12');
+    await expect(dialog.getByLabel('Insurance')).toHaveValue('91.97');
     await dialog.getByRole('button', { name: 'Cancel' }).click();
 
     await page.goto('/transactions');
     await waitForDB(page);
     await expect(page.locator('main li', { hasText: 'Loan payment' })).toContainText(
-      '₹7,884.88 principal · ₹1,000.00 interest · ₹100.00 insurance',
+      '₹8,030.09 principal · ₹854.79 interest · ₹100.00 insurance',
     );
   });
 
@@ -142,11 +144,11 @@ test.describe('Loans', () => {
     await dialog.getByRole('button', { name: 'Record payment' }).click();
     await expect(loanCard(page)).toContainText('Insurance paid ₹100.00');
 
-    // Nov 15: the monthly ₹8,884.88 plus ₹92.12 insurance (0.1% of ₹92,115.12 owed).
+    // Nov 15: the monthly ₹8,884.88 plus ₹91.97 insurance (0.1% of ₹91,969.91 owed).
     await page.goto('/cashflow');
     await waitForDB(page);
     const row = page.locator('main div.flex.items-center.justify-between', { hasText: 'Car loan payment' }).last();
-    await expect(row).toContainText('Nov 15, 2026−₹8,977.00');
+    await expect(row).toContainText('Nov 15, 2026−₹8,976.85');
   });
 
   test('paying off early clears what is owed, with its fee', async ({ page }) => {

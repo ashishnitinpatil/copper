@@ -9,6 +9,7 @@ import {
   reducingEquivalent,
   remainingSchedule,
   splitPayment,
+  daysSincePayment,
   type LoanTerms,
 } from './loanMath';
 
@@ -48,6 +49,31 @@ describe('remainingSchedule', () => {
 
   it('says so when the payment never catches up with the interest', () => {
     expect(remainingSchedule(2_000_000, { ...car, payment: 12_000 })).toBeNull();
+  });
+});
+
+describe('interest by the day', () => {
+  // A real mortgage statement: 255,822.11 owed, 4.1872% a year, 31 days to 31 Oct.
+  const mortgage: LoanTerms = { method: 'reducing', rateBp: 418.72, principal: 34_960_000, payment: 358_678 };
+
+  it('counts the days since the payment before, the last day standing in for a missing 31st', () => {
+    expect(daysSincePayment('2026-10-31', 31)).toBe(31);
+    expect(daysSincePayment('2026-09-30', 31)).toBe(30);
+    expect(daysSincePayment('2026-03-31', 31)).toBe(31);
+    expect(daysSincePayment('2026-02-28', 31)).toBe(28);
+    expect(daysSincePayment('2026-11-03', null)).toBeUndefined();
+  });
+
+  it('charges a 31-day month more than a 30-day one, as the bank does', () => {
+    // The statement: 909.75 for October, 889.72 for September (to a few fils: the
+    // bank's rate has more decimals).
+    const oct = splitPayment(25_582_211, mortgage, 31);
+    const sep = splitPayment(25_851_917, mortgage, 30);
+    expect(Math.abs(oct.interest - 90_975)).toBeLessThanOrEqual(3);
+    expect(Math.abs(sep.interest - 88_972)).toBeLessThanOrEqual(3);
+    expect(oct.principal + oct.interest).toBe(358_678);
+    // Without the dates: a twelfth of the year's rate.
+    expect(splitPayment(25_582_211, mortgage).interest).toBe(Math.round(25_582_211 * 0.041872 / 12));
   });
 });
 

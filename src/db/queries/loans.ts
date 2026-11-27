@@ -3,7 +3,7 @@ import type { Account, Transaction } from '../types';
 import { uuid } from '../uuid';
 import { nowIso, toDateString } from '@/lib/dates';
 import { logCreate, logDelete, logUpdate, newBatchId, snapshotEntity } from '../changeLog';
-import { dueDatesBetween, splitPayment, type LoanTerms } from '@/features/loans/loanMath';
+import { daysSincePayment, dueDatesBetween, splitPayment, type LoanTerms } from '@/features/loans/loanMath';
 
 // A loan payment is a transfer into the loan for the principal — what you owe
 // goes down by exactly that — plus an expense for the interest, so the cost of
@@ -285,7 +285,7 @@ export async function materializeLoanPayments(db: DB): Promise<number> {
     for (const date of dueDatesBetween(loan.loan_autopay_from!, today, loan.due_day!)) {
       const owed = await owedBefore(db, loan, date);
       if (owed <= 0) break;
-      const split = splitPayment(owed, loanTerms(loan));
+      const split = splitPayment(owed, loanTerms(loan), daysSincePayment(date, loan.due_day));
       if (split.principal <= 0) break;
       const input = {
         loan_account_id: loan.id,

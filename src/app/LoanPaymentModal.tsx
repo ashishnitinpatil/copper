@@ -19,7 +19,7 @@ import {
 import type { Account } from '@/db/types';
 import { formatMoney, fromMinor, parseAmount } from '@/lib/money';
 import { toDateString } from '@/lib/dates';
-import { formatRate, impliedRate, splitPayment } from '@/features/loans/loanMath';
+import { daysSincePayment, formatRate, impliedRate, splitPayment } from '@/features/loans/loanMath';
 import { EntityHistory } from './Activity';
 import { offerUndo } from './Shortcuts';
 
@@ -104,7 +104,7 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
           '';
         const cur = accounts.find((a) => a.id === from)?.currency ?? l.currency;
         const owedNow = await owedBefore(db, l, today);
-        const split = splitPayment(owedNow, loanTerms(l));
+        const split = splitPayment(owedNow, loanTerms(l), daysSincePayment(today, l.due_day));
         // Insurance at the same share of what's owed as last time.
         const insurance = Math.round(owedNow * (await insuranceShare(db, l, today)));
         if (cancelled) return;
@@ -169,13 +169,16 @@ export function LoanPaymentModal({ open, onClose, accounts, loanId, paymentId }:
 
   // Interest well off what the loan's rate gives: offer to record the rate that matches.
   const terms = loan ? loanTerms(loan) : null;
-  const expected = terms && owed != null && owed > 0 ? splitPayment(owed, terms).interest : null;
+  const days = terms?.method === 'reducing' ? daysSincePayment(date, loan?.due_day) : undefined;
+  const expected = terms && owed != null && owed > 0 ? splitPayment(owed, terms, days).interest : null;
   const off =
     expected != null &&
     terms!.rateBp > 0 &&
     interest > 0 &&
     Math.abs(interest - expected) >= Math.max(expected * RATE_HINT_SHARE, 100);
-  const suggestedRate = off ? impliedRate(interest, terms!.method === 'flat' ? terms!.principal : owed!) : null;
+  // Charged by the day: the rate is for a year of 365 of them, not 12 even months.
+  const monthlyInterest = days ? (interest * 365) / (12 * days) : interest;
+  const suggestedRate = off ? impliedRate(monthlyInterest, terms!.method === 'flat' ? terms!.principal : owed!) : null;
   // An automatic payment corrected to a different principal and interest:
   // next month's should match. (Insurance follows what's owed on its own.)
   const loanPart = principal + interest;
